@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="NeoTorrent">
+  <rect width="128" height="128" rx="28" fill="#2563eb"/>
+  <path d="M29 35h17l36 49V35h17v58H82L46 44v49H29z" fill="#fff"/>
+  <path d="M99 93H82L65 70h21z" fill="#93c5fd"/>
+</svg>

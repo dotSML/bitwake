@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Enable Corepack
+        run: corepack enable
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Check formatting
+        run: pnpm format:check
+      - name: Lint
+        run: pnpm lint
+      - name: Typecheck
+        run: pnpm typecheck
+      - name: Unit and component tests
+        run: pnpm test:all
+      - name: Build qBittorrent package
+        run: pnpm build:alt-webui
+      - name: Install browser engines
+        run: pnpm exec playwright install --with-deps chromium webkit
+      - name: Browser tests
+        run: pnpm test:e2e
+      - name: Upload qBittorrent package
+        uses: actions/upload-artifact@v4
+        with:
+          name: neotorrent-alt-webui
+          path: |
+            dist/alt-webui
+            dist/qbittorrent-modern-webui.zip
+          if-no-files-found: error

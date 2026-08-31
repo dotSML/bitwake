@@ -1,0 +1,71 @@
+{
+  "name": "neotorrent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.15.0",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "dev": "vite",
+    "dev:mock": "vite --mode mock",
+    "typecheck": "vue-tsc --noEmit",
+    "lint": "eslint . --max-warnings 0",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run --project unit",
+    "test:component": "vitest run --project component",
+    "test:all": "vitest run",
+    "test:e2e": "playwright test",
+    "build": "vue-tsc --noEmit && vite build",
+    "build:alt-webui": "node scripts/build-alt-webui.mjs",
+    "capture:screenshots": "node scripts/capture-screenshots.mjs",
+    "licenses": "license-checker-rseidelsohn --production --summary",
+    "ci": "pnpm typecheck && pnpm lint && pnpm test:all && pnpm build:alt-webui"
+  },
+  "dependencies": {
+    "@tanstack/vue-table": "^8.21.3",
+    "@tanstack/vue-virtual": "^3.13.12",
+    "dompurify": "^3.2.6",
+    "lucide-vue-next": "^0.542.0",
+    "pinia": "^3.0.3",
+    "reka-ui": "^2.5.0",
+    "vue": "^3.5.21",
+    "vue-i18n": "^11.1.11",
+    "vue-router": "^4.5.1",
+    "workbox-window": "^7.4.0",
+    "zod": "^4.1.5"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.34.0",
+    "@playwright/test": "^1.55.0",
+    "@tailwindcss/forms": "^0.5.10",
+    "@types/dompurify": "^3.0.5",
+    "@types/node": "^24.3.0",
+    "@vitejs/plugin-vue": "^6.0.1",
+    "@vue/test-utils": "^2.4.6",
+    "axe-core": "^4.10.3",
+    "autoprefixer": "^10.4.21",
+    "eslint": "^9.34.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-vue": "^10.4.0",
+    "jsdom": "^26.1.0",
+    "license-checker-rseidelsohn": "^4.4.2",
+    "msw": "^2.11.1",
+    "postcss": "^8.5.6",
+    "prettier": "^3.6.2",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.9.2",
+    "typescript-eslint": "^8.41.0",
+    "vite": "^7.1.3",
+    "vite-plugin-pwa": "^1.0.3",
+    "vitest": "^3.2.4",
+    "vue-tsc": "^3.0.6"
+  },
+  "msw": {
+    "workerDirectory": [
+      "public"
+    ]
+  }
+}
