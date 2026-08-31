@@ -44,7 +44,7 @@ The API client never hardcodes scheme, host, port, reverse-proxy prefix, credent
 
 ### Status caveat
 
-The HTTP core can define accepted statuses and an endpoint-specific `treatForbiddenAsAuthExpiry` flag. Login disables 403-as-expiry so the UI can show a temporary-ban/forbidden state. Other routes still use broad 401/403 expiry behavior. qBittorrent's request-validation 401 cases are not yet fully separated from expired sessions.
+The HTTP core can define accepted statuses and an endpoint-specific `treatForbiddenAsAuthExpiry` flag. Login disables 403-as-expiry so the UI can show a temporary-ban/forbidden state. For other routes, a 403 body recognized as a Host, Origin, Referer, or CSRF validation failure remains a forbidden error and does not trigger the expiry callback. Other 403 responses and all 401 responses are treated as authentication expiry. The text-marker distinction is tested but may not recognize every proxy or future qBittorrent wording.
 
 ### Validation caveat
 
@@ -81,10 +81,10 @@ Authentication-bypass detection is indirect: successful protected startup reques
 
 ### Synchronization
 
-| Route               | Method/query      | Client | UI      | Notes                                                                     |
-| ------------------- | ----------------- | ------ | ------- | ------------------------------------------------------------------------- |
-| `sync/maindata`     | GET `rid`         | Yes    | Yes     | Primary full/delta feed; non-overlapping store loop                       |
-| `sync/torrentPeers` | GET `hash`, `rid` | Yes    | Partial | Detail view requests `rid=0` once; incremental peer polling is unfinished |
+| Route               | Method/query      | Client | UI  | Notes                                                                                    |
+| ------------------- | ----------------- | ------ | --- | ---------------------------------------------------------------------------------------- |
+| `sync/maindata`     | GET `rid`         | Yes    | Yes | Primary full/delta feed; non-overlapping store loop                                      |
+| `sync/torrentPeers` | GET `hash`, `rid` | Yes    | Yes | Incremental visible-tab polling with full/delta removal handling and stale-request abort |
 
 The main-data store handles torrent additions/changes/removals, category updates/removals, tag updates/removals, tracker updates/removals, and server state.
 
@@ -116,23 +116,23 @@ The main-data store handles torrent additions/changes/removals, category updates
 
 All multi-torrent hash lists are pipe-separated; the special literal `all` is preserved.
 
-| Route/group                                             | Client | UI               | Current limitation                                        |
-| ------------------------------------------------------- | ------ | ---------------- | --------------------------------------------------------- |
-| `torrents/start`, `stop`                                | Yes    | Yes              | Pinned qB 5 operations; no legacy fallback                |
-| `torrents/delete`                                       | Yes    | Yes              | Destructive dialog distinguishes metadata-only vs files   |
-| `recheck`, `reannounce`, `setForceStart`                | Yes    | Yes              | Contextual toolbar                                        |
-| `toggleSequentialDownload`, `toggleFirstLastPiecePrio`  | Yes    | Yes              | Contextual toolbar                                        |
-| `increasePrio`, `decreasePrio`, `topPrio`, `bottomPrio` | Yes    | No               | Wrapper only                                              |
-| `setAutoManagement`, `setSuperSeeding`                  | Yes    | No after add     | Wrapper only                                              |
-| `setDownloadLimit`, `setUploadLimit`, `setShareLimits`  | Yes    | No per torrent   | Wrapper only                                              |
-| `setComment`, `setLocation`, `rename`                   | Yes    | No               | Wrapper only                                              |
-| `setCategory`, `addTags`, `removeTags`                  | Yes    | No assignment UI | Category/tag collections can be created/removed           |
-| `addTrackers`, `editTracker`, `removeTrackers`          | Yes    | Yes              | Tier reordering/editor is absent; native prompts are used |
-| `addWebSeeds`, `editWebSeed`, `removeWebSeeds`          | Yes    | Add/remove       | Edit wrapper has no UI                                    |
-| `addPeers`                                              | Yes    | No               | Wrapper only                                              |
-| `filePrio`                                              | Yes    | Yes              | Multi-select files/folders; no rename UI                  |
-| `renameFile`, `renameFolder`                            | Yes    | No               | Wrapper only                                              |
-| `torrents/export`                                       | Yes    | No               | Capability registered; no download action                 |
+| Route/group                                             | Client | UI             | Current limitation                                        |
+| ------------------------------------------------------- | ------ | -------------- | --------------------------------------------------------- |
+| `torrents/start`, `stop`                                | Yes    | Yes            | Pinned qB 5 operations; no legacy fallback                |
+| `torrents/delete`                                       | Yes    | Yes            | Destructive dialog distinguishes metadata-only vs files   |
+| `recheck`, `reannounce`, `setForceStart`                | Yes    | Yes            | Contextual toolbar                                        |
+| `toggleSequentialDownload`, `toggleFirstLastPiecePrio`  | Yes    | Yes            | Contextual toolbar                                        |
+| `increasePrio`, `decreasePrio`, `topPrio`, `bottomPrio` | Yes    | No             | Wrapper only                                              |
+| `setAutoManagement`, `setSuperSeeding`                  | Yes    | No after add   | Wrapper only                                              |
+| `setDownloadLimit`, `setUploadLimit`, `setShareLimits`  | Yes    | No per torrent | Wrapper only                                              |
+| `setComment`, `setLocation`, `rename`                   | Yes    | No             | Wrapper only                                              |
+| `setCategory`, `addTags`, `removeTags`                  | Yes    | Yes            | Desktop/mobile selection action menu                      |
+| `addTrackers`, `editTracker`, `removeTrackers`          | Yes    | Yes            | Tier reordering/editor is absent; native prompts are used |
+| `addWebSeeds`, `editWebSeed`, `removeWebSeeds`          | Yes    | Add/remove     | Edit wrapper has no UI                                    |
+| `addPeers`                                              | Yes    | No             | Wrapper only                                              |
+| `filePrio`                                              | Yes    | Yes            | Multi-select files/folders; no rename UI                  |
+| `renameFile`, `renameFolder`                            | Yes    | No             | Wrapper only                                              |
+| `torrents/export`                                       | Yes    | No             | Capability registered; no download action                 |
 
 ### Torrent addition
 
@@ -172,7 +172,7 @@ Category share-limit fields and category assignment to selected torrents are not
 | `search/updatePlugins`      | Yes    | Yes | Update all                            |
 | `search/uninstallPlugin`    | Yes    | No  | Wrapper only                          |
 
-Search availability is inferred from endpoint success. Search requires qBittorrent's Python/search subsystem and functioning plugins. Result collections are not virtualized.
+Search availability is inferred from endpoint success. Search requires qBittorrent's Python/search subsystem and functioning plugins. The visible result collection is virtualized; a target-scale Search fixture/benchmark is not recorded.
 
 ### RSS
 
@@ -186,7 +186,7 @@ Search availability is inferred from endpoint success. Search requires qBittorre
 | `matchingArticles`                                 | Yes    | No  | Wrapper only                                                                                      |
 | `renameRule`, `removeRule`                         | Yes    | No  | Wrapper only                                                                                      |
 
-RSS article HTML is allow-list sanitized before insertion. Smart-filter controls are present but not capability-gated, and the editor does not expose every target rule field. Existing rules are merged on save so fields that are not modeled by the form are retained. The modeled save path, category, and tags use qBittorrent's nested `torrentParams` contract, and affected feeds are submitted as feed URL strings.
+RSS article HTML is allow-list sanitized before insertion, and the article list is virtualized. Smart-filter controls are present but not capability-gated, and the editor does not expose every target rule field. Existing rules are merged on save so fields that are not modeled by the form are retained. The modeled save path, category, and tags use qBittorrent's nested `torrentParams` contract, and affected feeds are submitted as feed URL strings.
 
 ### Torrent Creator
 
@@ -258,10 +258,10 @@ Do not use VueTorrent or another client as the source of truth, and do not inven
 ## Known API-level limitations
 
 - Runtime response validation is largely not wired.
-- Expiry versus request-validation status handling is too broad.
+- Expiry versus request-validation handling uses response-text markers; unrecognized validation wording can still be classified as expiry.
 - Capability use is incomplete and version-only.
 - No metadata-preview, API-key management, or full cookie-management UI.
 - Several complete wrappers remain unreachable from the interface.
-- No peer incremental loop; large Search/RSS result collections are not virtualized.
+- Peer, Search, and RSS rendering is virtualized; target-scale peer/Search timing and memory evidence is not recorded.
 - Full qBittorrent settings parity and field dependency logic are not complete.
 - Target compatibility is source-audited and mock/build tested to the extent recorded, but live verification must be reported separately.

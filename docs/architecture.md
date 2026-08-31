@@ -92,9 +92,9 @@ The application never reads or writes qBittorrent's cookie. `fetch` uses `creden
 
 ### Expiry and connection failures
 
-The HTTP client invokes an authentication-expired callback for configured 401/403 responses. The private app clears torrent state, preserves a safe intended route in memory, and reloads to the public boundary in production. Network and timeout failures instead put startup or sync into a disconnected state. The sync store preserves the last good state, applies exponential retry delay up to 30 seconds, and offers an explicit full-resync action.
+The HTTP client invokes an authentication-expired callback for 401 responses and eligible 403 responses. Login opts out of 403-as-expiry, and recognized Host, Origin, Referer, and CSRF response text remains a forbidden/request-validation error instead of forcing a login transition. The private app clears torrent state, preserves a safe intended route in memory, and reloads to the public boundary in production. Network and timeout failures instead put startup or sync into a disconnected state. The sync store preserves the last good state, applies exponential retry delay up to 30 seconds, and offers an explicit full-resync action.
 
-Current limitation: the shared status logic still treats 401 broadly as authentication expiry and treats most 403 responses as possible expiry. Endpoint-specific Host/Origin/Referer validation distinctions are not yet complete.
+Current limitation: request-validation detection is a bounded text-marker heuristic. A differently worded qBittorrent/proxy 403 can still be classified as expiry, while all 401 responses remain authentication failures.
 
 ## HTTP and API layer
 
@@ -169,16 +169,19 @@ Atomicity is pragmatic rather than transactional: collection mutations occur syn
 
 - TanStack Table owns desktop column definitions, sorting, visibility, and resize state.
 - TanStack Virtual renders only visible desktop torrent rows.
+- Column visibility, order, and widths are stored in the strict interface-preference schema; widths persist after pointer or keyboard resize.
 - Stable table row IDs are torrent hashes.
 - Desktop selection supports single, modifier toggle, shift range, keyboard arrows, select all, filter focus, Escape, and Delete confirmation.
+- Right-click and keyboard context invocation open an accessible action menu; phone overflow opens the corresponding action sheet.
+- The desktop sidebar and inspector both support bounded pointer resizing; the sidebar and table column separators also support keyboard resizing.
 - A resizable right inspector loads per-torrent detail endpoints on demand.
-- Mobile renders purpose-built compact rows and navigates to a dedicated detail route.
+- Mobile virtualizes purpose-built compact rows and navigates to a dedicated detail route.
 
-Current limitations: mobile torrent rows are a plain `v-for` and are not virtualized; column order and resized widths have preference fields but are not applied/persisted; the row context/overflow controls select the torrent but do not open a complete action menu. At tablet widths, a persistent 64 px icon rail keeps library and secondary routes reachable while the mobile bottom navigation remains reserved for widths below 768 px.
+The action menu covers start, stop, details, recheck, reannounce, force start, sequential mode, first/last-piece priority, category, tags, and confirmed deletion for the current selection. Queue priority, per-torrent limits, location, rename, automatic management, super seeding, export, and peer addition remain wrapper-only or otherwise lack complete UI. At tablet widths, a persistent 64 px icon rail keeps library and secondary routes reachable while the mobile bottom navigation remains reserved for widths below 768 px.
 
 ### Files and pieces
 
-Torrent files are converted to an aggregate folder/file tree, flattened according to expansion/search state, and virtualized. Folder selection expands to descendant file indexes for `torrents/filePrio`. Piece state uses Canvas to avoid one DOM node per piece.
+Torrent files are converted to an aggregate folder/file tree, flattened according to expansion/search state, and virtualized. Folder selection expands to descendant file indexes for `torrents/filePrio`. Piece state uses Canvas to avoid one DOM node per piece. The peer tab incrementally polls `sync/torrentPeers`, applies full/delta additions and removals, aborts stale requests on tab/hash changes, slows while hidden, and virtualizes the visible peer collection.
 
 ### Transfer graph
 
@@ -186,7 +189,7 @@ Torrent files are converted to an aggregate folder/file tree, flattened accordin
 
 ### Secondary routes
 
-Search, RSS, Torrent Creator, Logs, Statistics, Settings, More, and torrent details are route-level dynamic imports. Their internal large collections are not consistently virtualized yet.
+Search, RSS, Torrent Creator, Logs, Statistics, Settings, More, and torrent details are route-level dynamic imports. Search results, RSS articles, application/peer logs, files, and peers use virtualized or bounded rendering. Smaller configuration and task collections remain direct renderings.
 
 ## Preferences
 
@@ -200,7 +203,7 @@ Persistence behavior:
 
 Passwords, qBittorrent cookies, torrent files, and magnet history are not part of this store.
 
-Current limitation: migration validates only selected fields and spreads unknown raw keys into the result. Strong schema validation and explicit stripping would make corrupted preference input safer.
+Migration constructs a fresh allow-listed object. It validates enum and boolean fields, clamps sidebar/inspector widths and column widths, filters/uniquifies known columns and sort keys, fills defaults, and drops unknown stored keys.
 
 ## Public/private packaging
 
@@ -210,7 +213,7 @@ Current limitation: migration validates only selected fields and spreads unknown
 2. `alt-private` builds `private-entry.html`, application chunks, manifest, and service worker.
 3. The script stages `public/` and `private/`, renames each entry to `index.html`, and places manifest/service-worker resources in `public/`.
 4. Development mock workers are removed.
-5. Every file is checked for qBittorrent's 10 MiB per-file limit.
+5. Every file is checked for qBittorrent's 10 MiB per-file limit and production source maps are rejected.
 6. HTML/CSS/JS text is checked for root- or parent-relative `src`/`href` attributes and literal hardcoded `/api/v2/` URLs.
 7. `dist/alt-webui` is zipped as `dist/qbittorrent-modern-webui.zip`.
 
@@ -220,7 +223,7 @@ Vite uses `base: './'`, separate `login-assets/` and `app-assets/`, hashed chunk
 
 The authenticated entry registers the generated service worker. Workbox precaches JS, CSS, SVG, PNG, and WOFF2 application assets. HTML is not included in the configured glob. GET and POST requests whose URL path contains `/api/` use `NetworkOnly`, and all fetches from the API client also use `no-store`.
 
-The manifest declares standalone display, a local SVG icon, and relative start/scope. File and protocol handlers are intentionally absent until the app has a safe launch-payload consumer.
+The manifest declares standalone display, generated 192×192 and 512×512 PNG icons, the local SVG source icon, and relative start/scope. File and protocol handlers are intentionally absent until the app has a safe launch-payload consumer.
 
 The service-worker update callback presents a confirmation and activates/reloads the update when accepted. PWA behavior has not been fully verified through qBittorrent's public/private resource switch or a reverse-proxy subpath.
 
@@ -229,8 +232,9 @@ The service-worker update callback presents a confirmation and activates/reloads
 - Vitest `unit` project uses a Node environment.
 - Vitest `component` project uses jsdom and Vue Test Utils.
 - MSW provides browser development fixtures and can support deterministic component/E2E flows.
-- Playwright is configured for desktop Chrome and 320/375 mobile viewports, with mock-mode Vite as its web server.
+- Playwright is configured for 1440×900 desktop, 320×700, 375×812, and 430×932 phone projects, plus 768×1024 and 1024×768 tablet projects, with mock-mode Vite as its web server.
 - Build scripts produce ordinary and Alternative WebUI artifacts independently of test fixtures.
+- A GitHub Actions workflow installs the frozen lockfile, runs format/lint/type/Vitest/build/Playwright gates with Chromium and WebKit available, and uploads `dist/alt-webui` plus the zip. Its configuration exists, but a hosted run has not been observed in this snapshot.
 
 Executed results and missing suites are recorded in [../IMPLEMENTATION_STATUS.md](../IMPLEMENTATION_STATUS.md); configuration files alone are not counted as passing tests.
 
@@ -248,9 +252,7 @@ Executed results and missing suites are recorded in [../IMPLEMENTATION_STATUS.md
 - Targeted runtime schemas are defined but not wired into most requests.
 - Capability checks do not yet cover every API-dependent control or settings field.
 - Full stock action coverage is present in API wrappers but not in the interaction model.
-- Peer state is loaded as a one-time full response rather than an incremental detail poll.
-- Mobile torrent and several secondary collections are not virtualized at target scale.
-- Column ordering and width persistence are modeled but unfinished.
+- Component fixtures demonstrate bounded DOM counts for 5,000 desktop/mobile torrents, a searched 10,000-file tree, and 2,000 RSS articles, but no timing, memory, or sustained-poll benchmark is recorded. Comparable large peer and Search-result fixture evidence is also absent.
 - Several user-facing strings bypass Vue I18n.
-- No automated CI workflow is currently part of the repository.
-- Real qBittorrent installation, reverse-proxy, and session-edge verification must remain separately evidenced.
+- The CI workflow is configured but has no recorded hosted run.
+- The final real qBittorrent installation smoke covered the serving/auth boundary only; representative mutations, non-empty libraries, reverse-proxy, and broader session-edge verification remain separately evidenced.

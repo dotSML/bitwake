@@ -18,7 +18,7 @@ qBittorrent 5.0+ is best-effort, not a blanket verified range.
 - Corepack with pnpm 10.15.0, or a matching standalone pnpm.
 - The `zip` executable for the distributable archive.
 - A current browser for manual verification.
-- Playwright Chromium or a compatible installed Chrome for browser scripts.
+- Playwright Chromium and WebKit for the complete configured browser-project matrix.
 
 Install dependencies and build:
 
@@ -28,7 +28,7 @@ corepack pnpm typecheck
 corepack pnpm build:alt-webui
 ```
 
-The packaging command performs two Vite builds, assembles qBittorrent's public/private layout, rejects symlinks and files at or above 10 MiB, checks HTML/CSS/JS for root- or parent-relative `src`/`href` attributes and a literal hardcoded `/api/v2/` base, removes the mock worker, and creates a zip.
+The packaging command performs two Vite builds, assembles qBittorrent's public/private layout, rejects symlinks, production source maps, and files at or above 10 MiB, checks HTML/CSS/JS for root- or parent-relative `src`/`href` attributes and a literal hardcoded `/api/v2/` base, removes the mock worker, and creates a zip.
 
 Outputs:
 
@@ -90,10 +90,11 @@ The isolated run reported qBittorrent **v5.2.3** and Web API **2.15.1**. The fol
 - An unauthenticated private API request returned HTTP 403.
 - Headless Chrome completed login, loaded the private shell and empty-library state, and opened the Add Torrent dialog.
 - Logging out produced the expected private-request 403 and the app recovered to the public login page.
-- Ten API requests were observed during the flow.
+- The manifest, service worker, and packaged icon each returned HTTP 200.
+- Nine API requests were observed during the flow.
 - No page errors or unexpected console errors were recorded; the expected expiry 403 was excluded from the console-error check.
 
-This is a useful packaging/authentication smoke test. It does **not** establish full feature parity, mutation correctness, large-library performance, reverse-proxy behavior, PWA installation, or compatibility with every qBittorrent 5.x release.
+This is a useful final-package authentication/resource smoke test. It does **not** establish full feature parity, mutation correctness, large-library performance, reverse-proxy behavior, PWA installation, or compatibility with every qBittorrent 5.x release. The tested zip was 360K with SHA-256 `2ed5ee36588a7144d5a629ad048e4074147060d91a6eb9ccc5af2ebb9808041`.
 
 The reproducible browser script is `scripts/verify-real-instance.mjs`. Pass secrets through the process environment, never a committed file:
 
@@ -140,6 +141,12 @@ corepack pnpm exec vite preview
 ```
 
 This previews `dist/app`; it does not reproduce qBittorrent's public/private file selection. Use the official container smoke flow for that boundary.
+
+### Continuous integration
+
+`.github/workflows/ci.yml` runs on pushes to `main` and pull requests. It installs from the frozen lockfile, checks formatting, lint and types, runs all Vitest projects, builds the Alternative WebUI, installs Chromium and WebKit, runs the six Playwright projects, and uploads `dist/alt-webui` plus `dist/qbittorrent-modern-webui.zip`.
+
+The workflow is configured but no hosted run is recorded in this snapshot. The Playwright projects cover 1440×900, 320×700, 375×812, 430×932, 768×1024, and 1024×768. Locally, the full desktop suite passed 17 tests with 2 expected skips, and the full five-project Chromium-supported run discovered 95 tests with 49 passes and 46 intentional viewport/feature skips. The 375×812 WebKit project could not run because installing its host dependencies requires unavailable sudo/password access. CI installs Chromium and WebKit with dependencies, but a local pass is not a substitute for observing that hosted job and its uploaded artifact.
 
 ## Reverse proxy and subpath behavior
 
@@ -191,7 +198,7 @@ PWA behavior is progressive enhancement. It generally requires HTTPS (localhost 
 The package includes:
 
 - `manifest.webmanifest`.
-- A local SVG icon.
+- Generated 192×192 and 512×512 PNG icons plus the local SVG source icon.
 - Standalone display and theme metadata.
 - Relative scope/start URL.
 - A service worker for versioned static application assets.
@@ -219,7 +226,7 @@ NEOTORRENT_SCREENSHOT_URL=http://127.0.0.1:4173/ \
 node scripts/capture-screenshots.mjs
 ```
 
-The script defaults to `/usr/bin/google-chrome`; set `PLAYWRIGHT_CHROME_PATH` when needed. Screenshots contain deterministic mock data, not private torrents.
+The current screenshots were recaptured from the final mock implementation. The script defaults to `/usr/bin/google-chrome`; set `PLAYWRIGHT_CHROME_PATH` when needed. Screenshots contain deterministic mock data, not private torrents.
 
 ## Upgrade procedure
 
@@ -235,7 +242,7 @@ The script defaults to `/usr/bin/google-chrome`; set `PLAYWRIGHT_CHROME_PATH` wh
 
 Hashed asset names and uncached HTML reduce mixed-version risk. A registered older service worker may still need a browser reload or site-data cleanup when debugging an upgrade.
 
-Interface preference schema migrations run when NeoTorrent loads. Current schema version is 2; corrupt data falls back to defaults. Server settings are not migrated by NeoTorrent.
+Interface preference schema migrations run when NeoTorrent loads. Current schema version is 2; migrations validate/clamp every known field, discard unknown keys, and fall back safely for corrupt input. Server settings are not migrated by NeoTorrent.
 
 ## Rollback
 

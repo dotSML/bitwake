@@ -42,6 +42,25 @@ describe('torrent details', () => {
         msg: 'Working'
       }
     ])
+    const torrentPeers = vi.spyOn(context.api.sync, 'torrentPeers').mockResolvedValue({
+      rid: 1,
+      full_update: true,
+      peers: {
+        '192.0.2.44:51413': {
+          ip: '192.0.2.44',
+          port: 51413,
+          client: 'qBittorrent 5.2.3',
+          country: 'Estonia',
+          flags: 'd U',
+          progress: 0.82,
+          dl_speed: 820_000,
+          up_speed: 120_000,
+          downloaded: 921_000_000,
+          uploaded: 113_000_000
+        }
+      }
+    })
+    const banPeers = vi.spyOn(context.api.transfer, 'banPeers').mockResolvedValue()
     const wrapper = await mountWithContext(TorrentDetailPanel, context, {
       props: { hash: torrent.hash },
       attachTo: document.body
@@ -62,6 +81,15 @@ describe('torrent details', () => {
     await flushPromises()
     expect(trackers).toHaveBeenCalledWith(torrent.hash, expect.any(AbortSignal))
     expect(wrapper.text()).toContain('https://tracker.example.test/announce')
+
+    await wrapper.get('[role="tab"]:nth-child(4)').trigger('click')
+    await flushPromises()
+    expect(torrentPeers).toHaveBeenCalledWith(torrent.hash, 0, expect.any(AbortSignal))
+    await wrapper.get('button[aria-label="Ban peer"]').trigger('click')
+    await flushPromises()
+    expect(banPeers).toHaveBeenCalledWith(['192.0.2.44:51413'])
+    expect(wrapper.text()).not.toContain('qBittorrent 5.2.3')
+    wrapper.unmount()
   })
 
   it('ignores an old-hash response that resolves after the current hash', async () => {

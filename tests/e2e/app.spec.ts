@@ -38,13 +38,16 @@ test('synchronizes, filters, selects, and starts torrents', async ({ page, isMob
   }
   await filter.fill('')
 
-  const firstRow = isMobile
-    ? page.locator('.mobile-torrent-row .row-menu').first()
-    : page.locator('.table-row').first()
-  await firstRow.click()
-
-  await expect(page.locator('.torrent-toolbar.contextual')).toBeVisible()
-  await page.locator('.torrent-toolbar.contextual .toolbar-action').first().click()
+  if (isMobile) {
+    await page.locator('.mobile-torrent-row .row-menu').first().click()
+    const actionSheet = page.getByRole('dialog')
+    await expect(actionSheet).toBeVisible()
+    await actionSheet.getByRole('menuitem', { name: 'Start', exact: true }).click()
+  } else {
+    await page.locator('.table-row').first().click()
+    await expect(page.locator('.torrent-toolbar.contextual')).toBeVisible()
+    await page.locator('.torrent-toolbar.contextual .toolbar-action').first().click()
+  }
   await expect(page.getByText('Start request accepted.')).toBeVisible()
 })
 
@@ -104,7 +107,11 @@ test('mobile navigation and detail routes do not overflow the viewport', async (
   await expect(page).toHaveURL(/#\/torrents\/.+\/overview$/)
   await expect(page.getByRole('tablist', { name: 'Torrent detail sections' })).toBeVisible()
   await page.getByRole('tab', { name: 'Files' }).click()
-  await expect(page.getByRole('tree', { name: 'Torrent files' })).toBeVisible()
+  const fileTree = page.getByRole('tree', { name: 'Torrent files' })
+  await expect(fileTree).toBeVisible()
+  await fileTree.getByRole('treeitem').first().click()
+  await page.getByLabel('Set selected file priority').selectOption('7')
+  await expect(page.getByText('Priority updated for 75 files.')).toBeVisible()
   await expectNoDocumentOverflow(page)
 
   await page.getByRole('button', { name: 'Back to torrents' }).click()

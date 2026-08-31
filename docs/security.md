@@ -63,6 +63,7 @@ It does not claim to protect a session after the browser, qBittorrent host, admi
 - No custom backend or database exists.
 - No telemetry, analytics, advertising, remote fonts, or runtime CDN is used.
 - Interface preferences contain layout/formatting choices only.
+- Interface preference migration reconstructs an allow-listed schema, validates/clamps every stored field, and drops unknown keys.
 - Uploaded `.torrent` `File` objects and typed magnet/URL sources live in component memory and are cleared when the dialog closes.
 - Mock and screenshot data are explicitly synthetic/open-source themed.
 
@@ -73,6 +74,7 @@ The Alternative WebUI script:
 - Removes the development MSW worker.
 - Rejects symlinks.
 - Rejects any file at or above qBittorrent's 10 MiB per-file limit.
+- Rejects production source-map files.
 - Rejects root- and parent-relative `src`/`href` attributes in HTML/CSS/JS text and literal hardcoded `/api/v2/` paths.
 - Uses local, hashed application assets.
 
@@ -117,14 +119,14 @@ Do not add a permissive CSP merely to silence errors. Prefer a documented proxy 
 - `corepack pnpm audit --prod --audit-level high` completed with “No known vulnerabilities found” for this snapshot. Registry advisories are a useful scoped check, not a formal review or guarantee.
 - `corepack pnpm run licenses` completed for the production graph. Reported dependency categories were MIT, ISC, and MPL-2.0-or-Apache-2.0; the `UNLICENSED` entry is this private root package.
 - Production source maps are disabled in the current Vite configuration and are not intended to ship in either build output. Keep this invariant in the artifact checks if build tooling changes.
-- The SVG icon and all runtime code are local.
+- The generated 192 px/512 px PNG icons, source SVG icon, and all runtime code are local.
 - Search-plugin installation delegates code acquisition/execution to qBittorrent's search subsystem. Install only trusted plugins and sources.
 
 ## Known security gaps and caveats
 
 ### Session status classification
 
-The HTTP core treats all 401 responses and most 403 responses as possible authentication expiry. qBittorrent can also use 401/403 for Host, Origin, Referer, bans, or other validation. This may clear the local session and reload instead of showing the more precise configuration error. It does not grant access, but it can obscure diagnosis.
+The HTTP core treats all 401 responses and eligible 403 responses as authentication expiry. Login opts out of 403-as-expiry, and response text recognized as a Host, Origin, Referer, or CSRF validation failure remains a forbidden error. The distinction is fail-safe for access—it never grants access—but it is a bounded text heuristic: differently worded qBittorrent or proxy responses can still trigger a login transition and obscure diagnosis.
 
 ### Runtime response validation
 
@@ -133,10 +135,6 @@ Zod is installed and schemas have been started, but most endpoint responses are 
 ### URL coverage
 
 The Add Torrent path validates typed URLs, RSS feed creation explicitly requires HTTP(S), and rendered RSS links are sanitized. Not every URL-like API field has a centralized validation policy yet. Search and RSS torrent URLs are sent back to qBittorrent rather than opened by the browser, but should still receive consistent scheme validation in a hardening pass.
-
-### Preference input
-
-UI preference migration clamps selected numeric/list fields but spreads other properties from stored input. The stored object is namespaced and low sensitivity, yet strict validation and unknown-key stripping are preferable.
 
 ### Destructive action breadth
 

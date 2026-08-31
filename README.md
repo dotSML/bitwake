@@ -86,7 +86,7 @@ Playwright may require a one-time browser install:
 corepack pnpm exec playwright install chromium webkit
 ```
 
-The Alternative WebUI build also requires the `zip` executable on `PATH`.
+On Linux, WebKit can also require OS packages installed with `playwright install --with-deps`; that step needs administrator access. The Alternative WebUI build requires the `zip` executable on `PATH`.
 
 `.github/workflows/ci.yml` is configured for pushes to `main` and pull requests. It installs from the frozen lockfile, checks formatting, lint and types, runs all Vitest and Playwright projects, builds the Alternative WebUI, and uploads both package outputs. The workflow is present but no hosted GitHub Actions run is recorded in this documentation snapshot.
 

@@ -119,6 +119,13 @@ test.describe('desktop acceptance workflows', () => {
     await menu.getByRole('menuitem', { name: 'Linux', exact: true }).click()
     await expect(page.getByText('Set category request accepted.')).toBeVisible()
 
+    await firstRow.click({ button: 'right', position: { x: 60, y: 20 } })
+    menu = page.getByRole('menu')
+    await menu.getByRole('menuitem', { name: 'Add tag…' }).click()
+    menu = page.getByRole('menu', { name: 'Add tag' })
+    await menu.getByRole('menuitem', { name: 'verified', exact: true }).click()
+    await expect(page.getByText('Add tag request accepted.')).toBeVisible()
+
     await page.getByRole('button', { name: 'Clear selection' }).click()
     await page.locator('.columns-menu > summary').click()
     await page.getByRole('button', { name: 'Move Size column earlier' }).click()
@@ -322,4 +329,14 @@ test('opens a usable torrent action sheet on phone viewports', async ({ page, is
   await sheet.getByRole('menuitem', { name: 'Start', exact: true }).click()
   await expect(page.getByText('Start request accepted.')).toBeVisible()
   await expect(sheet).toBeHidden()
+
+  await page.locator('.mobile-torrent-row .row-menu').first().click()
+  await sheet.getByRole('button', { name: 'Close torrent actions' }).click()
+  await page.locator('.mobile-torrent-row .row-activate').nth(1).click()
+  await expect(page.locator('.torrent-toolbar.contextual')).toContainText('2 selected')
+  await page
+    .locator('.torrent-toolbar.contextual')
+    .getByRole('button', { name: 'Start', exact: true })
+    .click()
+  await expect(page.getByText('Start request accepted.')).toBeVisible()
 })
