@@ -101,6 +101,25 @@ describe('Media Placement configuration precedence', () => {
     expect(store.config).toMatchObject({ ...runtimeAssist, source: 'runtime' })
   })
 
+  it('rejects persisted settings with nested library roots', async () => {
+    vi.spyOn(runtimeConfig, 'loadRuntimeMediaConfig').mockResolvedValue({
+      source: 'standalone',
+      config: runtimeAssist
+    })
+    const { context, store } = createStore()
+    vi.spyOn(context.api.clientData, 'load').mockResolvedValue({
+      'neotorrent.media-placement.v1': {
+        ...savedAssist,
+        tvRoot: '/saved/media',
+        moviesRoot: '/saved/media/movies'
+      }
+    })
+
+    await store.load()
+
+    expect(store.config).toMatchObject({ source: 'runtime', ...runtimeAssist })
+  })
+
   it('retries a transiently unavailable runtime resource on the next load request', async () => {
     const loadRuntime = vi
       .spyOn(runtimeConfig, 'loadRuntimeMediaConfig')
@@ -216,6 +235,22 @@ describe('Media Placement configuration precedence', () => {
     expect(persist).toHaveBeenCalledTimes(2)
     expect(store.config.tvRoot).toBe('/new/tv')
     expect(JSON.parse(localStorage.getItem('neotorrent:media-placement') ?? '{}')).toEqual(next)
+  })
+
+  it('does not overwrite saved placement after a transient client-data load failure', async () => {
+    vi.spyOn(runtimeConfig, 'loadRuntimeMediaConfig').mockResolvedValue({
+      source: 'standalone',
+      config: runtimeAssist
+    })
+    const { context, store } = createStore()
+    vi.spyOn(context.api.clientData, 'load').mockRejectedValue(new Error('temporary outage'))
+    const persist = vi.spyOn(context.api.clientData, 'store')
+
+    await store.load()
+
+    expect(store.savedLoadError).toContain('Retry')
+    await expect(store.save(savedAssist)).rejects.toThrow('load successfully')
+    expect(persist).not.toHaveBeenCalled()
   })
 
   it('does not restore an old-session path after a deferred save crosses logout', async () => {

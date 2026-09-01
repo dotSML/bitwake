@@ -36,14 +36,14 @@ const torrents = useTorrentsStore()
   align-items: center;
   justify-content: center;
   gap: 8px;
-  border-bottom: 1px solid rgb(var(--color-warning) / 0.38);
+  border-bottom: 1px solid rgb(var(--color-warning-foreground) / 0.65);
   background: rgb(var(--color-warning) / 0.12);
   color: rgb(var(--color-ink));
   padding: 5px 12px;
   font-size: 12px;
 }
 .connection-banner.disconnected {
-  color: rgb(var(--color-warning));
+  color: rgb(var(--color-warning-foreground));
 }
 .banner-retry {
   display: inline-flex;

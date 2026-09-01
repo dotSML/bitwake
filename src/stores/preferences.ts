@@ -12,6 +12,7 @@ import {
   type TorrentTableColumnId
 } from '@/domains/torrents/tableColumns'
 import { useSessionStore } from './session'
+import { setApplicationLocale, type ApplicationLocalePreference } from '@/i18n'
 
 export type ThemePreference = 'system' | 'light' | 'dark'
 export type DensityPreference = 'comfortable' | 'compact' | 'extra-compact'
@@ -19,6 +20,7 @@ export type DensityPreference = 'comfortable' | 'compact' | 'extra-compact'
 export interface UiPreferences {
   schemaVersion: 2
   theme: ThemePreference
+  locale: ApplicationLocalePreference
   density: DensityPreference
   mobileDensity: DensityPreference
   sidebarCollapsed: boolean
@@ -40,6 +42,7 @@ export interface UiPreferences {
 export const defaultUiPreferences: UiPreferences = {
   schemaVersion: 2,
   theme: 'system',
+  locale: 'system',
   density: 'compact',
   mobileDensity: 'compact',
   sidebarCollapsed: false,
@@ -136,6 +139,7 @@ export function migrateUiPreferences(value: unknown): UiPreferences {
   return {
     schemaVersion: 2,
     theme: oneOf(record.theme, ['system', 'light', 'dark'] as const, defaultUiPreferences.theme),
+    locale: oneOf(record.locale, ['system', 'en', 'et'] as const, defaultUiPreferences.locale),
     density,
     mobileDensity: oneOf(
       record.mobileDensity,
@@ -233,6 +237,7 @@ export const usePreferencesStore = defineStore('preferences', () => {
       if (generation === loadGeneration) {
         loaded.value = true
         applyTheme()
+        setApplicationLocale(value.value.locale)
         await nextTick()
         if (generation === loadGeneration) suppressSave = false
       }
@@ -343,6 +348,7 @@ export const usePreferencesStore = defineStore('preferences', () => {
   }
 
   watch(() => value.value.theme, applyTheme)
+  watch(() => value.value.locale, setApplicationLocale)
   watch(
     value,
     () => {

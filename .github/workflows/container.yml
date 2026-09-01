@@ -13,7 +13,9 @@ env:
 
 concurrency:
   group: container-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Keep branch/PR feedback current, but serialize tag runs so a queued rerun
+  # cannot race the immutable-tag existence check and registry push.
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
 jobs:
   verify:
@@ -24,6 +26,8 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22.23.2
@@ -33,6 +37,9 @@ jobs:
           corepack prepare pnpm@10.15.0+sha512.486ebc259d3e999a4e8691ce03b5cac4a71cbeca39372a9b762cb500cfdf0873e2cb16abe3d951b1ee2cf012503f027b98b6584e4df22524e0c7450d9ec7aa7b --activate
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+      - name: Verify tagged release source and license
+        if: startsWith(github.ref, 'refs/tags/')
+        run: pnpm release:verify -- --tag "$GITHUB_REF_NAME" --require-git-tag --require-license
       - name: Check formatting
         run: pnpm format:check
       - name: Lint
@@ -41,6 +48,8 @@ jobs:
         run: pnpm typecheck
       - name: Unit and component tests
         run: pnpm test:all
+      - name: Review production dependency licenses
+        run: pnpm run licenses
       - name: Build native Alternative WebUI package
         run: pnpm build:alt-webui
       - name: Build standalone frontend
@@ -49,16 +58,20 @@ jobs:
         run: pnpm exec playwright install --with-deps chromium webkit
       - name: Browser tests
         run: pnpm test:e2e
+      - name: Production PWA cache-boundary tests
+        run: pnpm test:pwa
       - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
       - name: Derive deterministic image metadata
         id: build
         shell: bash
         run: |
           created=$(git show -s --format=%cI "$GITHUB_SHA")
+          license=$(node -p "require('./package.json').license || 'NOASSERTION'")
           {
             echo "created=${created}"
             echo "revision=${GITHUB_SHA}"
             echo "version=ci-${GITHUB_SHA:0:12}"
+            echo "license=${license}"
           } >> "$GITHUB_OUTPUT"
       - name: Build local linux/amd64 test image
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
@@ -71,12 +84,31 @@ jobs:
             BUILD_CREATED=${{ steps.build.outputs.created }}
             BUILD_REVISION=${{ steps.build.outputs.revision }}
             BUILD_VERSION=${{ steps.build.outputs.version }}
+            BUILD_LICENSE=${{ steps.build.outputs.license }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - name: Deterministic proxy and real qBittorrent 5.2.3 tests
         env:
           NEOTORRENT_IMAGE: neotorrent:ci-amd64
         run: pnpm container:test
+      - name: Verify local image identity labels
+        shell: bash
+        run: |
+          for label in created revision version licenses; do
+            expected=$(
+              case "$label" in
+                created) echo '${{ steps.build.outputs.created }}' ;;
+                revision) echo '${{ steps.build.outputs.revision }}' ;;
+                version) echo '${{ steps.build.outputs.version }}' ;;
+                licenses) echo '${{ steps.build.outputs.license }}' ;;
+              esac
+            )
+            actual=$(docker image inspect neotorrent:ci-amd64 --format "{{ index .Config.Labels \"org.opencontainers.image.${label}\" }}")
+            if [[ "$actual" != "$expected" ]]; then
+              echo "Image label $label: expected $expected, received $actual" >&2
+              exit 1
+            fi
+          done
       - name: Scan linux/amd64 HIGH and CRITICAL vulnerabilities
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
@@ -97,6 +129,7 @@ jobs:
             BUILD_CREATED=${{ steps.build.outputs.created }}
             BUILD_REVISION=${{ steps.build.outputs.revision }}
             BUILD_VERSION=${{ steps.build.outputs.version }}
+            BUILD_LICENSE=${{ steps.build.outputs.license }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - name: Scan linux/arm64 HIGH and CRITICAL vulnerabilities
@@ -112,7 +145,10 @@ jobs:
   publish:
     name: Publish provenance and multi-architecture image
     needs: verify
-    if: github.event_name == 'push' && needs.verify.result == 'success'
+    if: >-
+      github.event_name == 'push' &&
+      startsWith(github.ref, 'refs/tags/v') &&
+      needs.verify.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:
@@ -122,6 +158,8 @@ jobs:
       attestations: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
       - name: Log in to GHCR
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
@@ -129,6 +167,40 @@ jobs:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Reject an existing immutable image tag
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          version=${GITHUB_REF_NAME#v}
+          image_name=${IMAGE_NAME,,}
+          token=$(
+            curl --fail --silent --show-error \
+              --user "${GITHUB_ACTOR}:${GHCR_TOKEN}" \
+              "https://${REGISTRY}/token?service=${REGISTRY}&scope=repository:${image_name}:pull" \
+              | jq --exit-status --raw-output '.token // .access_token'
+          )
+          status=$(
+            curl --silent --show-error \
+              --output /dev/null \
+              --write-out '%{http_code}' \
+              --header "Authorization: Bearer ${token}" \
+              --header 'Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json' \
+              "https://${REGISTRY}/v2/${image_name}/manifests/${version}"
+          )
+          case "$status" in
+            200)
+              echo "Immutable image tag ${REGISTRY}/${image_name}:${version} already exists; refusing to replace it." >&2
+              exit 1
+              ;;
+            404)
+              echo "Image tag ${REGISTRY}/${image_name}:${version} is available."
+              ;;
+            *)
+              echo "Could not safely determine whether ${REGISTRY}/${image_name}:${version} exists (HTTP ${status}); refusing to publish." >&2
+              exit 1
+              ;;
+          esac
       - name: Generate image tags
         id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
@@ -136,24 +208,19 @@ jobs:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           flavor: latest=false
           tags: |
-            type=raw,value=edge,enable={{is_default_branch}}
-            type=sha,prefix=sha-,format=short,enable={{is_default_branch}}
             type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
       - name: Derive deterministic image metadata
         id: build
         shell: bash
         run: |
           created=$(git show -s --format=%cI "$GITHUB_SHA")
-          if [[ "$GITHUB_REF_TYPE" == tag ]]; then
-            version=${GITHUB_REF_NAME#v}
-          else
-            version="edge-${GITHUB_SHA:0:12}"
-          fi
+          version=${GITHUB_REF_NAME#v}
+          license=$(node -p "require('./package.json').license || 'NOASSERTION'")
           {
             echo "created=${created}"
             echo "revision=${GITHUB_SHA}"
             echo "version=${version}"
+            echo "license=${license}"
           } >> "$GITHUB_OUTPUT"
       - name: Build and publish linux/amd64 and linux/arm64
         id: push
@@ -167,6 +234,7 @@ jobs:
             BUILD_CREATED=${{ steps.build.outputs.created }}
             BUILD_REVISION=${{ steps.build.outputs.revision }}
             BUILD_VERSION=${{ steps.build.outputs.version }}
+            BUILD_LICENSE=${{ steps.build.outputs.license }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           sbom: true

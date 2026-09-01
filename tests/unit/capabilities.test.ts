@@ -72,6 +72,12 @@ describe('capability registry', () => {
     expect(createCapabilityRegistry('5.2.3', '2.11.9').has('torrentShareLimitAction')).toBe(false)
     expect(createCapabilityRegistry('5.2.3', '2.12.1').has('torrentComment')).toBe(true)
     expect(createCapabilityRegistry('5.2.3', '2.12.0').has('torrentComment')).toBe(false)
+    expect(createCapabilityRegistry('5.2.3', '2.11.10').has('selectiveTrackerReannounce')).toBe(
+      true
+    )
+    expect(createCapabilityRegistry('5.2.3', '2.11.9').has('selectiveTrackerReannounce')).toBe(
+      false
+    )
   })
 
   it('provides a discoverable explanation for unavailable functionality', () => {

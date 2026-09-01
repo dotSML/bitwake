@@ -32,9 +32,12 @@ Configuration is resolved in this order:
    support; client data is authoritative when supported.
 4. Off.
 
-A malformed standalone resource is treated as Off. NeoTorrent shows a configuration warning while
-the rest of the WebUI continues to work. Logout, session expiry, and an anonymous cold start clear
-the user-scoped Media Placement fallback before another account can reuse the standalone SPA.
+A malformed standalone resource is treated as Off. Equal or nested TV/Movies roots are invalid at
+every input boundary: Settings blocks saving them, persisted values are discarded, runtime JSON is
+rejected, and the container entrypoint emits an invalid-configuration sentinel. NeoTorrent shows a
+configuration warning while the rest of the WebUI continues to work. Logout, session expiry, and an
+anonymous cold start clear the user-scoped Media Placement fallback before another account can reuse
+the standalone SPA.
 
 ## Runtime variables
 
@@ -43,8 +46,8 @@ The standalone image accepts these non-secret variables:
 | Variable                         | Default | Meaning                                     |
 | -------------------------------- | ------- | ------------------------------------------- |
 | `NEOTORRENT_MEDIA_MODE`          | `off`   | `off` or `assist`                           |
-| `NEOTORRENT_TV_ROOT`             | empty   | qBittorrent-visible TV library root         |
-| `NEOTORRENT_MOVIES_ROOT`         | empty   | qBittorrent-visible Movies library root     |
+| `NEOTORRENT_TV_ROOT`             | empty   | qBittorrent-visible, non-nested TV root     |
+| `NEOTORRENT_MOVIES_ROOT`         | empty   | qBittorrent-visible, non-nested Movies root |
 | `NEOTORRENT_MEDIA_BROWSE_ROOT`   | empty   | initial qBittorrent directory-browser root  |
 | `NEOTORRENT_MEDIA_CONFIG_LOCKED` | `false` | makes the runtime fields deployment-managed |
 | `NEOTORRENT_TV_CATEGORY`         | empty   | optional existing TV category suggestion    |
@@ -54,6 +57,11 @@ The container generates `/_neotorrent/runtime-config.json` at startup. It contai
 above, is served with `Cache-Control: no-store`, and is excluded from PWA precaching. It never
 contains qBittorrent credentials or `QBITTORRENT_URL`. Media roots are not compiled into frontend
 JavaScript.
+
+TV and Movies roots may use POSIX, Windows-drive, or UNC path styles, but two non-empty roots must
+not be equal and neither may contain the other. Comparisons are segment-aware and Windows/UNC roots
+are case-insensitive. The browse root is an initial directory-picker location, not a third library
+classification root, so it may intentionally contain both libraries.
 
 ## Suggested destinations
 
@@ -79,6 +87,19 @@ Suggested folder segments retain useful Unicode while removing separators, contr
 Windows-invalid filename characters, trailing dots/spaces, and repeated whitespace. NeoTorrent
 shows the sanitized result before submission and refuses to silently produce an empty folder name.
 It does not rename downloaded media files.
+
+## Reusing existing folders
+
+Suggested TV and Movie editors can browse for an existing series, season, or movie directory. They
+can also request a bounded match list from qBittorrent. Discovery reads one shallow directory level,
+evaluates at most the first 2,000 returned directories, and displays at most eight medium/high
+confidence candidates. It does not recursively crawl the library.
+
+Matching normalizes Unicode and common punctuation, compares title tokens, and excludes a candidate
+when both the requested item and candidate have explicit but different release years. A suggestion
+is never selected automatically, even at high confidence; the user must choose it before its path
+replaces the generated destination. When qBittorrent returns more than 2,000 entries, the UI says
+that the result was truncated. A missing match is not proof that the folder does not exist.
 
 ## Manual destinations
 
@@ -147,6 +168,10 @@ listing, an ambiguous empty-or-unreadable result, a 404 as “not found or inacc
 “request denied,” and an unavailable directory API. qBittorrent 5.2.3 does not reliably distinguish
 filesystem permission denial from these other outcomes, so NeoTorrent does not claim that it does
 or that a directory is writable.
+
+Existing-folder discovery uses the same API boundary and uncertainty model. It ranks only returned
+directory names; it does not resolve symlinks, inspect filesystem identity, or prove that a selected
+folder is writable.
 
 ## Non-goals
 

@@ -1,14 +1,26 @@
 <script setup lang="ts">
-import { ChevronDown, ChevronRight, File, Folder, FolderOpen, Search } from 'lucide-vue-next'
+import {
+  ChevronDown,
+  ChevronRight,
+  Edit3,
+  File,
+  Folder,
+  FolderOpen,
+  LoaderCircle,
+  Search
+} from 'lucide-vue-next'
 import { useVirtualizer } from '@tanstack/vue-virtual'
 import { computed, nextTick, ref, watch } from 'vue'
 import type { TorrentFile } from '@/api/types/models'
 import { buildFileTree, flattenFileTree, type FileTreeNode } from '@/domains/files/fileTree'
+import { renamedTorrentPath } from '@/domains/files/renamePath'
 import { useApi } from '@/app/providers/api'
 import { useNotificationsStore } from '@/stores/notifications'
 import { formatBytes, formatPercent } from '@/utils/format'
+import AppDialog from '@/ui/primitives/AppDialog.vue'
 
 const props = defineProps<{ hash: string; files: TorrentFile[] }>()
+const emit = defineEmits<{ reload: [] }>()
 const api = useApi()
 const notifications = useNotificationsStore()
 const localFiles = ref<TorrentFile[]>([])
@@ -16,9 +28,14 @@ const expanded = ref(new Set<string>())
 const selected = ref(new Set<string>())
 const search = ref('')
 const scroller = ref<HTMLElement | null>(null)
+const renameButton = ref<HTMLButtonElement | null>(null)
 const focusedIndex = ref(0)
 const priorityValue = ref('')
 const prioritySaving = ref(false)
+const renameTarget = ref<FileTreeNode | null>(null)
+const renameName = ref('')
+const renameError = ref<string | null>(null)
+const renameWorking = ref(false)
 let selectionAnchor: number | null = null
 const tree = computed(() => buildFileTree(localFiles.value))
 const visible = computed(() => flattenFileTree(tree.value, expanded.value, search.value))
@@ -32,6 +49,11 @@ const nodesById = computed(() => {
   }
   visit(tree.value)
   return nodes
+})
+const selectedNode = computed(() => {
+  if (selected.value.size !== 1) return null
+  const [id] = selected.value
+  return id ? (nodesById.value.get(id) ?? null) : null
 })
 const virtualizer = useVirtualizer({
   get count() {
@@ -51,6 +73,8 @@ watch(
     focusedIndex.value = 0
     selectionAnchor = null
     priorityValue.value = ''
+    renameTarget.value = null
+    renameError.value = null
   }
 )
 watch(
@@ -134,6 +158,66 @@ function onPriorityChange(): void {
   }
 }
 
+function openRenameDialog(node = selectedNode.value): void {
+  if (!node || renameWorking.value) return
+  renameTarget.value = node
+  renameName.value = node.name
+  renameError.value = null
+}
+
+function closeRenameDialog(): void {
+  if (renameWorking.value) return
+  renameTarget.value = null
+  renameError.value = null
+}
+
+async function submitRename(): Promise<void> {
+  const target = renameTarget.value
+  if (!target || renameWorking.value) return
+  const validation = renamedTorrentPath(target.path, renameName.value)
+  renameError.value = validation.error
+  if (!validation.newPath) return
+  if (validation.newPath === target.path) {
+    closeRenameDialog()
+    return
+  }
+
+  renameWorking.value = true
+  let renamedNodeId = target.id
+  try {
+    if (target.kind === 'folder') {
+      await api.torrents.renameFolder(props.hash, target.path, validation.newPath)
+      const prefix = `${target.path}/`
+      localFiles.value = localFiles.value.map((file) =>
+        file.name.startsWith(prefix)
+          ? { ...file, name: `${validation.newPath}/${file.name.slice(prefix.length)}` }
+          : file
+      )
+      renamedNodeId = `folder:${validation.newPath}`
+      selected.value = new Set([renamedNodeId])
+    } else {
+      await api.torrents.renameFile(props.hash, target.path, validation.newPath)
+      localFiles.value = localFiles.value.map((file) =>
+        file.index === target.fileIndex ? { ...file, name: validation.newPath! } : file
+      )
+    }
+    renameTarget.value = null
+    notifications.push(`${target.kind === 'folder' ? 'Folder' : 'File'} renamed.`, 'success')
+    emit('reload')
+    const renamedIndex = visible.value.findIndex((node) => node.id === renamedNodeId)
+    if (renamedIndex >= 0) await focusRow(renamedIndex)
+    else {
+      await nextTick()
+      renameButton.value?.focus({ preventScroll: true })
+    }
+  } catch (cause) {
+    renameError.value = cause instanceof Error ? cause.message : 'The item could not be renamed.'
+    notifications.push(renameError.value, 'error')
+  } finally {
+    renameWorking.value = false
+  }
+}
+
 async function focusRow(index: number): Promise<void> {
   const nextIndex = Math.max(0, Math.min(visible.value.length - 1, index))
   focusedIndex.value = nextIndex
@@ -161,6 +245,12 @@ function parentIndex(index: number): number | null {
 async function onKeydown(event: KeyboardEvent, index: number): Promise<void> {
   const node = visible.value[index]
   if (!node) return
+  if (event.key === 'F2') {
+    event.preventDefault()
+    if (!selected.value.has(node.id) || selected.value.size !== 1) selectNode(index, event)
+    openRenameDialog(node)
+    return
+  }
   if (event.key === ' ') {
     event.preventDefault()
     selectNode(index, event)
@@ -239,6 +329,16 @@ function priorityLabel(priority: number | null): string {
         <option value="6">High</option>
         <option value="7">Maximum</option>
       </select>
+      <button
+        ref="renameButton"
+        class="btn"
+        type="button"
+        :disabled="!selectedNode || prioritySaving"
+        aria-label="Rename selected file or folder"
+        @click="openRenameDialog()"
+      >
+        <Edit3 :size="15" />Rename
+      </button>
     </div>
     <div
       ref="scroller"
@@ -309,6 +409,39 @@ function priorityLabel(priority: number | null): string {
         </div>
       </div>
     </div>
+    <AppDialog
+      :open="renameTarget !== null"
+      :title="`Rename ${renameTarget?.kind ?? 'item'}`"
+      description="Change this item’s name. Its parent path stays unchanged."
+      fullscreen-mobile
+      @update:open="!$event && closeRenameDialog()"
+    >
+      <form id="file-tree-rename-form" class="rename-form" @submit.prevent="submitRename">
+        <label for="file-tree-rename-name">New name</label>
+        <input
+          id="file-tree-rename-name"
+          v-model="renameName"
+          class="field"
+          maxlength="255"
+          required
+          autofocus
+        />
+        <p v-if="renameError" class="rename-error" role="alert">{{ renameError }}</p>
+      </form>
+      <template #footer>
+        <button class="btn" type="button" :disabled="renameWorking" @click="closeRenameDialog">
+          Cancel
+        </button>
+        <button
+          class="btn btn-primary"
+          type="submit"
+          form="file-tree-rename-form"
+          :disabled="renameWorking"
+        >
+          <LoaderCircle v-if="renameWorking" class="spin" :size="16" />Rename
+        </button>
+      </template>
+    </AppDialog>
   </div>
 </template>
 
@@ -352,6 +485,23 @@ function priorityLabel(priority: number | null): string {
   background: rgb(var(--color-surface));
   color: inherit;
   padding: 0 7px;
+}
+.file-toolbar > .btn {
+  min-height: 36px;
+  white-space: nowrap;
+}
+.rename-form {
+  display: grid;
+  gap: 7px;
+}
+.rename-form label {
+  font-size: 11px;
+  font-weight: 650;
+}
+.rename-error {
+  margin: 0;
+  color: rgb(var(--color-danger));
+  font-size: 11px;
 }
 .file-scroller {
   min-height: 0;
@@ -401,7 +551,7 @@ function priorityLabel(priority: number | null): string {
   width: 20px;
 }
 .folder-icon {
-  color: rgb(var(--color-warning));
+  color: rgb(var(--color-warning-foreground));
 }
 .file-icon {
   color: rgb(var(--color-muted));

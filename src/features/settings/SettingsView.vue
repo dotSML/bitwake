@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { AlertTriangle, Check, LoaderCircle, Search, ShieldAlert } from 'lucide-vue-next'
 import { computed, onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useApi } from '@/app/providers/api'
 import { useNotificationsStore } from '@/stores/notifications'
 import {
@@ -11,10 +12,12 @@ import {
 import RouteScaffold from '@/ui/components/RouteScaffold.vue'
 import MediaPlacementSettings from './MediaPlacementSettings.vue'
 import { settingsSchema, type SettingDefinition, type SettingsSection } from './settingsSchema'
+import type { ApplicationLocalePreference } from '@/i18n'
 
 type SettingsNavigationSection = SettingsSection | 'Media Placement' | 'Interface'
 
 const api = useApi()
+const { t } = useI18n()
 const ui = usePreferencesStore()
 const notifications = useNotificationsStore()
 const serverValues = ref<Record<string, unknown>>({})
@@ -42,6 +45,10 @@ const sections: SettingsNavigationSection[] = [
   'Media Placement',
   'Interface'
 ]
+
+function sectionLabel(section: SettingsNavigationSection): string {
+  return section === 'Interface' ? t('settings.interface') : section
+}
 const shareLimitPairs = [
   { enabled: 'max_ratio_enabled', value: 'max_ratio', defaultValue: 1 },
   { enabled: 'max_seeding_time_enabled', value: 'max_seeding_time', defaultValue: 60 },
@@ -379,10 +386,7 @@ onMounted(() => void load())
 </script>
 
 <template>
-  <RouteScaffold
-    title="Settings"
-    description="qBittorrent server preferences and this WebUI's interface settings."
-  >
+  <RouteScaffold :title="t('settings.title')" :description="t('settings.description')">
     <template #actions
       ><button
         v-if="activeSection !== 'Media Placement'"
@@ -412,7 +416,7 @@ onMounted(() => void load())
           :class="{ active: activeSection === section && !search }"
           @click="selectSection(section)"
         >
-          {{ section }}
+          {{ sectionLabel(section) }}
         </button>
       </aside>
       <main class="settings-content">
@@ -422,29 +426,48 @@ onMounted(() => void load())
         <MediaPlacementSettings v-else-if="activeSection === 'Media Placement' && !search" />
         <template v-else-if="activeSection === 'Interface' && !search">
           <header>
-            <h2>NeoTorrent interface</h2>
-            <p>These preferences affect only this Alternative WebUI.</p>
+            <h2>{{ t('settings.interfaceTitle') }}</h2>
+            <p>{{ t('settings.interfaceDescription') }}</p>
           </header>
           <div class="setting-list">
             <label class="setting-row"
               ><span
-                ><strong>Theme</strong
-                ><small>Choose a light, dark, or operating-system theme.</small></span
+                ><strong>{{ t('settings.language') }}</strong
+                ><small>{{ t('settings.languageHelp') }}</small></span
+              ><select
+                id="interface-language"
+                :value="ui.value.locale"
+                @change="
+                  ui.patch({
+                    locale: ($event.target as HTMLSelectElement)
+                      .value as ApplicationLocalePreference
+                  })
+                "
+              >
+                <option value="system">{{ t('settings.system') }}</option>
+                <option value="en">{{ t('settings.english') }}</option>
+                <option value="et">{{ t('settings.estonian') }}</option>
+              </select></label
+            >
+            <label class="setting-row"
+              ><span
+                ><strong>{{ t('settings.theme') }}</strong
+                ><small>{{ t('settings.themeHelp') }}</small></span
               ><select
                 :value="ui.value.theme"
                 @change="
                   ui.patch({ theme: ($event.target as HTMLSelectElement).value as ThemePreference })
                 "
               >
-                <option value="system">System</option>
-                <option value="light">Light</option>
-                <option value="dark">Dark</option>
+                <option value="system">{{ t('settings.system') }}</option>
+                <option value="light">{{ t('settings.light') }}</option>
+                <option value="dark">{{ t('settings.dark') }}</option>
               </select></label
             >
             <label class="setting-row"
               ><span
-                ><strong>Desktop density</strong
-                ><small>Controls torrent table row height.</small></span
+                ><strong>{{ t('settings.desktopDensity') }}</strong
+                ><small>{{ t('settings.desktopDensityHelp') }}</small></span
               ><select
                 :value="ui.value.density"
                 @change="
@@ -453,15 +476,15 @@ onMounted(() => void load())
                   })
                 "
               >
-                <option value="comfortable">Comfortable</option>
-                <option value="compact">Compact</option>
-                <option value="extra-compact">Extra compact</option>
+                <option value="comfortable">{{ t('settings.comfortable') }}</option>
+                <option value="compact">{{ t('settings.compact') }}</option>
+                <option value="extra-compact">{{ t('settings.extraCompact') }}</option>
               </select></label
             >
             <label class="setting-row"
               ><span
-                ><strong>Mobile density</strong
-                ><small>Compact modes preserve minimum touch target sizes.</small></span
+                ><strong>{{ t('settings.mobileDensity') }}</strong
+                ><small>{{ t('settings.mobileDensityHelp') }}</small></span
               ><select
                 :value="ui.value.mobileDensity"
                 @change="
@@ -470,15 +493,15 @@ onMounted(() => void load())
                   })
                 "
               >
-                <option value="comfortable">Comfortable</option>
-                <option value="compact">Compact</option>
-                <option value="extra-compact">Extra compact</option>
+                <option value="comfortable">{{ t('settings.comfortable') }}</option>
+                <option value="compact">{{ t('settings.compact') }}</option>
+                <option value="extra-compact">{{ t('settings.extraCompact') }}</option>
               </select></label
             >
             <label class="setting-row"
               ><span
-                ><strong>Live refresh interval</strong
-                ><small>One second is recommended on the torrent screen.</small></span
+                ><strong>{{ t('settings.refreshInterval') }}</strong
+                ><small>{{ t('settings.refreshIntervalHelp') }}</small></span
               ><select
                 :value="ui.value.pollingInterval"
                 @change="
@@ -488,13 +511,14 @@ onMounted(() => void load())
                   })
                 "
               >
-                <option :value="1000">1 second</option>
-                <option :value="2000">2 seconds</option>
-                <option :value="5000">5 seconds</option>
+                <option :value="1000">{{ t('settings.oneSecond') }}</option>
+                <option :value="2000">{{ t('settings.twoSeconds') }}</option>
+                <option :value="5000">{{ t('settings.fiveSeconds') }}</option>
               </select></label
             >
             <label class="setting-row"
-              ><span><strong>Transfer units</strong></span
+              ><span
+                ><strong>{{ t('settings.transferUnits') }}</strong></span
               ><select
                 :value="ui.value.speedUnit"
                 @change="
@@ -503,8 +527,8 @@ onMounted(() => void load())
                   })
                 "
               >
-                <option value="binary">Binary (MiB/s)</option>
-                <option value="decimal">Decimal (MB/s)</option>
+                <option value="binary">{{ t('settings.binaryUnits') }}</option>
+                <option value="decimal">{{ t('settings.decimalUnits') }}</option>
               </select></label
             >
           </div>
@@ -700,9 +724,9 @@ onMounted(() => void load())
   display: flex;
   align-items: center;
   gap: 8px;
-  border-bottom: 1px solid rgb(var(--color-warning) / 0.4);
+  border-bottom: 1px solid rgb(var(--color-warning-foreground) / 0.65);
   background: rgb(var(--color-warning) / 0.1);
-  color: rgb(var(--color-warning));
+  color: rgb(var(--color-warning-foreground));
   padding: 9px 16px;
   font-size: 12px;
 }

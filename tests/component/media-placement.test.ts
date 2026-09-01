@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { DirectoryEntry } from '@/api/app/appApi'
 import AddTorrentDialog from '@/features/add-torrent/AddTorrentDialog.vue'
 import MediaDirectoryPicker from '@/features/media-placement/components/MediaDirectoryPicker.vue'
+import ExistingFolderSuggestions from '@/features/media-placement/components/ExistingFolderSuggestions.vue'
 import MediaPathPreview from '@/features/media-placement/components/MediaPathPreview.vue'
 import { useMediaPlacementStore } from '@/features/media-placement/stores/mediaPlacement'
 import SettingsView from '@/features/settings/SettingsView.vue'
@@ -38,6 +39,30 @@ afterEach(() => {
 })
 
 describe('Media Placement UI', () => {
+  it('discovers a shallow bounded set of existing destinations and requires an explicit choice', async () => {
+    const context = createTestContext()
+    vi.spyOn(context.api.app, 'directoryContent').mockResolvedValue([
+      '/data/movies/Dune (1984)',
+      '/data/movies/Dune (2021)',
+      '/data/movies/Unrelated'
+    ])
+    const wrapper = await mountWithContext(ExistingFolderSuggestions, context, {
+      props: { root: '/data/movies', title: 'Dune', year: 2021 }
+    })
+
+    await wrapper.get('.discover-folders').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.emitted('select')).toBeUndefined()
+    expect(wrapper.text()).toContain('Dune (2021)')
+    expect(wrapper.text()).not.toContain('Unrelated')
+    const choice = wrapper
+      .findAll('li button')
+      .find((candidate) => candidate.text().includes('Dune (2021)'))!
+    await choice.trigger('click')
+    expect(wrapper.emitted('select')).toEqual([['/data/movies/Dune (2021)']])
+  })
+
   it('renders untrusted preview paths and observations without bidi or line controls', async () => {
     const context = createTestContext()
     const wrapper = await mountWithContext(MediaPathPreview, context, {
@@ -1076,6 +1101,27 @@ describe('Media Placement UI', () => {
       tvRoot: '/data/tv-shows',
       moviesRoot: ''
     })
+  })
+
+  it('rejects equal or nested TV and Movies roots', async () => {
+    const context = assistContext(false)
+    vi.spyOn(context.api.app, 'preferences').mockResolvedValue({})
+    const wrapper = await mountWithContext(SettingsView, context, { attachTo: document.body })
+    await flushPromises()
+    await wrapper
+      .findAll<HTMLButtonElement>('.settings-nav > button')
+      .find((candidate) => candidate.text() === 'Media Placement')!
+      .trigger('click')
+    await nextTick()
+
+    await wrapper.get('#media-moviesRoot').setValue('/data/tv-shows/movies')
+
+    expect(wrapper.text()).toContain(
+      'TV and Movies roots must be separate, non-nested directories.'
+    )
+    expect(
+      wrapper.get<HTMLButtonElement>('.placement-settings footer button').element.disabled
+    ).toBe(true)
   })
 
   it('locks Media Placement controls while a save is in flight', async () => {

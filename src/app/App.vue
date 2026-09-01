@@ -6,12 +6,14 @@ import { usePreferencesStore } from '@/stores/preferences'
 import { useMediaPlacementStore } from '@/features/media-placement/stores/mediaPlacement'
 import { useSessionStore } from '@/stores/session'
 import { useTorrentsStore } from '@/stores/torrents'
+import { useOperationsHistoryStore } from '@/stores/operationsHistory'
 
 const session = useSessionStore()
 const torrents = useTorrentsStore()
 const preferences = usePreferencesStore()
 const mediaPlacement = useMediaPlacementStore()
 const lifecycle = useSessionLifecycle()
+const operationsHistory = useOperationsHistoryStore()
 
 const retryDelays = [1_000, 2_000, 4_000, 8_000, 15_000] as const
 const retryInSeconds = ref<number | null>(null)
@@ -92,6 +94,11 @@ watch(
     if (status === 'authenticated') void mediaPlacement.load()
   },
   { immediate: true }
+)
+
+watch(
+  () => session.privateStateEpoch,
+  () => operationsHistory.clear()
 )
 
 onMounted(() => {

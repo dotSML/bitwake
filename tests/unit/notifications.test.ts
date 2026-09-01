@@ -38,4 +38,37 @@ describe('notifications store', () => {
     expect(notifications.items).toHaveLength(0)
     expect(vi.getTimerCount()).toBe(0)
   })
+
+  it('pauses dismissal while a notification is being read and resumes with the remainder', () => {
+    const notifications = useNotificationsStore()
+    const id = notifications.push('Read this message.', 'info', 4_500)
+
+    vi.advanceTimersByTime(3_000)
+    notifications.pause(id)
+    vi.advanceTimersByTime(10_000)
+    expect(notifications.items).toHaveLength(1)
+
+    notifications.resume(id)
+    vi.advanceTimersByTime(1_499)
+    expect(notifications.items).toHaveLength(1)
+    vi.advanceTimersByTime(1)
+    expect(notifications.items).toHaveLength(0)
+  })
+
+  it('stays paused until both pointer and focus interactions have ended', () => {
+    const notifications = useNotificationsStore()
+    const id = notifications.push('Read this message.', 'info', 2_000)
+
+    notifications.pause(id, 'pointer')
+    notifications.pause(id, 'focus')
+    notifications.resume(id, 'pointer')
+    vi.advanceTimersByTime(5_000)
+    expect(notifications.items).toHaveLength(1)
+
+    notifications.resume(id, 'focus')
+    vi.advanceTimersByTime(1_999)
+    expect(notifications.items).toHaveLength(1)
+    vi.advanceTimersByTime(1)
+    expect(notifications.items).toHaveLength(0)
+  })
 })

@@ -15,6 +15,7 @@
   --color-accent-soft: 219 234 254;
   --color-positive: 21 128 61;
   --color-warning: 202 138 4;
+  --color-warning-foreground: 146 64 14;
   --color-danger: 220 38 38;
   --shadow-float: 0 16px 40px rgb(15 23 42 / 0.16);
   color-scheme: light;
@@ -43,6 +44,7 @@
   --color-accent-soft: 30 58 102;
   --color-positive: 74 222 128;
   --color-warning: 250 204 21;
+  --color-warning-foreground: 253 224 71;
   --color-danger: 248 113 113;
   --shadow-float: 0 18px 48px rgb(0 0 0 / 0.42);
   color-scheme: dark;
@@ -58,6 +60,7 @@ body,
   width: 100%;
   min-width: 320px;
   height: 100%;
+  height: 100dvh;
   margin: 0;
   overflow: hidden;
 }

@@ -144,7 +144,7 @@ const placementWarnings = computed(() => {
 }
 .placement-warning {
   flex: 0 0 auto;
-  color: rgb(var(--color-warning));
+  color: rgb(var(--color-warning-foreground));
 }
 .row-stats,
 .row-foot {

@@ -1,6 +1,9 @@
 import { z } from 'zod'
 import { deploymentMode as currentDeploymentMode, type DeploymentMode } from '@/config/deployment'
-import { isAbsoluteMediaPath } from '@/features/media-placement/domain/pathUtils'
+import {
+  isAbsoluteMediaPath,
+  mediaLibraryRootsOverlap
+} from '@/features/media-placement/domain/pathUtils'
 import { containsControlCharacters } from '@/features/media-placement/domain/textSafety'
 
 export type MediaPlacementMode = 'off' | 'assist'
@@ -67,6 +70,18 @@ const runtimeConfigSchema = z
       })
       .strict()
       .superRefine((config, context) => {
+        if (mediaLibraryRootsOverlap(config.tvRoot, config.moviesRoot)) {
+          context.addIssue({
+            code: 'custom',
+            path: ['tvRoot'],
+            message: 'TV and Movies roots must be separate, non-nested directories.'
+          })
+          context.addIssue({
+            code: 'custom',
+            path: ['moviesRoot'],
+            message: 'TV and Movies roots must be separate, non-nested directories.'
+          })
+        }
         if (config.mode !== 'assist' || !config.locked) return
         if (!config.tvRoot) {
           context.addIssue({ code: 'custom', path: ['tvRoot'], message: 'Required when locked.' })

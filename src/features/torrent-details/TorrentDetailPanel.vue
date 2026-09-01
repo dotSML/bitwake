@@ -27,6 +27,7 @@ import {
   type TorrentDetailTab
 } from '@/domains/torrents/detailTabs'
 import { torrentStateLabel } from '@/domains/torrents/state'
+import { validatePeerEndpoints } from '@/domains/peers/peerEndpoint'
 import { detectExistingPlacementWarnings } from '@/features/media-placement/domain/detectExistingPlacementWarnings'
 import { isPathWithinRoot } from '@/features/media-placement/domain/pathUtils'
 import { useMediaPlacementStore } from '@/features/media-placement/stores/mediaPlacement'
@@ -39,6 +40,7 @@ import {
   formatDuration,
   formatEta,
   formatLimit,
+  formatNumber,
   formatRatio,
   formatSpeed,
   formatTimestamp
@@ -88,7 +90,13 @@ const endpointDialog = ref<{
 const endpointValue = ref('')
 const endpointError = ref<string | null>(null)
 const endpointWorking = ref(false)
+const reannouncingTracker = ref<string | null>(null)
+const peerDialogOpen = ref(false)
+const peerValue = ref('')
+const peerError = ref<string | null>(null)
+const peerWorking = ref(false)
 const torrent = computed(() => torrents.byHash.get(props.hash))
+const filesAvailable = computed(() => fileEvidenceHash.value === props.hash)
 const placementWarnings = computed(() => {
   const item = torrent.value
   const config = mediaPlacement.config
@@ -175,7 +183,10 @@ const overviewSections = computed(() => {
         ['Info hash v2', item.infohash_v2 ?? 'Not available'],
         ['Private', item.private ? 'Yes' : 'No'],
         ['Piece size', formatBytes(item.piece_size ?? details?.piece_size)],
-        ['Pieces', details?.pieces_num?.toLocaleString() ?? 'Unknown'],
+        [
+          'Pieces',
+          details?.pieces_num === undefined ? 'Unknown' : formatNumber(details.pieces_num)
+        ],
         ['Created by', details?.created_by ?? 'Unknown']
       ]
     }
@@ -479,6 +490,74 @@ async function submitEndpointDialog(): Promise<void> {
   }
 }
 
+function canManageTracker(tracker: Tracker): boolean {
+  return tracker.tier >= 0 && !tracker.url.startsWith('**')
+}
+
+async function reannounceTracker(tracker: Tracker): Promise<void> {
+  if (
+    reannouncingTracker.value ||
+    !canManageTracker(tracker) ||
+    !session.capabilities?.has('selectiveTrackerReannounce')
+  )
+    return
+  reannouncingTracker.value = tracker.url
+  try {
+    await api.torrents.reannounceTrackers([props.hash], [tracker.url])
+    notifications.push('Tracker reannounce requested.', 'success')
+  } catch (cause) {
+    notifications.push(
+      cause instanceof Error ? cause.message : 'The tracker could not be reannounced.',
+      'error'
+    )
+  } finally {
+    reannouncingTracker.value = null
+  }
+}
+
+function openPeerDialog(): void {
+  peerDialogOpen.value = true
+  peerValue.value = ''
+  peerError.value = null
+}
+
+function closePeerDialog(): void {
+  if (peerWorking.value) return
+  peerDialogOpen.value = false
+  peerError.value = null
+}
+
+async function submitPeers(): Promise<void> {
+  if (peerWorking.value) return
+  const validation = validatePeerEndpoints(peerValue.value)
+  peerError.value = validation.error
+  if (validation.error) return
+
+  peerWorking.value = true
+  try {
+    const result = await api.torrents.addPeers([props.hash], validation.endpoints)
+    const counts = Object.values(result).reduce(
+      (total, value) => ({
+        added: total.added + value.added,
+        failed: total.failed + value.failed
+      }),
+      { added: 0, failed: 0 }
+    )
+    peerDialogOpen.value = false
+    notifications.push(
+      counts.failed
+        ? `${counts.added} peer${counts.added === 1 ? '' : 's'} added; ${counts.failed} failed.`
+        : `${counts.added} peer${counts.added === 1 ? '' : 's'} added.`,
+      counts.failed ? 'warning' : 'success'
+    )
+  } catch (cause) {
+    peerError.value = cause instanceof Error ? cause.message : 'The peers could not be added.'
+    notifications.push(peerError.value, 'error')
+  } finally {
+    peerWorking.value = false
+  }
+}
+
 async function banPeer(key: string, peer: Peer): Promise<void> {
   if (!peer.ip) {
     notifications.push('Only IP peers can be banned.', 'warning')
@@ -543,9 +622,11 @@ onBeforeUnmount(() => {
     <div class="detail-tabs" role="tablist" aria-label="Torrent detail sections">
       <button
         v-for="tab in torrentDetailTabs"
+        :id="`torrent-tab-${tab.id}-${hash}`"
         :key="tab.id"
         role="tab"
         type="button"
+        :aria-controls="`torrent-panel-${hash}`"
         :aria-selected="activeTab === tab.id"
         :tabindex="activeTab === tab.id ? 0 : -1"
         @click="selectTab(tab.id)"
@@ -554,11 +635,25 @@ onBeforeUnmount(() => {
         {{ tab.label }}
       </button>
     </div>
-    <div class="detail-body">
-      <div v-if="loading" class="detail-state" role="status">
+    <div
+      :id="`torrent-panel-${hash}`"
+      class="detail-body"
+      role="tabpanel"
+      :aria-labelledby="`torrent-tab-${activeTab}-${hash}`"
+      tabindex="0"
+    >
+      <div
+        v-if="loading && !(activeTab === 'files' && filesAvailable)"
+        class="detail-state"
+        role="status"
+      >
         <LoaderCircle class="spin" :size="20" />Loading details…
       </div>
-      <div v-else-if="error" class="detail-state error" role="alert">
+      <div
+        v-else-if="error && !(activeTab === 'files' && filesAvailable)"
+        class="detail-state error"
+        role="alert"
+      >
         <p>{{ error }}</p>
         <button class="btn" type="button" @click="loadTab"><RefreshCw :size="15" />Retry</button>
       </div>
@@ -602,7 +697,14 @@ onBeforeUnmount(() => {
           </section>
         </div>
       </template>
-      <FileTreeView v-else-if="activeTab === 'files'" :key="hash" :hash="hash" :files="files" />
+      <template v-else-if="activeTab === 'files'">
+        <div v-if="loading" class="sr-only" role="status">Refreshing torrent files…</div>
+        <div v-if="error" class="detail-state error" role="alert">
+          <p>{{ error }}</p>
+          <button class="btn" type="button" @click="loadTab"><RefreshCw :size="15" />Retry</button>
+        </div>
+        <FileTreeView :key="hash" :hash="hash" :files="files" @reload="loadTab" />
+      </template>
       <div v-else-if="activeTab === 'trackers'" class="data-view">
         <div class="data-toolbar">
           <button
@@ -633,6 +735,20 @@ onBeforeUnmount(() => {
             }}</span
             ><span class="row-buttons"
               ><button
+                v-if="
+                  canManageTracker(tracker) &&
+                  session.capabilities?.has('selectiveTrackerReannounce')
+                "
+                type="button"
+                :disabled="reannouncingTracker !== null"
+                :aria-label="`Reannounce tracker ${tracker.url}`"
+                title="Reannounce this tracker"
+                @click="reannounceTracker(tracker)"
+              >
+                <LoaderCircle v-if="reannouncingTracker === tracker.url" class="spin" :size="14" />
+                <RefreshCw v-else :size="14" /></button
+              ><button
+                v-if="canManageTracker(tracker)"
                 type="button"
                 :disabled="loading"
                 aria-label="Edit tracker"
@@ -640,6 +756,7 @@ onBeforeUnmount(() => {
               >
                 <Edit3 :size="14" /></button
               ><button
+                v-if="canManageTracker(tracker)"
                 type="button"
                 :disabled="loading"
                 aria-label="Remove tracker"
@@ -656,6 +773,11 @@ onBeforeUnmount(() => {
         class="data-view"
         :data-total-count="peers.length"
       >
+        <div class="data-toolbar">
+          <button class="btn" type="button" :disabled="loading" @click="openPeerDialog">
+            <Plus :size="15" />Add peers
+          </button>
+        </div>
         <div class="data-table">
           <div class="data-head peer-grid">
             <span>Address</span><span>Client</span><span>Country</span><span>Progress</span
@@ -793,6 +915,43 @@ onBeforeUnmount(() => {
         </button>
       </template>
     </AppDialog>
+    <AppDialog
+      :open="peerDialogOpen"
+      title="Add peers"
+      description="Enter one host:port or bracketed [IPv6]:port endpoint per line."
+      fullscreen-mobile
+      @update:open="!$event && closePeerDialog()"
+    >
+      <form id="torrent-peer-form" class="endpoint-form" @submit.prevent="submitPeers">
+        <label for="torrent-peer-value">
+          <span>Peer endpoints</span>
+          <textarea
+            id="torrent-peer-value"
+            v-model="peerValue"
+            class="field"
+            rows="6"
+            maxlength="16384"
+            placeholder="peer.example:6881&#10;[2001:db8::10]:6881"
+            required
+            autofocus
+          />
+        </label>
+        <p v-if="peerError" class="form-error" role="alert">{{ peerError }}</p>
+      </form>
+      <template #footer>
+        <button class="btn" type="button" :disabled="peerWorking" @click="closePeerDialog">
+          Cancel
+        </button>
+        <button
+          class="btn btn-primary"
+          type="submit"
+          form="torrent-peer-form"
+          :disabled="peerWorking"
+        >
+          <LoaderCircle v-if="peerWorking" class="spin" :size="16" />Add peers
+        </button>
+      </template>
+    </AppDialog>
   </section>
 </template>
 
@@ -809,7 +968,7 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: flex-start;
   gap: 9px;
-  border: 1px solid rgb(var(--color-warning) / 0.38);
+  border: 1px solid rgb(var(--color-warning-foreground) / 0.65);
   border-radius: 8px;
   background: rgb(var(--color-warning) / 0.08);
   margin-bottom: 12px;
@@ -817,7 +976,7 @@ onBeforeUnmount(() => {
 }
 .placement-alert > svg {
   flex: 0 0 auto;
-  color: rgb(var(--color-warning));
+  color: rgb(var(--color-warning-foreground));
 }
 .placement-alert strong {
   display: block;
@@ -1015,7 +1174,7 @@ onBeforeUnmount(() => {
   white-space: nowrap;
 }
 .tracker-grid {
-  grid-template-columns: minmax(220px, 1fr) 42px 50px 50px 110px 56px;
+  grid-template-columns: minmax(220px, 1fr) 42px 50px 50px 110px 84px;
 }
 .peer-grid {
   grid-template-columns: 150px 120px 80px 65px 90px 90px 30px;

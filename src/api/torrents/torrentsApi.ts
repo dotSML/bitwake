@@ -43,6 +43,8 @@ export interface AddTorrentOptions {
   firstLastPiecePrio?: boolean
 }
 
+export type AddPeersResult = Record<string, { added: number; failed: number }>
+
 function hashesValue(hashes: TorrentHashes): string {
   return hashes === 'all' ? 'all' : hashes.join('|')
 }
@@ -54,6 +56,13 @@ function hashesValue(hashes: TorrentHashes): string {
 function preserveWebSeedPercentEncoding(url: string): string {
   const canonicalUrl = new URL(url).href
   return canonicalUrl.replace(/%([0-9a-f]{2})/giu, '%25$1')
+}
+
+// qBittorrent decodes the form body and then decodes every pipe-delimited
+// tracker URL once more in removeTrackers/reannounce. Encode each URL before
+// the shared form encoder handles the complete field.
+function trackerUrlsValue(urls: readonly string[]): string {
+  return urls.map(encodeURIComponent).join('|')
 }
 
 function appendOptional(form: FormData, key: string, value: unknown): void {
@@ -181,6 +190,8 @@ export function createTorrentsApi(http: HttpClient) {
     recheck: (hashes: TorrentHashes, signal?: AbortSignal) => action('recheck', hashes, {}, signal),
     reannounce: (hashes: TorrentHashes, signal?: AbortSignal) =>
       action('reannounce', hashes, {}, signal),
+    reannounceTrackers: (hashes: TorrentHashes, urls: readonly string[], signal?: AbortSignal) =>
+      action('reannounce', hashes, { urls: trackerUrlsValue(urls) }, signal),
     increasePriority: (hashes: readonly string[], signal?: AbortSignal) =>
       action('increasePrio', hashes, {}, signal),
     decreasePriority: (hashes: readonly string[], signal?: AbortSignal) =>
@@ -252,7 +263,7 @@ export function createTorrentsApi(http: HttpClient) {
     removeTrackers: (hash: string, urls: readonly string[], signal?: AbortSignal) =>
       http.request<void>('torrents/removeTrackers', {
         method: 'POST',
-        body: { hash, urls: urls.map(encodeURIComponent).join('|') },
+        body: { hash, urls: trackerUrlsValue(urls) },
         response: 'empty',
         ...(signal ? { signal } : {})
       }),
@@ -282,7 +293,12 @@ export function createTorrentsApi(http: HttpClient) {
         ...(signal ? { signal } : {})
       }),
     addPeers: (hashes: TorrentHashes, peers: readonly string[], signal?: AbortSignal) =>
-      action('addPeers', hashes, { peers: peers.join('|') }, signal),
+      http.request<AddPeersResult>('torrents/addPeers', {
+        method: 'POST',
+        body: { hashes: hashesValue(hashes), peers: peers.join('|') },
+        response: 'json',
+        ...(signal ? { signal } : {})
+      }),
     filePriority: (
       hash: string,
       indexes: readonly number[],

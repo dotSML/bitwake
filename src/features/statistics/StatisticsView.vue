@@ -14,7 +14,7 @@ import { useApi } from '@/app/providers/api'
 import { useSessionStore } from '@/stores/session'
 import { useTorrentsStore } from '@/stores/torrents'
 import { useTransferStore } from '@/stores/transfer'
-import { formatBytes, formatDuration, formatRatio, formatSpeed } from '@/utils/format'
+import { formatBytes, formatDuration, formatNumber, formatRatio, formatSpeed } from '@/utils/format'
 import RouteScaffold from '@/ui/components/RouteScaffold.vue'
 import TransferGraph from './TransferGraph.vue'
 
@@ -66,12 +66,16 @@ const cards = computed(() => [
   },
   {
     label: 'DHT nodes',
-    value: state.value.dht_nodes?.toLocaleString() ?? 'Not available',
+    value:
+      state.value.dht_nodes === undefined ? 'Not available' : formatNumber(state.value.dht_nodes),
     icon: Network
   },
   {
     label: 'Connected peers',
-    value: state.value.total_peer_connections?.toLocaleString() ?? 'Not available',
+    value:
+      state.value.total_peer_connections === undefined
+        ? 'Not available'
+        : formatNumber(state.value.total_peer_connections),
     icon: Network
   },
   { label: 'Free disk space', value: formatBytes(state.value.free_space_on_disk), icon: HardDrive },

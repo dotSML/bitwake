@@ -233,6 +233,34 @@ describe('torrent mutation contracts', () => {
     expect(bodyAt(fetchMock, 0).get('urls')).toBe(joined)
   })
 
+  it('uses exact contracts for selective reannounce, peer addition, and content rename', async () => {
+    const { api, fetchMock } = setup()
+    const trackerUrls = ['https://tracker.test/a|b?x=%2F', 'udp://tracker.test:6969/announce']
+
+    await api.reannounceTrackers(['one', 'two'], trackerUrls)
+    await api.addPeers(['one'], ['peer.example:6881', '[2001:db8::1]:51413'])
+    await api.renameFile('one', 'Season 1/old.mkv', 'Season 1/new.mkv')
+    await api.renameFolder('one', 'Season 1', 'Season One')
+
+    const expected = [
+      [
+        'torrents/reannounce',
+        { hashes: 'one|two', urls: trackerUrls.map(encodeURIComponent).join('|') }
+      ],
+      ['torrents/addPeers', { hashes: 'one', peers: 'peer.example:6881|[2001:db8::1]:51413' }],
+      [
+        'torrents/renameFile',
+        { hash: 'one', oldPath: 'Season 1/old.mkv', newPath: 'Season 1/new.mkv' }
+      ],
+      ['torrents/renameFolder', { hash: 'one', oldPath: 'Season 1', newPath: 'Season One' }]
+    ] as const
+
+    expected.forEach(([route, fields], index) => {
+      expect(String(fetchMock.mock.calls[index]?.[0])).toBe(`https://example.test/api/v2/${route}`)
+      expect(Object.fromEntries(bodyAt(fetchMock, index))).toEqual(fields)
+    })
+  })
+
   it('preserves encoded Web Seed octets across qBittorrent controller decoding', async () => {
     const { api, fetchMock } = setup()
     const original = 'https://cdn.test/files/a%2Fb?q=one%20two&next=https%3A%2F%2Forigin.test%2Fx'

@@ -1,9 +1,13 @@
 <script setup lang="ts">
 import { Check, FolderCheck, LoaderCircle, LockKeyhole } from 'lucide-vue-next'
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { isApiError } from '@/api/core/errors'
 import { useApi } from '@/app/providers/api'
-import { isAbsoluteMediaPath } from '@/features/media-placement/domain/pathUtils'
+import {
+  isAbsoluteMediaPath,
+  mediaLibraryRootsOverlap
+} from '@/features/media-placement/domain/pathUtils'
 import { containsControlCharacters } from '@/features/media-placement/domain/textSafety'
 import {
   useMediaPlacementStore,
@@ -17,6 +21,7 @@ type FieldKey = RootKey | CategoryKey
 type TestState = 'idle' | 'testing' | 'reachable' | 'empty' | 'not-found' | 'denied' | 'unavailable'
 
 const api = useApi()
+const { t } = useI18n()
 const placement = useMediaPlacementStore()
 const notifications = useNotificationsStore()
 const draft = reactive<MediaPlacementSettings>({ ...placement.config })
@@ -38,20 +43,33 @@ const errors = computed(() => {
     const rawPath = draft[key]
     const path = rawPath.trim()
     if (rawPath.length > 4096) {
-      result[key] = 'Use no more than 4,096 characters.'
+      result[key] = t('mediaPlacement.maxCharacters')
     } else if (containsControlCharacters(rawPath)) {
-      result[key] = 'Paths cannot contain control, direction, or line-separator characters.'
+      result[key] = t('mediaPlacement.invalidPathCharacters')
     } else if (path && !isAbsoluteHostPath(path)) {
-      result[key] = 'Enter an absolute path visible to qBittorrent.'
+      result[key] = t('mediaPlacement.absolutePath')
     }
   }
   for (const key of ['tvCategory', 'movieCategory'] as const) {
     const category = draft[key]
     if (category.length > 4096) {
-      result[key] = 'Use no more than 4,096 characters.'
+      result[key] = t('mediaPlacement.maxCharacters')
     } else if (containsControlCharacters(category)) {
-      result[key] = 'Categories cannot contain control, direction, or line-separator characters.'
+      result[key] = t('mediaPlacement.invalidCategoryCharacters')
     }
+  }
+  const tvRoot = draft.tvRoot.trim()
+  const moviesRoot = draft.moviesRoot.trim()
+  if (
+    tvRoot &&
+    moviesRoot &&
+    !result.tvRoot &&
+    !result.moviesRoot &&
+    mediaLibraryRootsOverlap(tvRoot, moviesRoot)
+  ) {
+    const message = t('mediaPlacement.overlappingRoots')
+    result.tvRoot = message
+    result.moviesRoot = message
   }
   return result
 })
@@ -60,19 +78,39 @@ const changed = computed(() =>
     (key) => draft[key] !== placement.config[key]
   )
 )
+const mediaRoots = computed(
+  () =>
+    [
+      {
+        key: 'tvRoot',
+        label: t('mediaPlacement.tvRoot'),
+        help: t('mediaPlacement.tvRootHelp')
+      },
+      {
+        key: 'moviesRoot',
+        label: t('mediaPlacement.moviesRoot'),
+        help: t('mediaPlacement.moviesRootHelp')
+      },
+      {
+        key: 'browseRoot',
+        label: t('mediaPlacement.browseRoot'),
+        help: t('mediaPlacement.browseRootHelp')
+      }
+    ] as const
+)
 
 function isAbsoluteHostPath(path: string): boolean {
   return isAbsoluteMediaPath(path)
 }
 
 function testLabel(state: TestState): string {
-  if (state === 'testing') return 'Testing…'
-  if (state === 'reachable') return 'Reachable'
-  if (state === 'empty') return 'Empty or not readable'
-  if (state === 'not-found') return 'Not found or inaccessible'
-  if (state === 'denied') return 'Request denied'
-  if (state === 'unavailable') return 'Directory API unavailable'
-  return 'Test access'
+  if (state === 'testing') return t('mediaPlacement.testing')
+  if (state === 'reachable') return t('mediaPlacement.reachable')
+  if (state === 'empty') return t('mediaPlacement.empty')
+  if (state === 'not-found') return t('mediaPlacement.notFound')
+  if (state === 'denied') return t('mediaPlacement.denied')
+  if (state === 'unavailable') return t('mediaPlacement.unavailable')
+  return t('mediaPlacement.testAccess')
 }
 
 async function testRoot(key: RootKey): Promise<void> {
@@ -110,10 +148,10 @@ async function save(): Promise<void> {
   saving.value = true
   try {
     await placement.save({ ...draft })
-    notifications.push('Media Placement settings saved.', 'success')
+    notifications.push(t('mediaPlacement.saved'), 'success')
   } catch (cause) {
     notifications.push(
-      cause instanceof Error ? cause.message : 'Media Placement settings could not be saved.',
+      cause instanceof Error ? cause.message : t('mediaPlacement.saveError'),
       'error'
     )
   } finally {
@@ -136,56 +174,40 @@ onBeforeUnmount(() => {
 <template>
   <header class="placement-header">
     <div>
-      <h2>Media Placement</h2>
-      <p>Guide TV shows and movies into predictable Jellyfin library folders.</p>
+      <h2>{{ t('mediaPlacement.title') }}</h2>
+      <p>{{ t('mediaPlacement.description') }}</p>
     </div>
     <span v-if="placement.config.locked" class="lock-badge"
-      ><LockKeyhole :size="14" />Managed by deployment</span
+      ><LockKeyhole :size="14" />{{ t('mediaPlacement.managed') }}</span
     >
   </header>
 
   <div v-if="placement.warning" class="configuration-warning" role="alert">
     {{ placement.warning }}
   </div>
+  <div v-if="placement.savedLoadError" class="configuration-warning" role="alert">
+    {{ placement.savedLoadError }}
+    <button class="btn" type="button" @click="placement.load">
+      {{ t('mediaPlacement.retryLoading') }}
+    </button>
+  </div>
 
   <div v-if="placement.loading" class="placement-loading" role="status">
-    <LoaderCircle class="spin" :size="18" />Loading Media Placement settings…
+    <LoaderCircle class="spin" :size="18" />{{ t('mediaPlacement.loading') }}
   </div>
   <div v-else class="placement-settings">
     <label class="setting-row">
       <span
-        ><strong>Mode</strong
-        ><small
-          >Off keeps the generic Add Torrent form. Assist adds media-aware destinations.</small
-        ></span
+        ><strong>{{ t('mediaPlacement.mode') }}</strong
+        ><small>{{ t('mediaPlacement.modeHelp') }}</small></span
       >
       <select v-model="draft.mode" :disabled="placement.config.locked || saving">
-        <option value="off">Off</option>
-        <option value="assist">Assist</option>
+        <option value="off">{{ t('mediaPlacement.off') }}</option>
+        <option value="assist">{{ t('mediaPlacement.assist') }}</option>
       </select>
     </label>
 
-    <div
-      v-for="root in [
-        {
-          key: 'tvRoot',
-          label: 'TV root',
-          help: 'Series folders are created beneath this qBittorrent-side path.'
-        },
-        {
-          key: 'moviesRoot',
-          label: 'Movies root',
-          help: 'One folder per movie is created beneath this path.'
-        },
-        {
-          key: 'browseRoot',
-          label: 'Directory browser root',
-          help: 'Initial location for the qBittorrent folder picker.'
-        }
-      ] as const"
-      :key="root.key"
-      class="setting-row root-setting"
-    >
+    <div v-for="root in mediaRoots" :key="root.key" class="setting-row root-setting">
       <label :for="`media-${root.key}`"
         ><strong>{{ root.label }}</strong
         ><small>{{ root.help }}</small></label
@@ -199,6 +221,7 @@ onBeforeUnmount(() => {
           spellcheck="false"
           autocomplete="off"
           :aria-invalid="Boolean(errors[root.key])"
+          :aria-describedby="errors[root.key] ? `media-${root.key}-error` : undefined"
           placeholder="/data"
           @input="cancelRootTest(root.key)"
         />
@@ -216,20 +239,21 @@ onBeforeUnmount(() => {
           <LoaderCircle v-if="tests[root.key] === 'testing'" class="spin" :size="15" />
           <FolderCheck v-else :size="15" />{{ testLabel(tests[root.key]) }}
         </button>
-        <small v-if="errors[root.key]" class="field-error">{{ errors[root.key] }}</small>
+        <small v-if="errors[root.key]" :id="`media-${root.key}-error`" class="field-error">{{
+          errors[root.key]
+        }}</small>
         <small
           v-else-if="tests[root.key] !== 'idle' && tests[root.key] !== 'testing'"
           class="test-result"
-          >{{ testLabel(tests[root.key]) }}. An empty qBittorrent result cannot distinguish an empty
-          directory from one it cannot read, and never proves the directory is writable.</small
+          >{{ testLabel(tests[root.key]) }}. {{ t('mediaPlacement.resultCaveat') }}</small
         >
       </div>
     </div>
 
     <div class="setting-row category-setting">
       <label for="media-tvCategory"
-        ><strong>TV category</strong
-        ><small>Optional existing category suggested for TV torrents.</small></label
+        ><strong>{{ t('mediaPlacement.tvCategory') }}</strong
+        ><small>{{ t('mediaPlacement.tvCategoryHelp') }}</small></label
       >
       <div class="category-control">
         <input
@@ -247,8 +271,8 @@ onBeforeUnmount(() => {
     </div>
     <div class="setting-row category-setting">
       <label for="media-movieCategory"
-        ><strong>Movie category</strong
-        ><small>Optional existing category suggested for movie torrents.</small></label
+        ><strong>{{ t('mediaPlacement.movieCategory') }}</strong
+        ><small>{{ t('mediaPlacement.movieCategoryHelp') }}</small></label
       >
       <div class="category-control">
         <input
@@ -267,25 +291,26 @@ onBeforeUnmount(() => {
 
     <div v-if="placement.config.locked" class="locked-explanation">
       <LockKeyhole :size="17" />
-      <span
-        >The library settings are managed by this deployment. Manual Path remains available in Add
-        Torrent and Set Location.</span
-      >
+      <span>{{ t('mediaPlacement.lockedExplanation') }}</span>
     </div>
     <p class="manual-explanation">
-      Manual paths remain available in Assist mode. NeoTorrent will warn about unusual placement but
-      will not prevent an acknowledged custom destination. Paths refer to the qBittorrent host or
-      container, not this browser device.
+      {{ t('mediaPlacement.manualExplanation') }}
     </p>
     <footer>
       <button
         class="btn btn-primary"
         type="button"
-        :disabled="placement.config.locked || saving || !changed || Object.keys(errors).length > 0"
+        :disabled="
+          placement.config.locked ||
+          Boolean(placement.savedLoadError) ||
+          saving ||
+          !changed ||
+          Object.keys(errors).length > 0
+        "
         @click="save"
       >
         <LoaderCircle v-if="saving" class="spin" :size="16" /><Check v-else :size="16" />
-        {{ saving ? 'Saving…' : 'Save Media Placement' }}
+        {{ saving ? t('mediaPlacement.saving') : t('mediaPlacement.save') }}
       </button>
     </footer>
   </div>
@@ -324,7 +349,7 @@ h2 {
   display: flex;
   gap: 8px;
   background: rgb(var(--color-warning) / 0.1);
-  color: rgb(var(--color-warning));
+  color: rgb(var(--color-warning-foreground));
   padding: 10px 18px;
   font-size: 11px;
   line-height: 1.45;

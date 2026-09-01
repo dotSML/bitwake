@@ -21,4 +21,22 @@ describe('Media Placement saved settings', () => {
       movieCategory: ''
     })
   })
+
+  it.each([
+    ['/data/media', '/data/media'],
+    ['/data/media', '/data/media/movies'],
+    ['C:\\Media', 'c:\\media\\Movies'],
+    ['\\\\NAS\\Media', '\\\\nas\\media\\Movies']
+  ])('fails closed for overlapping library roots %s and %s', (tvRoot, moviesRoot) => {
+    expect(
+      sanitizeMediaPlacementSettings({
+        mode: 'assist',
+        tvRoot,
+        moviesRoot,
+        browseRoot: '',
+        tvCategory: '',
+        movieCategory: ''
+      })
+    ).toMatchObject({ mode: 'off', tvRoot: '', moviesRoot: '' })
+  })
 })

@@ -272,6 +272,36 @@ describe('loadRuntimeMediaConfig', () => {
       })
     ],
     [
+      'equal TV and Movies roots',
+      jsonResponse({
+        mediaPlacement: {
+          ...OFF_RUNTIME_MEDIA_CONFIG,
+          tvRoot: '/data/media',
+          moviesRoot: '/data/media'
+        }
+      })
+    ],
+    [
+      'nested Windows library roots',
+      jsonResponse({
+        mediaPlacement: {
+          ...OFF_RUNTIME_MEDIA_CONFIG,
+          tvRoot: 'C:\\Media',
+          moviesRoot: 'c:\\media\\Movies'
+        }
+      })
+    ],
+    [
+      'nested UNC library roots',
+      jsonResponse({
+        mediaPlacement: {
+          ...OFF_RUNTIME_MEDIA_CONFIG,
+          tvRoot: '\\\\NAS\\Media',
+          moviesRoot: '\\\\nas\\media\\Movies'
+        }
+      })
+    ],
+    [
       'the entrypoint invalid-configuration sentinel',
       jsonResponse({ mediaPlacement: null, configurationError: true })
     ],

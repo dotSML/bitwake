@@ -17,6 +17,7 @@ export type Capability =
   | 'exportTorrent'
   | 'torrentShareLimitAction'
   | 'torrentComment'
+  | 'selectiveTrackerReannounce'
 
 interface CapabilityDefinition {
   minimumApi?: string
@@ -56,7 +57,11 @@ export const capabilityDefinitions: Readonly<Record<Capability, CapabilityDefini
     minimumApi: '2.12.0',
     description: 'Per-torrent share-limit actions'
   },
-  torrentComment: { minimumApi: '2.12.1', description: 'Editable torrent comments' }
+  torrentComment: { minimumApi: '2.12.1', description: 'Editable torrent comments' },
+  selectiveTrackerReannounce: {
+    minimumApi: '2.11.10',
+    description: 'Reannounce individual trackers'
+  }
 }
 
 export interface CapabilityRegistry {

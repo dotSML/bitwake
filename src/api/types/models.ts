@@ -209,8 +209,9 @@ export interface Tracker {
 }
 
 export interface Peer {
-  ip: string
-  port: number
+  // Web API 2.13+ may omit IP/port for anonymous-network peers (for example I2P).
+  ip?: string
+  port?: number
   client: string
   country: string
   country_code?: string
@@ -222,6 +223,8 @@ export interface Peer {
   uploaded: number
   connection?: string
   hostname?: string
+  host_name?: string
+  i2p_dest?: string
   relevance?: number
   [key: string]: unknown
 }

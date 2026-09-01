@@ -1,11 +1,15 @@
 <script setup lang="ts">
 import {
   Activity,
+  AlertTriangle,
   ChevronRight,
+  Edit3,
+  Download,
   FolderTree,
   Gauge,
   Hash,
   Info,
+  HeartPulse,
   LogOut,
   Logs,
   Moon,
@@ -18,12 +22,15 @@ import {
   WandSparkles
 } from 'lucide-vue-next'
 import { computed, ref } from 'vue'
+import { versionAtLeast } from '@/api/capabilities/versions'
+import type { Category } from '@/api/types/models'
 import { useApi } from '@/app/providers/api'
 import { useSessionLifecycle } from '@/app/session/sessionLifecycle'
 import { useNotificationsStore } from '@/stores/notifications'
 import { usePreferencesStore } from '@/stores/preferences'
 import { useSessionStore } from '@/stores/session'
 import { useTorrentsStore } from '@/stores/torrents'
+import { usePwaStore } from '@/stores/pwa'
 import AppDialog from '@/ui/primitives/AppDialog.vue'
 
 const api = useApi()
@@ -32,9 +39,15 @@ const torrents = useTorrentsStore()
 const preferences = usePreferencesStore()
 const notifications = useNotificationsStore()
 const lifecycle = useSessionLifecycle()
+const pwa = usePwaStore()
 const manager = ref<'categories' | 'tags' | null>(null)
 const newName = ref('')
 const savePath = ref('')
+const editingCategory = ref<Category | null>(null)
+const editCategorySavePath = ref('')
+const editCategoryWorking = ref(false)
+const editCategoryError = ref<string | null>(null)
+const editCategoryMoveAcknowledged = ref(false)
 type ConfirmationAction =
   { kind: 'shutdown' } | { kind: 'remove-item'; collection: 'categories' | 'tags'; name: string }
 const confirmation = ref<ConfirmationAction | null>(null)
@@ -54,6 +67,31 @@ const categoryRemovalImpact = computed(() => {
     affected: affected.length,
     autoManaged: affected.filter((torrent) => torrent.auto_tmm).length
   }
+})
+const categoryEditImpact = computed(() => {
+  const category = editingCategory.value
+  if (!category || editCategorySavePath.value === category.savePath) {
+    return { affected: 0, autoManaged: 0 }
+  }
+  const prefix = category.name + '/'
+  const affected = torrents.torrents.filter(
+    (torrent) => torrent.category === category.name || torrent.category.startsWith(prefix)
+  )
+  return {
+    affected: affected.length,
+    autoManaged: affected.filter((torrent) => torrent.auto_tmm).length
+  }
+})
+const categoryEditWouldEraseShareLimits = computed(() => {
+  const category = editingCategory.value
+  if (!category) return false
+  return (
+    !versionAtLeast(session.appVersion, '5.2.4') &&
+    ([category.ratio_limit, category.seeding_time_limit, category.inactive_seeding_time_limit].some(
+      (value) => value !== undefined && value !== -2
+    ) ||
+      (category.share_limit_action !== undefined && category.share_limit_action !== 'Default'))
+  )
 })
 const confirmationTitle = computed(() =>
   confirmation.value?.kind === 'shutdown' ? 'Shut down qBittorrent' : 'Remove item'
@@ -90,6 +128,12 @@ const links = [
   },
   { to: '/logs', label: 'Logs', description: 'Application and peer logs', icon: Logs },
   {
+    to: '/diagnostics',
+    label: 'Diagnostics',
+    description: 'System health and recent operations',
+    icon: HeartPulse
+  },
+  {
     to: '/settings',
     label: 'Settings',
     description: 'qBittorrent and interface settings',
@@ -113,6 +157,59 @@ function requestRemoveItem(name: string): void {
   confirmationError.value = null
   confirmationWorking.value = false
   categoryMoveAcknowledged.value = false
+}
+
+function openCategoryEditor(name: string): void {
+  const category = torrents.categories.get(name)
+  if (!category) return
+  editingCategory.value = { ...category, name }
+  editCategorySavePath.value = category.savePath ?? ''
+  editCategoryError.value = null
+  editCategoryWorking.value = false
+  editCategoryMoveAcknowledged.value = false
+}
+
+function closeCategoryEditor(): void {
+  if (editCategoryWorking.value) return
+  editingCategory.value = null
+  editCategoryError.value = null
+  editCategoryMoveAcknowledged.value = false
+}
+
+async function submitCategoryEdit(): Promise<void> {
+  const category = editingCategory.value
+  if (!category || editCategoryWorking.value) return
+  if (categoryEditWouldEraseShareLimits.value) {
+    editCategoryError.value =
+      'This qBittorrent version cannot preserve the category’s share limits through the Web API.'
+    return
+  }
+  if (editCategorySavePath.value === category.savePath) {
+    closeCategoryEditor()
+    return
+  }
+  if (categoryEditImpact.value.autoManaged > 0 && !editCategoryMoveAcknowledged.value) {
+    editCategoryError.value = 'Acknowledge the possible Automatic Torrent Management moves.'
+    return
+  }
+
+  editCategoryWorking.value = true
+  editCategoryError.value = null
+  try {
+    await api.collections.editCategory(category.name, {
+      savePath: editCategorySavePath.value,
+      ...(category.download_path !== undefined ? { downloadPath: category.download_path } : {})
+    })
+    notifications.push('Category save path updated.', 'success')
+    editingCategory.value = null
+    torrents.refreshNow()
+  } catch (cause) {
+    editCategoryError.value =
+      cause instanceof Error ? cause.message : 'The category could not be updated.'
+    notifications.push(editCategoryError.value, 'error')
+  } finally {
+    editCategoryWorking.value = false
+  }
 }
 
 function closeConfirmation(): void {
@@ -189,6 +286,12 @@ function cycleTheme(): void {
         : 'system'
   preferences.patch({ theme: next })
 }
+
+async function installApp(): Promise<void> {
+  const outcome = await pwa.install()
+  if (outcome === 'accepted') notifications.push('NeoTorrent installation accepted.', 'success')
+  else if (outcome === 'dismissed') notifications.push('NeoTorrent installation dismissed.', 'info')
+}
 </script>
 
 <template>
@@ -232,6 +335,16 @@ function cycleTheme(): void {
     </section>
     <section class="more-group panel">
       <h2>Interface and session</h2>
+      <button v-if="pwa.canInstall" type="button" @click="installApp">
+        <Download :size="19" /><span
+          ><strong>Install NeoTorrent</strong><small>Add this WebUI to your device</small></span
+        ><ChevronRight :size="17" />
+      </button>
+      <div v-else-if="pwa.standalone" class="info-row">
+        <Download :size="19" /><span
+          ><strong>Installed app</strong><small>Running in standalone display mode</small></span
+        >
+      </div>
       <button type="button" @click="cycleTheme">
         <Sun v-if="preferences.value.theme === 'light'" :size="19" /><Moon v-else :size="19" /><span
           ><strong>Theme</strong><small>{{ preferences.value.theme }}</small></span
@@ -276,7 +389,17 @@ function cycleTheme(): void {
           ><small v-if="manager === 'categories'">{{
             torrents.categories.get(name)?.savePath
           }}</small
-          ><button type="button" @click="requestRemoveItem(name)">Remove</button>
+          ><span class="manager-actions"
+            ><button
+              v-if="manager === 'categories'"
+              class="edit-item"
+              type="button"
+              :aria-label="'Edit category ' + name"
+              @click="openCategoryEditor(name)"
+            >
+              <Edit3 :size="14" />Edit</button
+            ><button type="button" @click="requestRemoveItem(name)">Remove</button></span
+          >
         </li>
         <li
           v-if="!(manager === 'categories' ? torrents.categories.size : torrents.tags.size)"
@@ -285,6 +408,80 @@ function cycleTheme(): void {
           No items configured.
         </li>
       </ul>
+    </AppDialog>
+
+    <AppDialog
+      :open="editingCategory !== null"
+      title="Edit category"
+      description="Update the category save path. The category name and separate incomplete-download path stay unchanged."
+      fullscreen-mobile
+      @update:open="!$event && closeCategoryEditor()"
+    >
+      <form id="edit-category-form" class="edit-category-form" @submit.prevent="submitCategoryEdit">
+        <label>
+          <span>Category</span>
+          <code>{{ editingCategory?.name }}</code>
+        </label>
+        <label for="edit-category-save-path">
+          <span>Save path</span>
+          <input
+            id="edit-category-save-path"
+            v-model="editCategorySavePath"
+            class="field"
+            placeholder="Use default"
+            autofocus
+          />
+        </label>
+        <div v-if="categoryEditWouldEraseShareLimits" class="category-edit-blocked" role="alert">
+          <AlertTriangle :size="17" aria-hidden="true" />
+          <p>
+            Editing is blocked because this qBittorrent version would silently reset this category’s
+            share limits. Edit it in the native client, or update qBittorrent once the upstream fix
+            is available.
+          </p>
+        </div>
+        <div v-else-if="categoryEditImpact.autoManaged" class="category-edit-warning" role="note">
+          <AlertTriangle :size="17" aria-hidden="true" />
+          <p>
+            {{ categoryEditImpact.autoManaged }} affected torrent{{
+              categoryEditImpact.autoManaged === 1 ? '' : 's'
+            }}
+            use Automatic Torrent Management. Changing this path may move downloaded content.
+          </p>
+        </div>
+        <label
+          v-if="!categoryEditWouldEraseShareLimits && categoryEditImpact.autoManaged"
+          class="category-edit-acknowledgement"
+        >
+          <input v-model="editCategoryMoveAcknowledged" type="checkbox" />
+          <span>I understand that changing this save path may move torrent data.</span>
+        </label>
+        <p v-if="editCategoryError" class="confirmation-error" role="alert">
+          {{ editCategoryError }}
+        </p>
+      </form>
+      <template #footer>
+        <button
+          class="btn"
+          type="button"
+          :disabled="editCategoryWorking"
+          @click="closeCategoryEditor"
+        >
+          Cancel
+        </button>
+        <button
+          class="btn btn-primary"
+          type="submit"
+          form="edit-category-form"
+          :disabled="
+            editCategoryWorking ||
+            categoryEditWouldEraseShareLimits ||
+            (categoryEditImpact.autoManaged > 0 && !editCategoryMoveAcknowledged)
+          "
+        >
+          {{ editCategoryWorking ? 'Saving…' : 'Save' }}
+        </button>
+      </template>
     </AppDialog>
 
     <AppDialog
@@ -380,7 +577,7 @@ function cycleTheme(): void {
 .category-removal-warning {
   border-radius: 8px;
   background: rgb(var(--color-warning) / 0.1);
-  color: rgb(var(--color-warning));
+  color: rgb(var(--color-warning-foreground));
   padding: 10px 12px;
 }
 .category-removal-warning strong {
@@ -486,6 +683,62 @@ function cycleTheme(): void {
   border: 0;
   background: transparent;
   color: rgb(var(--color-danger));
+}
+.manager-actions {
+  display: flex;
+  align-items: center;
+}
+.manager-actions .edit-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: rgb(var(--color-accent));
+}
+.edit-category-form {
+  display: grid;
+  gap: 12px;
+}
+.edit-category-form > label > span,
+.edit-category-form code {
+  display: block;
+}
+.edit-category-form > label > span {
+  margin-bottom: 5px;
+  font-size: 11px;
+  font-weight: 650;
+}
+.edit-category-form code {
+  overflow-wrap: anywhere;
+  border-radius: 7px;
+  background: rgb(var(--color-surface-muted));
+  padding: 9px 10px;
+}
+.category-edit-warning,
+.category-edit-blocked {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  border-radius: 8px;
+  background: rgb(var(--color-warning) / 0.1);
+  color: rgb(var(--color-warning-foreground));
+  padding: 10px 12px;
+}
+.category-edit-blocked {
+  background: rgb(var(--color-danger) / 0.1);
+  color: rgb(var(--color-danger));
+}
+.category-edit-warning svg,
+.category-edit-blocked svg {
+  flex: 0 0 auto;
+}
+.category-edit-warning p,
+.category-edit-blocked p {
+  margin: 0;
+}
+.category-edit-acknowledgement {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
 }
 .manager-list .empty {
   display: block;

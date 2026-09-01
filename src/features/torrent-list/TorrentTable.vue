@@ -356,7 +356,7 @@ async function onKeydown(event: KeyboardEvent, index: number): Promise<void> {
     class="table-scroll"
     role="grid"
     aria-label="Torrents"
-    :aria-rowcount="rows.length"
+    :aria-rowcount="rows.length + 1"
   >
     <div class="table-head" role="row" :style="{ width: `${table.getTotalSize()}px` }">
       <div
@@ -395,8 +395,8 @@ async function onKeydown(event: KeyboardEvent, index: number): Promise<void> {
           :aria-valuemax="header.column.columnDef.maxSize ?? 800"
           :aria-valuenow="header.getSize()"
           title="Drag to resize. Use arrow keys for 10 px steps; Shift for 25 px; Home to reset."
-          @mousedown="header.getResizeHandler()"
-          @touchstart="header.getResizeHandler()"
+          @mousedown="header.getResizeHandler()($event)"
+          @touchstart="header.getResizeHandler()($event)"
           @dblclick="resetColumnWidth(header.column.id)"
           @keydown="
             resizeColumnFromKeyboard(
@@ -536,7 +536,7 @@ async function onKeydown(event: KeyboardEvent, index: number): Promise<void> {
 }
 .table-header-cell > button {
   display: flex;
-  width: 100%;
+  width: calc(100% - 24px);
   height: 100%;
   align-items: center;
   gap: 4px;
@@ -575,7 +575,7 @@ async function onKeydown(event: KeyboardEvent, index: number): Promise<void> {
   border: 0;
   border-radius: 5px;
   background: transparent;
-  color: rgb(var(--color-warning));
+  color: rgb(var(--color-warning-foreground));
   padding: 0;
   cursor: pointer;
 }
@@ -587,16 +587,30 @@ async function onKeydown(event: KeyboardEvent, index: number): Promise<void> {
   position: absolute;
   z-index: 2;
   top: 0;
-  right: -3px;
-  width: 7px;
+  right: 0;
+  width: 24px;
   height: 100%;
   cursor: col-resize;
   touch-action: none;
 }
+.column-resizer::after {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 2px;
+  background: transparent;
+  content: '';
+}
 .column-resizer:hover,
 .column-resizer:focus-visible,
 .column-resizer.active {
-  background: rgb(var(--color-accent) / 0.55);
+  outline-offset: -2px;
+}
+.column-resizer:hover::after,
+.column-resizer:focus-visible::after,
+.column-resizer.active::after {
+  background: rgb(var(--color-accent) / 0.7);
 }
 .rows-space {
   position: relative;
@@ -671,6 +685,6 @@ async function onKeydown(event: KeyboardEvent, index: number): Promise<void> {
 }
 .state-stalledDL,
 .state-stalledUP {
-  background: rgb(var(--color-warning));
+  background: rgb(var(--color-warning-foreground));
 }
 </style>

@@ -179,6 +179,15 @@ describe('torrent details', () => {
       'Pieces'
     ])
     expect(wrapper.get('[role="tab"][aria-selected="true"]').text()).toBe('Overview')
+    const selectedTab = wrapper.get('[role="tab"][aria-selected="true"]')
+    const tabPanel = wrapper.get('[role="tabpanel"]')
+    expect(selectedTab.attributes('aria-controls')).toBe(tabPanel.attributes('id'))
+    expect(
+      wrapper
+        .findAll('[role="tab"]')
+        .every((tab) => tab.attributes('aria-controls') === tabPanel.attributes('id'))
+    ).toBe(true)
+    expect(tabPanel.attributes('aria-labelledby')).toBe(selectedTab.attributes('id'))
     expect(wrapper.text()).toContain('fixture')
 
     const overviewTab = wrapper.get<HTMLElement>('[role="tab"]:nth-child(1)')
@@ -303,6 +312,9 @@ describe('torrent details', () => {
     ])
     const addTrackers = vi.spyOn(context.api.torrents, 'addTrackers').mockResolvedValue()
     const editTracker = vi.spyOn(context.api.torrents, 'editTracker').mockResolvedValue()
+    const reannounceTrackers = vi
+      .spyOn(context.api.torrents, 'reannounceTrackers')
+      .mockResolvedValue()
     const removeWebSeeds = vi
       .spyOn(context.api.torrents, 'removeWebSeeds')
       .mockRejectedValueOnce(new Error('Web seed removal failed.'))
@@ -315,6 +327,10 @@ describe('torrent details', () => {
 
     await wrapper.get('[role="tab"]:nth-child(3)').trigger('click')
     await flushPromises()
+    await wrapper.get(`button[aria-label="Reannounce tracker ${tracker.url}"]`).trigger('click')
+    await flushPromises()
+    expect(reannounceTrackers).toHaveBeenCalledWith([torrent.hash], [tracker.url])
+
     const addTrackerButton = wrapper
       .findAll('button')
       .find((button) => button.text().includes('Add tracker'))!
@@ -455,6 +471,180 @@ describe('torrent details', () => {
     await rows()[1]!.trigger('click')
     await rows()[3]!.trigger('click', { shiftKey: true })
     expect(rows().filter((row) => row.attributes('aria-selected') === 'true')).toHaveLength(3)
+  })
+
+  it('validates and submits DNS and bracketed IPv6 peers while rendering I2P peers', async () => {
+    const context = createTestContext()
+    const torrent = createTorrents(1)[0]!
+    context
+      .run(() => useTorrentsStore(context.pinia))
+      .applyMainData({ rid: 1, full_update: true, torrents: { [torrent.hash]: torrent } })
+    vi.spyOn(context.api.torrents, 'properties').mockResolvedValue({})
+    vi.spyOn(context.api.sync, 'torrentPeers').mockResolvedValue({
+      rid: 1,
+      full_update: true,
+      peers: {
+        anonymous: {
+          i2p_dest: 'fixture-peer.b32.i2p',
+          client: 'I2P client',
+          country: '',
+          flags: '',
+          progress: 0.25,
+          dl_speed: 1,
+          up_speed: 2,
+          downloaded: 3,
+          uploaded: 4
+        }
+      }
+    })
+    const addPeers = vi.spyOn(context.api.torrents, 'addPeers').mockResolvedValue({
+      [torrent.hash]: { added: 2, failed: 0 }
+    })
+    const wrapper = await mountWithContext(TorrentDetailPanel, context, {
+      props: { hash: torrent.hash },
+      attachTo: document.body
+    })
+    await flushPromises()
+
+    await wrapper.get('[role="tab"]:nth-child(4)').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('fixture-peer.b32.i2p')
+    expect(wrapper.get<HTMLButtonElement>('button[aria-label="Ban peer"]').element.disabled).toBe(
+      true
+    )
+
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text().includes('Add peers'))!
+      .trigger('click')
+    await flushPromises()
+    const peerForm = () => document.querySelector<HTMLFormElement>('#torrent-peer-form')!
+    await new DOMWrapper(document.querySelector('#torrent-peer-value')).setValue('2001:db8::1:6881')
+    await new DOMWrapper(peerForm()).trigger('submit')
+    await flushPromises()
+    expect(document.body.querySelector('[role="alert"]')?.textContent).toContain('bracketed')
+    expect(addPeers).not.toHaveBeenCalled()
+
+    await new DOMWrapper(document.querySelector('#torrent-peer-value')).setValue(
+      'peer.example:6881\n[2001:db8::1]:51413\nPEER.EXAMPLE:6881'
+    )
+    await new DOMWrapper(peerForm()).trigger('submit')
+    await flushPromises()
+
+    expect(addPeers).toHaveBeenCalledWith(
+      [torrent.hash],
+      ['peer.example:6881', '[2001:db8::1]:51413']
+    )
+    expect(document.querySelector('#torrent-peer-form')).toBeNull()
+    wrapper.unmount()
+  })
+
+  it('renames one selected file with leaf-only path semantics', async () => {
+    const context = createTestContext()
+    const renameFile = vi.spyOn(context.api.torrents, 'renameFile').mockResolvedValue()
+    const wrapper = await mountWithContext(FileTreeView, context, {
+      props: {
+        hash: 'rename-file-hash',
+        files: [
+          {
+            index: 0,
+            name: 'old.mkv',
+            size: 100,
+            progress: 0.5,
+            priority: 1
+          }
+        ]
+      },
+      attachTo: document.body
+    })
+    await flushPromises()
+
+    await wrapper.get('[role="treeitem"]').trigger('click')
+    await wrapper.get('button[aria-label="Rename selected file or folder"]').trigger('click')
+    await flushPromises()
+    const renameForm = () => document.querySelector<HTMLFormElement>('#file-tree-rename-form')!
+    await new DOMWrapper(document.querySelector('#file-tree-rename-name')).setValue('../escape')
+    await new DOMWrapper(renameForm()).trigger('submit')
+    await flushPromises()
+    expect(document.body.querySelector('[role="alert"]')?.textContent).toContain('name only')
+    expect(renameFile).not.toHaveBeenCalled()
+
+    await new DOMWrapper(document.querySelector('#file-tree-rename-name')).setValue('new.mkv')
+    await new DOMWrapper(renameForm()).trigger('submit')
+    await flushPromises()
+
+    expect(renameFile).toHaveBeenCalledWith('rename-file-hash', 'old.mkv', 'new.mkv')
+    expect(wrapper.emitted('reload')).toHaveLength(1)
+    expect(wrapper.text()).toContain('new.mkv')
+    expect(wrapper.get('[role="treeitem"]').element).toBe(document.activeElement)
+  })
+
+  it('keeps the renamed tree item focused while the parent refreshes files', async () => {
+    const context = createTestContext()
+    const torrent = createTorrents(1)[0]!
+    context
+      .run(() => useTorrentsStore(context.pinia))
+      .applyMainData({ rid: 1, full_update: true, torrents: { [torrent.hash]: torrent } })
+    const originalFile = { ...createFiles(1)[0]!, name: 'old.mkv' }
+    const refreshedFiles = deferred<ReturnType<typeof createFiles>>()
+    const files = vi
+      .spyOn(context.api.torrents, 'files')
+      .mockResolvedValueOnce([originalFile])
+      .mockReturnValueOnce(refreshedFiles.promise)
+    vi.spyOn(context.api.torrents, 'renameFile').mockResolvedValue()
+    const wrapper = await mountWithContext(TorrentDetailPanel, context, {
+      props: { hash: torrent.hash, initialTab: 'files' },
+      attachTo: document.body
+    })
+    await flushPromises()
+
+    const row = wrapper.get<HTMLElement>('[role="treeitem"]')
+    await row.trigger('click')
+    row.element.focus()
+    await row.trigger('keydown', { key: 'F2' })
+    await flushPromises()
+    await new DOMWrapper(document.querySelector('#file-tree-rename-name')).setValue('new.mkv')
+    await new DOMWrapper(document.querySelector<HTMLFormElement>('#file-tree-rename-form')).trigger(
+      'submit'
+    )
+    await flushPromises()
+
+    expect(files).toHaveBeenCalledTimes(2)
+    expect(wrapper.find('[role="tree"]').exists()).toBe(true)
+    expect(wrapper.get('[role="treeitem"]').text()).toContain('new.mkv')
+    expect(wrapper.get('[role="treeitem"]').element).toBe(document.activeElement)
+
+    refreshedFiles.resolve([{ ...originalFile, name: 'new.mkv' }])
+    await flushPromises()
+    expect(wrapper.get('[role="treeitem"]').element).toBe(document.activeElement)
+  })
+
+  it('uses the folder endpoint for a single selected folder rename', async () => {
+    const context = createTestContext()
+    const renameFolder = vi.spyOn(context.api.torrents, 'renameFolder').mockResolvedValue()
+    const wrapper = await mountWithContext(FileTreeView, context, {
+      props: { hash: 'rename-folder-hash', files: createFiles(2) },
+      attachTo: document.body
+    })
+    await flushPromises()
+
+    await wrapper.get('[role="treeitem"]').trigger('click')
+    await wrapper.get('button[aria-label="Rename selected file or folder"]').trigger('click')
+    await flushPromises()
+    await new DOMWrapper(document.querySelector('#file-tree-rename-name')).setValue(
+      'Renamed collection'
+    )
+    await new DOMWrapper(document.querySelector<HTMLFormElement>('#file-tree-rename-form')).trigger(
+      'submit'
+    )
+    await flushPromises()
+
+    expect(renameFolder).toHaveBeenCalledWith(
+      'rename-folder-hash',
+      'Open collection',
+      'Renamed collection'
+    )
+    expect(wrapper.text()).toContain('Renamed collection')
   })
 
   it('virtualizes a searched 10,000-file tree', async () => {

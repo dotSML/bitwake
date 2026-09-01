@@ -49,7 +49,12 @@ function measureRow(element: Element | ComponentPublicInstance | null): void {
     aria-label="Torrents"
     :data-total-count="rows.length"
   >
-    <div class="mobile-list-space" :style="{ height: `${virtualizer.getTotalSize()}px` }">
+    <div
+      class="mobile-list-space"
+      :style="{
+        height: `${virtualizer.getTotalSize() + (torrents.selectedHashes.size ? 58 : 0)}px`
+      }"
+    >
       <div
         v-for="virtualRow in virtualizer.getVirtualItems()"
         :key="String(virtualRow.key)"

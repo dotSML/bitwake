@@ -101,7 +101,7 @@ if docker run --rm --entrypoint sh "$image" -c 'command -v node' >/dev/null 2>&1
   fail 'final image contains a Node.js runtime'
 fi
 docker run --rm --entrypoint sh "$image" -c \
-  'test ! -e /app/src && test ! -e /usr/share/nginx/html/mockServiceWorker.js && test ! -e /usr/share/nginx/html/_neotorrent/runtime-config.json && ! find /usr/share/nginx/html -name "*.map" -print -quit | grep -q .'
+  'test ! -e /app/src && test -s /usr/share/nginx/html/THIRD_PARTY_NOTICES.txt && test ! -e /usr/share/nginx/html/mockServiceWorker.js && test ! -e /usr/share/nginx/html/_neotorrent/runtime-config.json && ! find /usr/share/nginx/html -name "*.map" -print -quit | grep -q .'
 docker run --rm --entrypoint sh "$image" -c '
   worker=/usr/share/nginx/html/sw.js
   test -f "$worker"
@@ -378,6 +378,34 @@ assert_invalid_media_runtime 'locked assist without a Movies root' \
   -e 'NEOTORRENT_MEDIA_MODE=assist' \
   -e 'NEOTORRENT_MEDIA_CONFIG_LOCKED=true' \
   -e 'NEOTORRENT_TV_ROOT=/data/tv-shows'
+assert_invalid_media_runtime 'equal POSIX TV and Movies roots' \
+  -e 'NEOTORRENT_TV_ROOT=/data/media' \
+  -e 'NEOTORRENT_MOVIES_ROOT=/data/media/'
+assert_invalid_media_runtime 'normalized POSIX filesystem roots' \
+  -e 'NEOTORRENT_TV_ROOT=/' \
+  -e 'NEOTORRENT_MOVIES_ROOT=//'
+assert_invalid_media_runtime 'normalized nested POSIX TV and Movies roots' \
+  -e 'NEOTORRENT_TV_ROOT=/data/media/series/../tv' \
+  -e 'NEOTORRENT_MOVIES_ROOT=/data/./media'
+private_overlap_marker='neotorrent-private-root-4f9c7a'
+assert_invalid_media_runtime 'private overlapping POSIX TV and Movies roots' \
+  -e "NEOTORRENT_TV_ROOT=/data/$private_overlap_marker" \
+  -e "NEOTORRENT_MOVIES_ROOT=/data/$private_overlap_marker/movies"
+if grep -F -q "$private_overlap_marker" "$invalid_runtime" "$invalid_runtime_log"; then
+  fail 'invalid media configuration disclosed a configured root'
+fi
+assert_invalid_media_runtime 'nested Windows TV and Movies roots' \
+  -e 'NEOTORRENT_TV_ROOT=C:\Media' \
+  -e 'NEOTORRENT_MOVIES_ROOT=c:\media\Movies'
+assert_invalid_media_runtime 'normalized equal Windows TV and Movies roots' \
+  -e 'NEOTORRENT_TV_ROOT=C:\Media\.\TV\..' \
+  -e 'NEOTORRENT_MOVIES_ROOT=c:/media/'
+assert_invalid_media_runtime 'nested UNC TV and Movies roots' \
+  -e 'NEOTORRENT_TV_ROOT=\\NAS\Media' \
+  -e 'NEOTORRENT_MOVIES_ROOT=\\nas\media\Movies'
+assert_invalid_media_runtime 'normalized equal UNC TV and Movies roots' \
+  -e 'NEOTORRENT_TV_ROOT=\\NAS\\Media\TV\..' \
+  -e 'NEOTORRENT_MOVIES_ROOT=//nas/media/'
 
 docker run -d --name "$invalid_runtime_name" \
   --read-only --cap-drop ALL --security-opt no-new-privileges:true \
@@ -432,5 +460,19 @@ node -e '
     }
   })
 ' "$windows_unc_runtime" || fail 'valid Windows drive and UNC roots were rejected or changed'
+
+posix_sibling_runtime="$temporary_directory/posix-sibling-runtime-config.json"
+docker run --rm --read-only --tmpfs /tmp:rw,noexec,nosuid,size=8m \
+  -e 'NEOTORRENT_TV_ROOT=/data/media' \
+  -e 'NEOTORRENT_MOVIES_ROOT=/data/media-archive' \
+  "$image" sh -c 'cat /tmp/neotorrent-runtime-config.json' > "$posix_sibling_runtime"
+node -e '
+  const assert = require("node:assert/strict")
+  const fs = require("node:fs")
+  const value = JSON.parse(fs.readFileSync(process.argv[1], "utf8"))
+  assert.equal(value.configurationError, undefined)
+  assert.equal(value.mediaPlacement.tvRoot, "/data/media")
+  assert.equal(value.mediaPlacement.moviesRoot, "/data/media-archive")
+' "$posix_sibling_runtime" || fail 'segment-distinct POSIX sibling roots were rejected'
 
 printf 'container contract tests passed (deterministic upstream and localhost sidecar topology)\n'

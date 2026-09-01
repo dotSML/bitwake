@@ -169,6 +169,13 @@ describe('torrent filtering', () => {
     ).toEqual([linux, archive])
   })
 
+  it('ignores negative and regex modes when the text condition is blank', () => {
+    expect(filterTorrents(items, filters({ text: '   ', negative: true, regex: true }))).toEqual({
+      torrents: items,
+      invalidRegex: false
+    })
+  })
+
   it('reports an invalid regex without throwing or leaking unfiltered rows', () => {
     expect(filterTorrents(items, filters({ text: '[broken', regex: true }))).toEqual({
       torrents: [],

@@ -8,6 +8,7 @@ import type { DeploymentMode } from '@/config/deployment'
 import { useMediaPlacementStore } from '@/features/media-placement/stores/mediaPlacement'
 import { useNotificationsStore } from '@/stores/notifications'
 import { usePreferencesStore } from '@/stores/preferences'
+import { useSavedTorrentFiltersStore } from '@/stores/savedTorrentFilters'
 import { useSessionStore } from '@/stores/session'
 import { useTorrentsStore } from '@/stores/torrents'
 import { createTestContext } from './support/mount'
@@ -18,11 +19,14 @@ function setup(mode: DeploymentMode) {
   const notifications = context.run(() => useNotificationsStore(context.pinia))
   const preferences = context.run(() => usePreferencesStore(context.pinia))
   const mediaPlacement = context.run(() => useMediaPlacementStore(context.pinia))
+  const savedTorrentFilters = context.run(() => useSavedTorrentFiltersStore(context.pinia))
   const torrents = context.run(() => useTorrentsStore(context.pinia))
   const reload = vi.fn()
   vi.spyOn(preferences, 'load').mockResolvedValue()
   vi.spyOn(mediaPlacement, 'load').mockResolvedValue()
   vi.spyOn(mediaPlacement, 'resetPrivateState')
+  vi.spyOn(savedTorrentFilters, 'load').mockResolvedValue()
+  vi.spyOn(savedTorrentFilters, 'resetPrivateState')
   vi.spyOn(torrents, 'startSync').mockImplementation(() => undefined)
   vi.spyOn(torrents, 'clearAll').mockImplementation(() => undefined)
   vi.spyOn(notifications, 'clear')
@@ -33,6 +37,7 @@ function setup(mode: DeploymentMode) {
     notifications,
     preferences,
     mediaPlacement,
+    savedTorrentFilters,
     torrents,
     mode,
     reload
@@ -43,6 +48,7 @@ function setup(mode: DeploymentMode) {
     notifications,
     preferences,
     mediaPlacement,
+    savedTorrentFilters,
     torrents,
     reload,
     dependencies,
@@ -235,6 +241,7 @@ describe('central session lifecycle', () => {
     expect(harness.context.router.currentRoute.value.path).toBe('/settings')
     expect(harness.preferences.load).toHaveBeenCalledOnce()
     expect(harness.mediaPlacement.load).toHaveBeenCalledOnce()
+    expect(harness.savedTorrentFilters.load).toHaveBeenCalledOnce()
     expect(harness.torrents.startSync).toHaveBeenCalledOnce()
 
     harness.session.appVersion = 'v5.2.3'
@@ -248,6 +255,7 @@ describe('central session lifecycle', () => {
     expect(harness.session.buildInfo).toEqual({})
     expect(harness.notifications.clear).toHaveBeenCalledOnce()
     expect(harness.mediaPlacement.resetPrivateState).toHaveBeenCalledOnce()
+    expect(harness.savedTorrentFilters.resetPrivateState).toHaveBeenCalledOnce()
     await harness.lifecycle.expire('/login')
     expect(harness.torrents.clearAll).toHaveBeenCalledOnce()
 
@@ -257,6 +265,7 @@ describe('central session lifecycle', () => {
     expect(harness.context.router.currentRoute.value.path).toBe('/login')
     expect(harness.session.status).toBe('anonymous')
     expect(harness.mediaPlacement.resetPrivateState).toHaveBeenCalledTimes(2)
+    expect(harness.savedTorrentFilters.resetPrivateState).toHaveBeenCalledTimes(2)
     expect(harness.reload).not.toHaveBeenCalled()
   })
 
@@ -279,6 +288,7 @@ describe('central session lifecycle', () => {
     expect(harness.context.router.currentRoute.value.path).toBe('/login')
     expect(harness.torrents.clearAll).toHaveBeenCalledOnce()
     expect(harness.mediaPlacement.resetPrivateState).toHaveBeenCalledOnce()
+    expect(harness.savedTorrentFilters.resetPrivateState).toHaveBeenCalledOnce()
     expect(harness.notifications.items).toEqual([
       expect.objectContaining({
         message:

@@ -1,32 +1,34 @@
 const binaryUnits = ['B', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB'] as const
 const decimalUnits = ['B', 'kB', 'MB', 'GB', 'TB', 'PB'] as const
 const numberFormatters = new Map<number, Intl.NumberFormat>()
-const fractionalPercentFormatter = new Intl.NumberFormat(undefined, {
-  style: 'percent',
-  minimumFractionDigits: 1,
-  maximumFractionDigits: 1
-})
-const wholePercentFormatter = new Intl.NumberFormat(undefined, {
-  style: 'percent',
-  minimumFractionDigits: 0,
-  maximumFractionDigits: 1
-})
-const ratioFormatter = new Intl.NumberFormat(undefined, {
-  minimumFractionDigits: 2,
-  maximumFractionDigits: 2
-})
-const timestampFormatter = new Intl.DateTimeFormat(undefined, {
-  dateStyle: 'medium',
-  timeStyle: 'short'
-})
+let formattingLocale: string | undefined
+let fractionalPercentFormatter: Intl.NumberFormat | undefined
+let wholePercentFormatter: Intl.NumberFormat | undefined
+let ratioFormatter: Intl.NumberFormat | undefined
+let timestampFormatter: Intl.DateTimeFormat | undefined
+
+/** Keep native number/date formatting aligned with the selected UI language. */
+export function setFormattingLocale(locale: string | undefined): void {
+  if (formattingLocale === locale) return
+  formattingLocale = locale
+  numberFormatters.clear()
+  fractionalPercentFormatter = undefined
+  wholePercentFormatter = undefined
+  ratioFormatter = undefined
+  timestampFormatter = undefined
+}
 
 function numberFormatter(maximumFractionDigits: number): Intl.NumberFormat {
   let formatter = numberFormatters.get(maximumFractionDigits)
   if (!formatter) {
-    formatter = new Intl.NumberFormat(undefined, { maximumFractionDigits })
+    formatter = new Intl.NumberFormat(formattingLocale, { maximumFractionDigits })
     numberFormatters.set(maximumFractionDigits, formatter)
   }
   return formatter
+}
+
+export function formatNumber(value: number, maximumFractionDigits = 0): string {
+  return numberFormatter(maximumFractionDigits).format(value)
 }
 
 export function formatBytes(
@@ -60,6 +62,20 @@ export function formatSpeed(
 
 export function formatPercent(value: number | null | undefined): string {
   if (value === null || value === undefined || !Number.isFinite(value)) return 'Unknown'
+  if (!fractionalPercentFormatter) {
+    fractionalPercentFormatter = new Intl.NumberFormat(formattingLocale, {
+      style: 'percent',
+      minimumFractionDigits: 1,
+      maximumFractionDigits: 1
+    })
+  }
+  if (!wholePercentFormatter) {
+    wholePercentFormatter = new Intl.NumberFormat(formattingLocale, {
+      style: 'percent',
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 1
+    })
+  }
   return (value > 0 && value < 1 ? fractionalPercentFormatter : wholePercentFormatter).format(value)
 }
 
@@ -89,11 +105,19 @@ export function formatRatio(value: number | null | undefined): string {
   if (value === null || value === undefined || value < 0 || Number.isNaN(value))
     return 'Not available'
   if (!Number.isFinite(value) || value >= 9999) return '∞'
+  ratioFormatter ??= new Intl.NumberFormat(formattingLocale, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  })
   return ratioFormatter.format(value)
 }
 
 export function formatTimestamp(value: number | null | undefined): string {
   if (!value || value < 0) return 'Never'
+  timestampFormatter ??= new Intl.DateTimeFormat(formattingLocale, {
+    dateStyle: 'medium',
+    timeStyle: 'short'
+  })
   return timestampFormatter.format(new Date(value * 1000))
 }
 

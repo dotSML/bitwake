@@ -3,8 +3,10 @@ import { computed, shallowRef } from 'vue'
 import type { Category, MainDataResponse, TorrentInfo } from '@/api/types/models'
 import { useApi } from '@/app/providers/api'
 import {
+  countActiveTorrentFilters,
   filterTorrents,
   defaultTorrentFilters,
+  normalizeTorrentFilters,
   type TorrentFilters
 } from '@/domains/torrents/filtering'
 import { useTransferStore } from './transfer'
@@ -77,6 +79,13 @@ export const useTorrentsStore = defineStore('torrents', () => {
   const responseId = shallowRef(0)
   const connectionState = shallowRef<SyncConnectionState>('idle')
   const lastError = shallowRef<string | null>(null)
+  const pollingActive = shallowRef(false)
+  const pollingIntervalMs = shallowRef(1000)
+  const syncStartedAt = shallowRef<number | null>(null)
+  const lastSyncAttemptAt = shallowRef<number | null>(null)
+  const lastSuccessfulSyncAt = shallowRef<number | null>(null)
+  const lastSyncDurationMs = shallowRef<number | null>(null)
+  const consecutiveSyncFailures = shallowRef(0)
   const filters = shallowRef<TorrentFilters>({ ...defaultTorrentFilters })
   const selectedHashes = shallowRef(new Set<string>())
 
@@ -84,6 +93,7 @@ export const useTorrentsStore = defineStore('torrents', () => {
   const filterResult = computed(() => filterTorrents(torrents.value, filters.value))
   const visibleTorrents = computed(() => filterResult.value.torrents)
   const invalidRegex = computed(() => filterResult.value.invalidRegex)
+  const activeFilterCount = computed(() => countActiveTorrentFilters(filters.value))
   const selected = computed(() =>
     [...selectedHashes.value].flatMap((hash) => {
       const torrent = byHash.value.get(hash)
@@ -188,6 +198,8 @@ export const useTorrentsStore = defineStore('torrents', () => {
     if (!running || pollController) return
     const controller = new AbortController()
     const generation = syncGeneration
+    const attemptStartedAt = Date.now()
+    lastSyncAttemptAt.value = attemptStartedAt
     pollController = controller
     connectionState.value = responseId.value === 0 ? 'syncing' : connectionState.value
     try {
@@ -203,14 +215,20 @@ export const useTorrentsStore = defineStore('torrents', () => {
         throw error
       }
       failureCount = 0
+      consecutiveSyncFailures.value = 0
       lastError.value = null
+      lastSuccessfulSyncAt.value = Date.now()
       connectionState.value = 'connected'
     } catch (error) {
       if (!running || generation !== syncGeneration) return
       failureCount += 1
+      consecutiveSyncFailures.value = failureCount
       connectionState.value = 'disconnected'
       lastError.value = error instanceof Error ? error.message : 'Live synchronization failed.'
     } finally {
+      if (generation === syncGeneration) {
+        lastSyncDurationMs.value = Math.max(0, Date.now() - attemptStartedAt)
+      }
       if (pollController === controller) {
         pollController = null
         if (running) {
@@ -231,11 +249,14 @@ export const useTorrentsStore = defineStore('torrents', () => {
   function startSync(): void {
     if (running) return
     running = true
+    pollingActive.value = true
+    syncStartedAt.value ??= Date.now()
     void poll()
   }
 
   function stopSync(): void {
     running = false
+    pollingActive.value = false
     pollAgainRequested = false
     syncGeneration += 1
     if (timer) clearTimeout(timer)
@@ -278,10 +299,11 @@ export const useTorrentsStore = defineStore('torrents', () => {
 
   function setPollingInterval(value: 1000 | 2000 | 5000): void {
     intervalMs = value
+    pollingIntervalMs.value = value
   }
 
   function updateFilters(update: Partial<TorrentFilters>): void {
-    filters.value = { ...filters.value, ...update }
+    filters.value = normalizeTorrentFilters({ ...filters.value, ...update })
   }
 
   function clearFilters(): void {
@@ -312,6 +334,12 @@ export const useTorrentsStore = defineStore('torrents', () => {
     selectedHashes.value = new Set()
     responseId.value = 0
     lastError.value = null
+    pollingActive.value = false
+    syncStartedAt.value = null
+    lastSyncAttemptAt.value = null
+    lastSuccessfulSyncAt.value = null
+    lastSyncDurationMs.value = null
+    consecutiveSyncFailures.value = 0
     filters.value = { ...defaultTorrentFilters }
     transfer.reset()
   }
@@ -324,11 +352,19 @@ export const useTorrentsStore = defineStore('torrents', () => {
     responseId,
     connectionState,
     lastError,
+    pollingActive,
+    pollingIntervalMs,
+    syncStartedAt,
+    lastSyncAttemptAt,
+    lastSuccessfulSyncAt,
+    lastSyncDurationMs,
+    consecutiveSyncFailures,
     filters,
     selectedHashes,
     torrents,
     visibleTorrents,
     invalidRegex,
+    activeFilterCount,
     selected,
     applyMainData,
     startSync,

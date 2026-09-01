@@ -11,6 +11,7 @@ import {
 } from '@/config/deployment'
 import { useNotificationsStore } from '@/stores/notifications'
 import { usePreferencesStore } from '@/stores/preferences'
+import { useSavedTorrentFiltersStore } from '@/stores/savedTorrentFilters'
 import { useSessionStore } from '@/stores/session'
 import { useTorrentsStore } from '@/stores/torrents'
 import { useRouter } from 'vue-router'
@@ -20,6 +21,7 @@ type NotificationsStore = ReturnType<typeof useNotificationsStore>
 type PreferencesStore = ReturnType<typeof usePreferencesStore>
 type TorrentsStore = ReturnType<typeof useTorrentsStore>
 type MediaPlacementStore = ReturnType<typeof useMediaPlacementStore>
+type SavedTorrentFiltersStore = ReturnType<typeof useSavedTorrentFiltersStore>
 
 export interface SessionLifecycleDependencies {
   api: QbittorrentApi
@@ -28,6 +30,7 @@ export interface SessionLifecycleDependencies {
   notifications: NotificationsStore
   preferences: PreferencesStore
   mediaPlacement: MediaPlacementStore
+  savedTorrentFilters: SavedTorrentFiltersStore
   torrents: TorrentsStore
   mode: DeploymentMode
   reload: () => void
@@ -50,6 +53,7 @@ export function createSessionLifecycle(
     notifications,
     preferences,
     mediaPlacement,
+    savedTorrentFilters,
     torrents,
     mode,
     reload
@@ -67,11 +71,12 @@ export function createSessionLifecycle(
     session.advancePrivateStateEpoch()
     torrents.clearAll()
     notifications.clear()
+    savedTorrentFilters.resetPrivateState()
     if (clearMediaPlacement) mediaPlacement.resetPrivateState()
   }
 
   async function activatePrivateSession(epoch: number): Promise<boolean> {
-    await Promise.all([preferences.load(), mediaPlacement.load()])
+    await Promise.all([preferences.load(), mediaPlacement.load(), savedTorrentFilters.load()])
     if (epoch !== session.privateStateEpoch || session.status !== 'authenticated') return false
     torrents.setPollingInterval(preferences.value.pollingInterval)
     torrents.startSync()
@@ -181,6 +186,7 @@ export function useSessionLifecycle(): SessionLifecycle {
     notifications: useNotificationsStore(),
     preferences: usePreferencesStore(),
     mediaPlacement: useMediaPlacementStore(),
+    savedTorrentFilters: useSavedTorrentFiltersStore(),
     torrents: useTorrentsStore(),
     mode: deploymentMode,
     reload: () => window.location.reload()

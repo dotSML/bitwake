@@ -88,7 +88,7 @@ body:
     id: diagnostics
     attributes:
       label: Sanitized diagnostics
-      description: Add relevant logs, screenshots, console output, or proxy details only after redacting them. Use synthetic torrent data.
+      description: You may copy or download the minimized snapshot from More → Diagnostics. Review it and any logs, screenshots, console output, or proxy details before posting; use synthetic torrent data.
 
   - type: textarea
     id: additional-context
@@ -104,6 +104,8 @@ body:
         - label: I removed credentials, cookies, session IDs, tokens, private URLs, and private network details.
           required: true
         - label: I removed torrent names, hashes, magnets, file data, tracker passkeys, RSS data, and peer addresses.
+          required: true
+        - label: I reviewed any NeoTorrent diagnostics export and redacted browser, build, version, or operation metadata that is private in my environment.
           required: true
         - label: This is not a vulnerability report and is safe to discuss publicly.
           required: true

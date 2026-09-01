@@ -694,7 +694,8 @@ onMounted(() => void load())
 }
 .feed-item.active {
   background: rgb(var(--color-accent-soft));
-  color: rgb(var(--color-accent));
+  color: rgb(var(--color-ink));
+  font-weight: 650;
 }
 .feed-item.error {
   color: rgb(var(--color-danger));

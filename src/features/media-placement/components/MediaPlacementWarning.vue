@@ -65,12 +65,12 @@ function setAcknowledged(id: string, checked: boolean): void {
   line-height: 1.45;
 }
 .warning-card.warning {
-  border-color: rgb(var(--color-warning) / 0.45);
+  border-color: rgb(var(--color-warning-foreground) / 0.7);
   background: rgb(var(--color-warning) / 0.1);
 }
 .warning-card > svg {
   margin-top: 1px;
-  color: rgb(var(--color-warning));
+  color: rgb(var(--color-warning-foreground));
 }
 .warning-card.notice > svg {
   color: rgb(var(--color-muted));

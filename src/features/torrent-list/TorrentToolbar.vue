@@ -9,6 +9,7 @@ import {
   MoreHorizontal,
   Play,
   Search,
+  SlidersHorizontal,
   Square,
   Trash2,
   X
@@ -23,6 +24,8 @@ import {
 import { useNotificationsStore } from '@/stores/notifications'
 import { usePreferencesStore } from '@/stores/preferences'
 import { useTorrentsStore } from '@/stores/torrents'
+import AdvancedTorrentFilters from './AdvancedTorrentFilters.vue'
+import TorrentActiveFilters from './TorrentActiveFilters.vue'
 
 const emit = defineEmits<{ delete: []; add: []; actions: [event: MouseEvent] }>()
 const api = useApi()
@@ -31,9 +34,15 @@ const preferences = usePreferencesStore()
 const notifications = useNotificationsStore()
 const { t } = useI18n()
 const working = ref(false)
+const advancedFiltersOpen = ref(false)
 
 const selectedHashes = computed(() => [...torrents.selectedHashes])
 const orderedColumns = computed(() => getOrderedTorrentTableColumns(preferences.value.columnOrder))
+const advancedFilterLabel = computed(() =>
+  torrents.activeFilterCount
+    ? `${t('torrents.filters')}, ${t('torrents.activeFilters', { count: torrents.activeFilterCount })}`
+    : t('torrents.filters')
+)
 
 async function run(label: string, operation: () => Promise<void>): Promise<void> {
   if (working.value) return
@@ -78,153 +87,172 @@ function setDensity(): void {
 </script>
 
 <template>
-  <div class="torrent-toolbar" :class="{ contextual: selectedHashes.length }">
-    <template v-if="selectedHashes.length">
-      <div class="selected-count">
-        {{ t('torrents.selected', { count: selectedHashes.length }) }}
-      </div>
-      <button
-        class="btn toolbar-action"
-        type="button"
-        :aria-label="t('torrents.start')"
-        :disabled="working"
-        @click="run('Start', () => api.torrents.start(selectedHashes))"
-      >
-        <Play :size="16" /> <span>{{ t('torrents.start') }}</span>
-      </button>
-      <button
-        class="btn toolbar-action"
-        type="button"
-        :aria-label="t('torrents.stop')"
-        :disabled="working"
-        @click="run('Stop', () => api.torrents.stop(selectedHashes))"
-      >
-        <Square :size="15" /> <span>{{ t('torrents.stop') }}</span>
-      </button>
-      <button
-        class="btn btn-danger toolbar-action"
-        type="button"
-        :aria-label="t('torrents.delete')"
-        :disabled="working"
-        @click="emit('delete')"
-      >
-        <Trash2 :size="16" /> <span>{{ t('torrents.delete') }}</span>
-      </button>
-      <button
-        class="btn toolbar-action"
-        type="button"
-        :aria-label="t('torrents.moreActions')"
-        aria-haspopup="menu"
-        :disabled="working"
-        @click="emit('actions', $event)"
-      >
-        <MoreHorizontal :size="17" /><span>{{ t('torrents.moreActions') }}</span>
-      </button>
-      <button
-        class="clear-selection"
-        type="button"
-        :aria-label="t('torrents.clearSelection')"
-        @click="torrents.clearSelection"
-      >
-        <X :size="18" /> <span>{{ t('torrents.clearSelection') }}</span>
-      </button>
-    </template>
-    <template v-else>
-      <button class="btn btn-primary desktop-add" type="button" @click="emit('add')">
-        Add torrent
-      </button>
-      <div class="torrent-search">
-        <Search :size="16" aria-hidden="true" />
-        <input
-          id="torrent-filter"
-          :value="torrents.filters.text"
-          type="search"
-          :placeholder="t('torrents.filterPlaceholder')"
-          aria-label="Filter torrents by name or hash"
-          @input="torrents.updateFilters({ text: ($event.target as HTMLInputElement).value })"
-        />
+  <div class="toolbar-stack">
+    <div class="torrent-toolbar" :class="{ contextual: selectedHashes.length }">
+      <template v-if="selectedHashes.length">
+        <div class="selected-count">
+          {{ t('torrents.selected', { count: selectedHashes.length }) }}
+        </div>
         <button
-          v-if="torrents.filters.text"
+          class="btn toolbar-action"
           type="button"
-          aria-label="Clear filter"
-          @click="torrents.updateFilters({ text: '' })"
+          :aria-label="t('torrents.start')"
+          :disabled="working"
+          @click="run('Start', () => api.torrents.start(selectedHashes))"
         >
-          <X :size="15" />
+          <Play :size="16" /> <span>{{ t('torrents.start') }}</span>
         </button>
-      </div>
-      <span v-if="torrents.invalidRegex" class="regex-error" role="alert"
-        >Invalid or unsafe regular expression</span
-      >
-      <div class="toolbar-spacer" />
-      <details class="toolbar-menu columns-menu">
-        <summary class="btn">
-          <Columns3 :size="16" /><span>{{ t('torrents.columns') }}</span
-          ><ChevronDown :size="13" />
-        </summary>
-        <div class="menu-popover columns-popover">
-          <div v-for="(column, index) in orderedColumns" :key="column.id" class="column-option">
-            <button
-              class="column-toggle"
-              type="button"
-              :aria-pressed="preferences.value.visibleColumns.includes(column.id)"
-              @click="toggleColumn(column.id)"
-            >
-              <Check
-                :size="15"
-                :class="{ invisible: !preferences.value.visibleColumns.includes(column.id) }"
-              />{{ column.label }}
-            </button>
-            <button
-              class="column-move"
-              type="button"
-              :aria-label="`Move ${column.label} column earlier`"
-              :disabled="index === 0"
-              @click="moveColumn(column.id, -1)"
-            >
-              <ArrowUp :size="14" />
-            </button>
-            <button
-              class="column-move"
-              type="button"
-              :aria-label="`Move ${column.label} column later`"
-              :disabled="index === orderedColumns.length - 1"
-              @click="moveColumn(column.id, 1)"
-            >
-              <ArrowDown :size="14" />
+        <button
+          class="btn toolbar-action"
+          type="button"
+          :aria-label="t('torrents.stop')"
+          :disabled="working"
+          @click="run('Stop', () => api.torrents.stop(selectedHashes))"
+        >
+          <Square :size="15" /> <span>{{ t('torrents.stop') }}</span>
+        </button>
+        <button
+          class="btn btn-danger toolbar-action"
+          type="button"
+          :aria-label="t('torrents.delete')"
+          :disabled="working"
+          @click="emit('delete')"
+        >
+          <Trash2 :size="16" /> <span>{{ t('torrents.delete') }}</span>
+        </button>
+        <button
+          class="btn toolbar-action"
+          type="button"
+          :aria-label="t('torrents.moreActions')"
+          aria-haspopup="menu"
+          :disabled="working"
+          @click="emit('actions', $event)"
+        >
+          <MoreHorizontal :size="17" /><span>{{ t('torrents.moreActions') }}</span>
+        </button>
+        <button
+          class="clear-selection"
+          type="button"
+          :aria-label="t('torrents.clearSelection')"
+          @click="torrents.clearSelection"
+        >
+          <X :size="18" /> <span>{{ t('torrents.clearSelection') }}</span>
+        </button>
+      </template>
+      <template v-else>
+        <button class="btn btn-primary desktop-add" type="button" @click="emit('add')">
+          Add torrent
+        </button>
+        <div class="torrent-search">
+          <Search :size="16" aria-hidden="true" />
+          <input
+            id="torrent-filter"
+            :value="torrents.filters.text"
+            type="search"
+            :placeholder="t('torrents.filterPlaceholder')"
+            aria-label="Filter torrents by name or hash"
+            @input="torrents.updateFilters({ text: ($event.target as HTMLInputElement).value })"
+          />
+          <button
+            v-if="torrents.filters.text"
+            type="button"
+            aria-label="Clear filter"
+            @click="torrents.updateFilters({ text: '' })"
+          >
+            <X :size="15" />
+          </button>
+        </div>
+        <button
+          class="btn advanced-filter-button"
+          type="button"
+          aria-haspopup="dialog"
+          :aria-label="advancedFilterLabel"
+          :aria-expanded="advancedFiltersOpen"
+          @click="advancedFiltersOpen = true"
+        >
+          <SlidersHorizontal :size="16" aria-hidden="true" />
+          <span class="filter-label">{{ t('torrents.filters') }}</span>
+          <span v-if="torrents.activeFilterCount" class="filter-count" aria-hidden="true">
+            {{ torrents.activeFilterCount }}
+          </span>
+        </button>
+        <div class="toolbar-spacer" />
+        <details class="toolbar-menu columns-menu">
+          <summary class="btn">
+            <Columns3 :size="16" /><span>{{ t('torrents.columns') }}</span
+            ><ChevronDown :size="13" />
+          </summary>
+          <div class="menu-popover columns-popover">
+            <div v-for="(column, index) in orderedColumns" :key="column.id" class="column-option">
+              <button
+                class="column-toggle"
+                type="button"
+                :aria-pressed="preferences.value.visibleColumns.includes(column.id)"
+                @click="toggleColumn(column.id)"
+              >
+                <Check
+                  :size="15"
+                  :class="{ invisible: !preferences.value.visibleColumns.includes(column.id) }"
+                />{{ column.label }}
+              </button>
+              <button
+                class="column-move"
+                type="button"
+                :aria-label="`Move ${column.label} column earlier`"
+                :disabled="index === 0"
+                @click="moveColumn(column.id, -1)"
+              >
+                <ArrowUp :size="14" />
+              </button>
+              <button
+                class="column-move"
+                type="button"
+                :aria-label="`Move ${column.label} column later`"
+                :disabled="index === orderedColumns.length - 1"
+                @click="moveColumn(column.id, 1)"
+              >
+                <ArrowDown :size="14" />
+              </button>
+            </div>
+            <button class="reset-column-layout" type="button" @click="resetColumnLayout">
+              Reset column layout
             </button>
           </div>
-          <button class="reset-column-layout" type="button" @click="resetColumnLayout">
-            Reset column layout
-          </button>
-        </div>
-      </details>
-      <button class="btn density-button" type="button" @click="setDensity">
-        Density: {{ preferences.value.density }}
-      </button>
-      <details class="toolbar-menu global-menu">
-        <summary class="btn icon-summary" aria-label="Global torrent actions">
-          <MoreHorizontal :size="18" />
-        </summary>
-        <div class="menu-popover menu-right">
-          <button type="button" @click="run('Start all', () => api.torrents.start('all'))">
-            <Play :size="15" />Start all
-          </button>
-          <button type="button" @click="run('Stop all', () => api.torrents.stop('all'))">
-            <Square :size="14" />Stop all
-          </button>
-          <button
-            type="button"
-            @click="run('Alternative limits', () => api.transfer.toggleSpeedLimitsMode())"
-          >
-            <Gauge :size="15" />Toggle alternative limits
-          </button>
-        </div>
-      </details>
-    </template>
+        </details>
+        <button class="btn density-button" type="button" @click="setDensity">
+          Density: {{ preferences.value.density }}
+        </button>
+        <details class="toolbar-menu global-menu">
+          <summary class="btn icon-summary" aria-label="Global torrent actions">
+            <MoreHorizontal :size="18" />
+          </summary>
+          <div class="menu-popover menu-right">
+            <button type="button" @click="run('Start all', () => api.torrents.start('all'))">
+              <Play :size="15" />Start all
+            </button>
+            <button type="button" @click="run('Stop all', () => api.torrents.stop('all'))">
+              <Square :size="14" />Stop all
+            </button>
+            <button
+              type="button"
+              @click="run('Alternative limits', () => api.transfer.toggleSpeedLimitsMode())"
+            >
+              <Gauge :size="15" />Toggle alternative limits
+            </button>
+          </div>
+        </details>
+      </template>
+    </div>
+    <TorrentActiveFilters v-if="!selectedHashes.length" />
+    <AdvancedTorrentFilters v-model:open="advancedFiltersOpen" />
   </div>
 </template>
 
 <style scoped>
+.toolbar-stack {
+  min-width: 0;
+  flex: 0 0 auto;
+}
 .torrent-toolbar {
   position: relative;
   display: flex;
@@ -278,9 +306,32 @@ function setDensity(): void {
   color: rgb(var(--color-muted));
   cursor: pointer;
 }
-.regex-error {
-  color: rgb(var(--color-danger));
-  font-size: 12px;
+.advanced-filter-button {
+  position: relative;
+  flex: 0 0 auto;
+}
+.filter-count {
+  display: inline-grid;
+  min-width: 20px;
+  height: 20px;
+  place-items: center;
+  border-radius: 999px;
+  background: rgb(var(--color-accent));
+  color: white;
+  padding: 0 5px;
+  font-size: 10px;
+  font-weight: 800;
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 .toolbar-spacer {
   min-width: 0;
@@ -397,8 +448,26 @@ function setDensity(): void {
     padding: 7px 10px;
   }
   .torrent-search {
-    width: 100%;
+    width: auto;
     height: 40px;
+    flex: 1;
+  }
+  .advanced-filter-button {
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+    padding: 0;
+  }
+  .advanced-filter-button .filter-label {
+    display: none;
+  }
+  .filter-count {
+    position: absolute;
+    top: 1px;
+    right: 1px;
+    min-width: 17px;
+    height: 17px;
+    padding: 0 4px;
   }
   .toolbar-spacer,
   .global-menu {

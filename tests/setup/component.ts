@@ -3,6 +3,9 @@ import { config, enableAutoUnmount } from '@vue/test-utils'
 
 vi.stubGlobal('__DEPLOYMENT_MODE__', 'mock')
 vi.stubGlobal('__MOCK_BACKEND__', true)
+vi.stubGlobal('__NEOTORRENT_VERSION__', 'test')
+vi.stubGlobal('__NEOTORRENT_REVISION__', 'test')
+vi.stubGlobal('__NEOTORRENT_BUILD_DATE__', '')
 
 class ResizeObserverMock implements ResizeObserver {
   private readonly callback: ResizeObserverCallback
@@ -145,6 +148,7 @@ afterEach(() => {
   document.documentElement.removeAttribute('data-theme')
   document.documentElement.removeAttribute('style')
   localStorage.clear()
+  window.sessionStorage.clear()
   vi.restoreAllMocks()
   vi.unstubAllEnvs()
 })

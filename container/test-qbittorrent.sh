@@ -4,6 +4,8 @@ set -eu
 repository_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 image=${NEOTORRENT_IMAGE:-neotorrent:test}
 qbit_image=${QBITTORRENT_IMAGE:-ghcr.io/qbittorrent/docker-qbittorrent-nox@sha256:9ebb534fe30bab98622cb84a8c3acecfd88319b2d540f52ecdec7b9f866374d7}
+expected_qbit_version=${QBITTORRENT_EXPECTED_VERSION:-v5.2.3}
+expected_webapi_version=${QBITTORRENT_EXPECTED_WEBAPI_VERSION:-2.15.1}
 node_image='node:22.23.2-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32'
 run_id="neotorrent-qbit-$$"
 pod_name="$run_id-pod"
@@ -64,7 +66,7 @@ for attempt in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
   fi
   [ "$attempt" -lt 20 ] || {
     redacted_qbittorrent_logs >&2
-    fail 'qBittorrent 5.2.3 did not start'
+    fail "qBittorrent ${expected_qbit_version} did not start"
   }
   sleep 1
 done
@@ -143,7 +145,10 @@ fi
 NEOTORRENT_TEST_URL="$base_url" \
 QBITTORRENT_TEST_PASSWORD="$password" \
 QBITTORRENT_TEST_CONTAINER="$qbit_name" \
+QBITTORRENT_EXPECTED_VERSION="$expected_qbit_version" \
+QBITTORRENT_EXPECTED_WEBAPI_VERSION="$expected_webapi_version" \
 PLAYWRIGHT_CHROME_PATH=${PLAYWRIGHT_CHROME_PATH:-} \
 node "$repository_root/container/tests/qbittorrent-integration.mjs"
 
-printf 'real qBittorrent 5.2.3 integration tests passed (shared localhost Pod topology)\n'
+printf 'real qBittorrent %s / Web API %s integration tests passed (shared localhost Pod topology)\n' \
+  "$expected_qbit_version" "$expected_webapi_version"

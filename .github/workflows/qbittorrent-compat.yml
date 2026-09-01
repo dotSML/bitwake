@@ -1,0 +1,63 @@
+name: qBittorrent Compatibility
+
+on:
+  schedule:
+    - cron: '23 4 * * 3'
+  workflow_dispatch:
+
+concurrency:
+  group: qbittorrent-compat-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    name: Build pinned compatibility matrix
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - name: Validate inputs and emit matrix
+        id: matrix
+        shell: bash
+        run: |
+          matrix=$(jq -cn '{include: [
+            {name: "baseline-5.0.5", image: "ghcr.io/qbittorrent/docker-qbittorrent-nox@sha256:1d1daad3576568899543d30bbb9fc4d3e2de577cea4529ce7c619e973e6cccac", app: "v5.0.5", api: "2.11.2"},
+            {name: "target-5.2.3", image: "ghcr.io/qbittorrent/docker-qbittorrent-nox@sha256:9ebb534fe30bab98622cb84a8c3acecfd88319b2d540f52ecdec7b9f866374d7", app: "v5.2.3", api: "2.15.1"}
+          ]}')
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+
+  integration:
+    name: ${{ matrix.name }} / real daemon
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+      - name: Enable Corepack
+        run: corepack enable
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Install Chromium
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Build standalone test image
+        env:
+          NEOTORRENT_IMAGE: neotorrent:compat
+        run: pnpm container:build
+      - name: Exercise real qBittorrent compatibility contract
+        env:
+          NEOTORRENT_IMAGE: neotorrent:compat
+          QBITTORRENT_IMAGE: ${{ matrix.image }}
+          QBITTORRENT_EXPECTED_VERSION: ${{ matrix.app }}
+          QBITTORRENT_EXPECTED_WEBAPI_VERSION: ${{ matrix.api }}
+        run: sh container/test-qbittorrent.sh

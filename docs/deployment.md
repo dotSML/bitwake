@@ -69,8 +69,8 @@ docker run --rm --name neotorrent \
 | `PROXY_SEND_TIMEOUT`             | `300s`                           | Positive Nginx duration                                                                                                                                           |
 | `PROXY_SSL_VERIFY`               | `on`                             | `on` verifies an HTTPS qBittorrent upstream against the image CA bundle; `off` is an explicit security downgrade                                                  |
 | `NEOTORRENT_MEDIA_MODE`          | `off`                            | `off` preserves generic paths; `assist` enables Media Placement                                                                                                   |
-| `NEOTORRENT_TV_ROOT`             | empty                            | qBittorrent-visible TV root; not a path mounted in NeoTorrent                                                                                                     |
-| `NEOTORRENT_MOVIES_ROOT`         | empty                            | qBittorrent-visible Movies root; not a path mounted in NeoTorrent                                                                                                 |
+| `NEOTORRENT_TV_ROOT`             | empty                            | qBittorrent-visible TV root; must be separate from and non-nested with Movies                                                                                     |
+| `NEOTORRENT_MOVIES_ROOT`         | empty                            | qBittorrent-visible Movies root; must be separate from and non-nested with TV                                                                                     |
 | `NEOTORRENT_MEDIA_BROWSE_ROOT`   | empty                            | Initial qBittorrent directory-browser root                                                                                                                        |
 | `NEOTORRENT_MEDIA_CONFIG_LOCKED` | `false`                          | `true` makes runtime media fields deployment-managed; Manual path still remains enabled                                                                           |
 | `NEOTORRENT_TV_CATEGORY`         | empty                            | Optional existing TV category suggestion; it is not created automatically                                                                                         |
@@ -79,9 +79,12 @@ docker run --rm --name neotorrent \
 `QBITTORRENT_URL` is routing configuration, not a secret. Never embed a username, password, cookie, token, or API key in it. The entrypoint validates values before rendering `/tmp/nginx.conf` and runs `nginx -t` before starting.
 
 The entrypoint also writes the non-secret `/_neotorrent/runtime-config.json` resource into `/tmp`.
-It rejects invalid modes, control characters, and newline injection, escapes JSON values, and serves
-the resource with `Cache-Control: no-store`. The resource contains no qBittorrent URL or credential.
-Existing deployments that omit every Media Placement variable continue with the feature Off.
+It rejects invalid modes, unsafe or non-absolute paths, control/direction characters, newline
+injection, and equal or segment-nested TV/Movies roots. Invalid media configuration produces a
+sentinel that turns Media Placement Off and displays a warning; it does not prevent the otherwise
+valid proxy from starting. Values are JSON-escaped and served with `Cache-Control: no-store`. The
+resource contains no qBittorrent URL or credential. Existing deployments that omit every Media
+Placement variable continue with the feature Off.
 
 The standalone server exposes `/healthz` and `/readyz`. Both report whether NeoTorrent's static proxy process is alive and configured; they intentionally remain 200 while qBittorrent is unavailable. API availability is represented by proxied 502/504 responses and the application's connection state, not these probes.
 
@@ -163,9 +166,8 @@ Before applying either base:
 
 ### Build prerequisites
 
-- Node.js 22 or newer.
+- Node.js 22.22.2 or newer (`.node-version` records the reviewed 22.23.2 toolchain).
 - Corepack with pnpm 10.15.0, or a matching standalone pnpm.
-- The `zip` executable for the distributable archive.
 - A current browser for manual verification.
 - Playwright Chromium and WebKit for the complete configured browser-project matrix.
 
@@ -177,13 +179,18 @@ corepack pnpm typecheck
 corepack pnpm build:alt-webui
 ```
 
-The packaging command performs two Vite builds, assembles qBittorrent's public/private layout, rejects symlinks, production source maps, and files at or above 10 MiB, checks HTML/CSS/JS for root- or parent-relative `src`/`href` attributes and a literal hardcoded `/api/v2/` base, removes the mock worker, and creates a zip.
+The packaging command performs two Vite builds, assembles qBittorrent's public/private layout,
+generates deterministic production-dependency notices, copies recognized repository license/notice
+files when present, rejects symlinks, production source maps, and files at or above 10 MiB, checks
+HTML/CSS/JS for root- or parent-relative `src`/`href` attributes and a literal hardcoded `/api/v2/`
+base, removes the mock worker, and writes a sorted deterministic ZIP32 archive without a host `zip`
+dependency.
 
 Outputs:
 
 ```text
 dist/alt-webui/
-dist/qbittorrent-modern-webui.zip
+dist/neotorrent-alt-webui-v<version>.zip
 ```
 
 Artifact sizes and checksums vary by revision. Record a checksum for the exact archive you promote, and inspect the generated package rather than relying on values from another build. The packaging checks reject production source maps, the MSW worker, and an embedded upstream string.
@@ -196,6 +203,8 @@ qBittorrent's **Alternative WebUI files location** must point to the directory c
 
 ```text
 alt-webui/
+├── THIRD_PARTY_NOTICES.txt
+├── LICENSE                  # when selected/present
 ├── public/
 │   ├── index.html
 │   ├── login-assets/
@@ -210,7 +219,9 @@ alt-webui/
 
 Do not point qBittorrent to `public/`, `private/`, the zip file, or `dist/standalone`.
 
-The archive contains `public/` and `private/` at its top level. Extract it into an otherwise dedicated directory so unrelated files do not become part of the WebUI root.
+The archive contains `public/`, `private/`, `THIRD_PARTY_NOTICES.txt`, and any recognized repository
+license/notice files at its top level. Extract it into an otherwise dedicated directory so unrelated
+files do not become part of the WebUI root.
 
 ### Install in qBittorrent
 
@@ -235,14 +246,14 @@ For headless qBittorrent, set the equivalent Alternative WebUI options using you
 A passing real suite must observe qBittorrent **v5.2.3** and Web API **2.15.1** and verify:
 
 - Anonymous startup, invalid login, valid login, deep-link restoration, authenticated refresh, logout, and expiry without standalone document reload loops.
-- Legal local multipart torrent adds, start, stop, an active-download save-location change, rename, category/tag assignment, recheck, reannounce, and file-priority changes.
+- Legal local multipart torrent adds, start, stop, an active-download save-location change, torrent and file/folder rename, category save-path editing and category/tag assignment, peer addition, recheck, whole-torrent and capability-gated selected-tracker reannounce, and file-priority changes.
 - Web Seed add/list/edit/remove with encoded path and query octets preserved.
 - Delete-without-content and delete-with-content semantics against two generated local fixtures.
 - Proxy 502 behavior, the last-good-data connection banner, and recovery after qBittorrent restart.
 
 Web Seed encoding deserves special care. The UI/API boundary accepts canonical URLs. qBittorrent 5.2.3 form-decodes the request and its Web Seed controller then calls `QUrl::fromPercentEncoding()`. NeoTorrent therefore protects only existing `%HH` octets as `%25HH` before the shared `URLSearchParams` form encoder runs. It does not `encodeURIComponent` the complete URL, because that would also obscure semantic `:`, `/`, `?`, `&`, and `=` delimiters. The real suite compares the added/edited URLs after qBittorrent returns them.
 
-These tests do not establish Kubernetes behavior, outer-Ingress TLS, subpath serving, PWA install/update, every Vue mutation surface, large-library performance, or compatibility beyond the pinned version. Container CI must build and scan every published architecture under the repository's severity policy before it publishes an image. A local image ID or scan applies only to that local image and is not an immutable registry reference or a substitute for hosted multi-architecture verification.
+These tests do not establish Kubernetes behavior, outer-Ingress TLS, subpath serving, every Vue mutation surface, or real-daemon large-library performance. PWA cache behavior and calibrated synthetic workspace performance use separate production Chromium suites. The scheduled and manual compatibility workflow always exercises reviewed official qBittorrent 5.0.5 / Web API 2.11.2 and 5.2.3 / 2.15.1 images by digest without following mutable tags. Web Seed mutation is skipped below API 2.11.4, and every version-sensitive addition remains capability-gated. Container CI must build and scan every published architecture under the repository's severity policy before it publishes an image. A local image ID or scan applies only to that local image and is not an immutable registry reference or a substitute for hosted multi-architecture verification.
 
 The native Alternative WebUI authentication/resource smoke in `scripts/verify-real-instance.mjs` is supplemental. Record the tested source revision and archive checksum when using it, and do not represent a smoke result from one package as live-daemon verification of another.
 
@@ -284,11 +295,18 @@ This previews `dist/standalone`; it does not run the bundled Nginx proxy or repr
 
 ### Continuous integration
 
-`.github/workflows/ci.yml` runs on pushes to `main` and pull requests. It installs from the frozen lockfile, checks formatting, lint and types, runs all Vitest projects, builds the Alternative WebUI, installs Chromium and WebKit, runs the configured Playwright projects, and uploads `dist/alt-webui` plus `dist/qbittorrent-modern-webui.zip`.
+`.github/workflows/ci.yml` runs on pushes to `main` and pull requests. It installs from the frozen lockfile, checks formatting, lint and types, runs all Vitest projects, builds the Alternative WebUI, installs Chromium and WebKit, and runs the configured responsive/accessibility projects and standalone PWA cache-boundary suite. The build validates the versioned ZIP and assembled directory, but ordinary CI does not upload or publish those distribution artifacts.
 
 `.github/workflows/container.yml` applies the source, browser, package, proxy, and real-qBittorrent gates before publication. It builds and scans the supported architectures, then produces the multi-architecture index, SBOM, provenance, artifact attestation, and immutable-reference report for eligible revisions.
 
-CI evidence is revision-specific. Confirm that both workflows succeeded for the exact commit being released, and use the immutable reference emitted by that run. Do not carry a passing result, checksum, scan, or attestation forward from another commit.
+`.github/workflows/performance.yml` records the calibrated single-worker Chromium timing, heap, and
+DOM artifact on its schedule or manual dispatch. `.github/workflows/qbittorrent-compat.yml` runs the
+pinned official qBittorrent 5.0.5 / Web API 2.11.2 and 5.2.3 / 2.15.1 real-daemon contracts on every
+schedule/manual dispatch. `.github/workflows/release.yml` is a manual SemVer-release publication gate
+for an existing exact tag; it marks a hyphenated SemVer suffix as a GitHub prerelease and remains
+blocked until a repository license is selected and added.
+
+Workflow evidence is revision-specific. Confirm that every applicable workflow succeeded for the exact commit being released, and use the immutable reference emitted by that run. Do not carry a passing result, checksum, scan, or attestation forward from another commit.
 
 ## Reverse proxy and subpath behavior
 
@@ -339,7 +357,7 @@ The standalone container's bundled Nginx serves and proxies at root: its API loc
 
 PWA behavior is progressive enhancement. It generally requires HTTPS (localhost is a development exception), an allowed service-worker scope, and browser support.
 
-The package includes:
+Both production packages include:
 
 - `manifest.webmanifest`.
 - Generated 192×192 and 512×512 PNG icons plus the local SVG source icon.
@@ -349,11 +367,19 @@ The package includes:
 
 API GET and POST requests are NetworkOnly, and the application fetch client uses `no-store`. The service worker must never be changed to provide offline torrent state or cache login/API responses.
 
+Standalone builds additionally precache `index.html` and use it as the offline navigation shell.
+Authenticated Alternative WebUI builds precache only static application assets, exclude HTML, and
+disable navigation fallback so a cached private document cannot hide qBittorrent's public login
+boundary after logout or SID expiry. The public Alternative login entry does not register a worker.
+
 Current limitations:
 
-- The app uses a confirm/reload update prompt, but the full update lifecycle has not been exercised through the packaged qBittorrent deployment.
+- The app uses an in-application update banner, but a real two-version update has not been exercised through the packaged qBittorrent deployment.
 - File and protocol handlers are not registered because no launch-payload consumer is implemented.
-- PWA registration through qBittorrent's public/private resource mapping has not been fully verified.
+- Production standalone registration, control, manifest scope, offline HTML/static use, empty
+  private-data cache entries, and network-only API/runtime behavior are browser-tested. PWA
+  registration through qBittorrent's public/private resource mapping and a
+  real two-version update have not been fully verified.
 - A non-TLS remote deployment should not be expected to install as a PWA.
 
 ## Screenshots
@@ -392,7 +418,10 @@ The checked-in screenshots are mock-mode snapshots. The script defaults to `/usr
 5. Test public login, private startup, actions, logout, expiry, and proxy/subpath behavior in a fresh browser session.
 6. Keep the previous directory until the new build has survived a reload and session transition.
 
-Hashed asset names and uncached HTML reduce mixed-version risk. A registered older service worker may still need a browser reload or site-data cleanup when debugging an upgrade.
+Hashed asset names reduce mixed-version risk. Alternative WebUI HTML is not precached; standalone
+HTML is versioned with the worker's precache and refreshed through the in-app update flow. A
+registered older service worker may still need a browser reload or site-data cleanup when debugging
+an upgrade.
 
 Interface preference schema migrations run when NeoTorrent loads. Current schema version is 2; migrations validate/clamp every known field, discard unknown keys, and fall back safely for corrupt input. Server settings are not migrated by NeoTorrent.
 
@@ -431,6 +460,9 @@ UI preferences are namespaced and generally safe to retain. If a preference migr
 - Request `api/v2/app/version` and `api/v2/sync/maindata?rid=0` through the same external mount while authenticated.
 - Look for a persistent NeoTorrent connection banner and browser network errors.
 - Confirm the proxy does not cache API responses.
+- Open **More → Diagnostics** to compare browser online state, session/sync health, last successful
+  synchronization, and recent endpoint-only operation outcomes. Review any exported snapshot before
+  sharing it.
 
 ### Search, RSS, or Torrent Creator is unavailable
 

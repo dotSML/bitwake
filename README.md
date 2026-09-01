@@ -24,26 +24,32 @@ NeoTorrent is an independent project and is not affiliated with or endorsed by t
 ## Highlights
 
 - Virtualized desktop and mobile torrent lists with keyboard and multi-selection support.
+- Advanced torrent filtering with active-filter summaries and up to 20 named saved filters.
 - Torrent addition from files, magnets, and HTTP(S) URLs.
 - Optional Media Placement assistance with independent TV/Movie/Other classification and
   Suggested or first-class Manual destinations.
 - Shared desktop and mobile actions for lifecycle, queue, location, limits, categories, tags, comments, and deletion.
-- Overview, Files, Trackers, Peers, Web Seeds, and Pieces detail views.
+- Overview, Files, Trackers, Peers, Web Seeds, and Pieces detail views, including peer addition and
+  single-file/folder rename workflows.
 - Search, RSS, Torrent Creator, logs, transfer statistics, categories, tags, and curated server settings.
+- Diagnostics and System Health with a sanitized support snapshot and a bounded, session-only
+  history of qBittorrent-changing requests.
 - Resilient initial connection and incremental `sync/maindata` handling.
 - Native Alternative WebUI packaging with relative public/private assets.
 - A non-root standalone container with same-origin API proxying, health endpoints, security headers, and Kubernetes examples.
-- A PWA service worker that keeps all API traffic network-only.
+- A PWA service worker that keeps all API traffic network-only. Standalone builds provide an
+  offline application shell; native Alternative WebUI builds cache static assets only and have
+  no offline navigation fallback.
 - Deterministic mock development through MSW.
 
 ## Compatibility
 
 | Area            | Support                                                                 |
 | --------------- | ----------------------------------------------------------------------- |
-| qBittorrent     | 5.2.3 verified; 5.0 and later are best effort                           |
-| Web API         | 2.15.1 verified; 2.11.2 and later use capability-aware fallbacks        |
+| qBittorrent     | 5.0.5 and 5.2.3 verified; other 5.x releases are best effort            |
+| Web API         | 2.11.2 and 2.15.1 verified; intermediate versions are capability-gated  |
 | Browsers        | Current evergreen browsers with ES2022, modules, `fetch`, and hash URLs |
-| Node.js         | 22 or later for development and builds                                  |
+| Node.js         | 22.22.2 or later for development and builds                             |
 | Package manager | pnpm 10.15.0 through Corepack                                           |
 
 NeoTorrent uses qBittorrent 5's `torrents/start` and `torrents/stop` routes and does not fall back to the older pause/resume route names. Version-dependent behavior is documented in [docs/api-capabilities.md](docs/api-capabilities.md).
@@ -89,7 +95,9 @@ corepack pnpm build:alt-webui
 The build creates:
 
 - `dist/alt-webui/`, containing the complete Alternative WebUI directory; and
-- `dist/qbittorrent-modern-webui.zip`, containing the same `public/` and `private/` roots.
+- `dist/neotorrent-alt-webui-v<version>.zip`, containing the same `public/` and
+  `private/` roots plus generated production-dependency notices and any selected
+  repository license/notice files.
 
 Point qBittorrent's **Alternative WebUI files location** at the parent `dist/alt-webui/` directory, not either child directory. Keep a tested recovery path to the desktop UI or qBittorrent configuration before changing Web UI settings.
 
@@ -110,7 +118,18 @@ qBittorrent host/container; NeoTorrent does not mount the media filesystem. See 
 [Media Placement guide](docs/media-placement.md) for all variables, warnings, and Manual-path
 behavior.
 
-The container workflow publishes `edge`, commit-derived, and version-derived tags after its verification gates pass. For deployments, select and verify an immutable image digest rather than relying on a mutable tag.
+The container workflow verifies pushes to `main`, matching version-tag pushes,
+and pull requests, but publishes a version-derived multi-architecture image only
+for a reviewed `v*.*.*` tag after its verification gates pass. For deployments,
+select and verify the resulting immutable image digest rather than relying on
+the mutable version tag.
+
+Public releases use a separate fail-closed workflow that validates the package
+version, tag, changelog, repository-license presence, non-placeholder package
+SPDX metadata, versioned container manifest, Alternative WebUI archive,
+checksums, and release metadata. The repository currently has no license, so
+that workflow intentionally refuses to publish until the project owner chooses
+one. See the [release guide](docs/releasing.md).
 
 The Kubernetes examples intentionally contain this non-runnable placeholder:
 
@@ -134,11 +153,17 @@ corepack pnpm test             # run unit tests
 corepack pnpm test:component   # run Vue component tests
 corepack pnpm test:all         # run all Vitest projects
 corepack pnpm test:e2e         # run Playwright browser tests
+corepack pnpm test:pwa         # test the production PWA cache boundary
+corepack pnpm test:performance # run calibrated Chromium scale and heap checks
 corepack pnpm build            # build the standalone frontend
 corepack pnpm build:alt-webui  # build the Alternative WebUI package
 corepack pnpm container:build  # build the standalone image
 corepack pnpm container:test   # run proxy and qBittorrent integration tests
 ```
+
+The scheduled and manually dispatched qBittorrent Compatibility workflow always
+exercises two reviewed official images by digest: qBittorrent 5.0.5 / Web API
+2.11.2 and the 5.2.3 / 2.15.1 target. It never follows mutable image tags.
 
 Playwright may require a one-time browser install:
 
@@ -146,7 +171,7 @@ Playwright may require a one-time browser install:
 corepack pnpm exec playwright install chromium webkit
 ```
 
-On Linux, browser system dependencies may require `playwright install --with-deps`. Building the Alternative WebUI zip also requires `zip` on `PATH`.
+On Linux, browser system dependencies may require `playwright install --with-deps`. The Alternative WebUI archive is written deterministically by the build script and does not require a host `zip` executable.
 
 ## Architecture and security
 
@@ -164,6 +189,9 @@ Read [docs/architecture.md](docs/architecture.md) for design details and [docs/s
 - [Media Placement](docs/media-placement.md)
 - [API capabilities](docs/api-capabilities.md)
 - [Deployment guide](docs/deployment.md)
+- [Release guide](docs/releasing.md)
+- [Performance and memory verification](docs/performance.md)
+- [Changelog](CHANGELOG.md)
 - [Security model](docs/security.md)
 - [Feature parity ledger](docs/feature-parity.md)
 - [Competitor analysis and design decisions](docs/competitor-analysis.md)

@@ -23,7 +23,7 @@ flowchart LR
   QB[qBittorrent 5.2.3<br/>/api/v2]
   CLIENTDATA[clientdata API]
   LOCAL[localStorage fallback]
-  SW[Static-asset service worker]
+  SW[Mode-aware service worker]
 
   B -->|standalone| NGINX
   NGINX --> SPA
@@ -32,6 +32,7 @@ flowchart LR
   B -->|native authenticated| PRIV
   PUB -->|POST auth/login; native reload| QB
   SPA --> LIFE
+  SPA --> SW
   PRIV --> LIFE
   LIFE --> UI
   UI --> PINIA
@@ -43,7 +44,7 @@ flowchart LR
   PINIA --> LOCAL
   CLIENTDATA --> QB
   PRIV --> SW
-  SW -. static assets only .-> B
+  SW -. standalone HTML + static assets<br/>Alternative static assets only .-> B
   SW -. NetworkOnly /api/** .-> QB
 ```
 
@@ -65,12 +66,12 @@ src/
 │   ├── router/          lazy feature routes with hash history
 │   └── session/         centralized mode-aware session lifecycle
 ├── config/              compile-time deployment-mode contract
-├── domains/             torrent filters/state, file tree, graph buffer
+├── domains/             torrent filters/state, diagnostics, file tree, graph buffer
 ├── features/            route and workflow components
 │   └── media-placement/ focused components, pure domain planning, runtime loader,
 │                        and persisted configuration store
 ├── stores/              session, torrent sync, transfer graph, preferences,
-│                       notifications
+│                       saved filters, operations history, notifications
 ├── ui/                  dialog and shared presentational primitives
 ├── utils/               formatting, URL checks, RSS sanitization
 ├── mocks/               MSW handlers and deterministic fixtures
@@ -188,6 +189,9 @@ Atomicity is pragmatic rather than transactional: collection mutations occur syn
 - TanStack Table owns desktop column definitions, sorting, visibility, and resize state.
 - TanStack Virtual renders only visible desktop torrent rows.
 - Column visibility, order, and widths are stored in the strict interface-preference schema; widths persist after pointer or keyboard resize.
+- Advanced filters combine name/hash text, bounded safe regular expressions, exclusion, state,
+  category, tag, tracker, and save-path prefix conditions. The active-filter summary is shared by
+  desktop and mobile layouts.
 - Stable table row IDs are torrent hashes.
 - Desktop selection supports single, modifier toggle, anchored shift range, roving-tabindex Arrow navigation across virtual render boundaries through `scrollToIndex`, select all, filter focus, Escape, and Delete confirmation.
 - Right-click and keyboard context invocation open an accessible action menu; phone overflow opens the corresponding action sheet.
@@ -195,23 +199,44 @@ Atomicity is pragmatic rather than transactional: collection mutations occur syn
 - A resizable right inspector loads per-torrent detail endpoints on demand.
 - Mobile virtualizes purpose-built compact rows and navigates to a dedicated detail route.
 
-The shared desktop/mobile action menu covers start, stop, details, recheck, reannounce, force start, sequential mode, first/last-piece priority, queue movement, per-torrent rate/share limits, save location, single-torrent rename/export, automatic management, super seeding, comments, category, tags, and confirmed deletion for the current selection. Peer addition and file/folder rename remain wrapper-only. At tablet widths, a persistent 64 px icon rail keeps library and secondary routes reachable while the mobile bottom navigation remains reserved for widths below 768 px.
+The shared desktop/mobile action menu covers start, stop, details, recheck, reannounce, force start, sequential mode, first/last-piece priority, queue movement, per-torrent rate/share limits, save location, single-torrent rename/export, automatic management, super seeding, comments, category, tags, and confirmed deletion for the current selection. At tablet widths, a persistent 64 px icon rail keeps library and secondary routes reachable while the mobile bottom navigation remains reserved for widths below 768 px.
 
 ### Files and pieces
 
-Torrent files are cloned into component-local immutable state, converted to an aggregate folder/file tree, flattened according to expansion/search state, and virtualized. Selection uses conventional plain/modifier/anchored-range behavior; tree Arrow/Home/End keys move one roving tab stop across virtual boundaries. Folder descendants are gathered into a `Set<number>` for `torrents/filePrio`, the selector is guarded against duplicate submission and reset after each result, and successful local updates replace file objects instead of mutating props. Mobile uses adaptive 84 px rows that retain name, progress, size, and priority. A focused regression applies one priority to a 10,000-file folder, resets, then applies the same priority to a later 20-file folder. Piece state uses Canvas to avoid one DOM node per piece. The peer tab incrementally polls `sync/torrentPeers`, applies full/delta additions and removals, aborts stale requests on tab/hash changes, slows while hidden, and virtualizes adaptive desktop/mobile rows.
+Torrent files are cloned into component-local immutable state, converted to an aggregate folder/file tree, flattened according to expansion/search state, and virtualized. Selection uses conventional plain/modifier/anchored-range behavior; tree Arrow/Home/End keys move one roving tab stop across virtual boundaries. Folder descendants are gathered into a `Set<number>` for `torrents/filePrio`, the selector is guarded against duplicate submission and reset after each result, and successful local updates replace file objects instead of mutating props. A leaf-only rename workflow preserves the selected file or folder's torrent-relative parent path. Mobile uses adaptive 84 px rows that retain name, progress, size, and priority. A focused regression applies one priority to a 10,000-file folder, resets, then applies the same priority to a later 20-file folder. Piece state uses Canvas to avoid one DOM node per piece. The peer tab incrementally polls `sync/torrentPeers`, applies full/delta additions and removals, aborts stale requests on tab/hash changes, slows while hidden, virtualizes adaptive desktop/mobile rows, supports IP banning, and accepts up to 100 validated host/IPv4 or bracketed-IPv6 endpoints for peer addition.
 
 ### Transfer graph
 
 `TransferGraphBuffer` is a bounded ring buffer. Server-state updates append browser-local samples; the Canvas renderer downsamples to the current width. Gaps are marked after a long sample interval. The graph is explicitly session-local and never presented as daemon history.
 
+### Diagnostics and operations history
+
+The Diagnostics and System Health route derives a health state from the authenticated session,
+browser online state, synchronization state, polling activity, consecutive failures, and data
+staleness. It also reports build/qBittorrent versions, available process information, service-worker
+state, browser storage estimates, and browser memory counters when the engine exposes them. These are
+troubleshooting signals, not a daemon health endpoint or a replacement for the container's
+process-only probes.
+
+The shared HTTP transport observes non-authentication POST requests after request encoding. A
+bounded Pinia store retains at most 100 endpoint-only observations with start time, duration, HTTP
+status or normalized error kind, and an outcome. It never stores query strings, request/response
+bodies, headers, torrent hashes, or credentials. “Completed” means qBittorrent returned and the
+client parsed an accepted HTTP response; an endpoint can still report item-level failure inside a
+successful response. The history is memory-only, can be cleared manually, and is cleared whenever
+the private session epoch changes.
+
+Copy/download support snapshots contain only the minimized health, build, browser, Media Placement
+status, and bounded operation fields shown on the route. They exclude torrent collections and Media
+Placement paths, but users must still review browser/version metadata before sharing a snapshot.
+
 ### Secondary routes
 
-Search, RSS, Torrent Creator, Logs, Statistics, Settings, More, and torrent details are route-level dynamic imports. Search results, RSS articles, application/peer logs, files, and peers use virtualized or bounded rendering. Smaller configuration and task collections remain direct renderings.
+Search, RSS, Torrent Creator, Logs, Statistics, Diagnostics, Settings, More, and torrent details are route-level dynamic imports. Search results, RSS articles, application/peer logs, files, and peers use virtualized or bounded rendering. Smaller configuration and task collections remain direct renderings.
 
 ## Preferences
 
-`UiPreferences` has an explicit schema version and migration function. It contains only interface state such as theme, densities, panel dimensions, visible columns, sort, graph range, units, preferred detail tab, polling interval, and confirmations.
+`UiPreferences` has an explicit schema version and migration function. It contains only interface state such as theme, selected UI locale, densities, panel dimensions, visible columns, sort, graph range, units, preferred detail tab, polling interval, and confirmations. Selecting English, Estonian, or the conservative system-language resolver updates Vue I18n, `document.documentElement.lang`, and the cached native `Intl` number/date formatters together.
 
 Persistence behavior:
 
@@ -222,6 +247,12 @@ Persistence behavior:
 Passwords, qBittorrent cookies, torrent files, and magnet history are not part of this store.
 
 Migration constructs a fresh allow-listed object. It validates enum and boolean fields, clamps sidebar/inspector widths and column widths, filters/uniquifies known columns and sort keys, fills defaults, and drops unknown stored keys.
+
+Named torrent filters use another schema/key because their category, tag, tracker, and save-path
+conditions may be private. At most 20 sanitized filters are stored through `clientdata/store` when
+API 2.13.1+ is available. On older targets the fallback is `sessionStorage`, not durable local
+storage; it is cleared at logout/expiry or another private-session transition. Once a daemon
+advertises client data, an unscoped browser fallback is discarded rather than reused across users.
 
 Media Placement uses a separate namespaced preference value because deployment-managed roots are
 not interface layout. A standalone runtime resource is resolved before saved client-data settings;
@@ -248,8 +279,17 @@ or source-analysis history.
 The dependency direction is source bytes/name → pure analysis → editable placement plan → explicit
 qBittorrent request. Manual is a destination method, never a media type. Changing from Suggested to
 Manual copies the suggestion but does not change classification or silently rewrite the value.
-Exact-root and wrong-library warnings can require acknowledgement, but there is deliberately no
-enforcement mode. See [media-placement.md](media-placement.md).
+Exact-root and wrong-library destinations can require acknowledgement, but the configured TV and
+Movies library roots themselves must be separate: equal roots and segment-aware nesting in either
+direction are rejected by Settings, persisted-value parsing, runtime-resource validation, and the
+standalone entrypoint. An invalid standalone media configuration produces an explicit sentinel and
+turns Media Placement off without preventing the rest of NeoTorrent from starting.
+
+Suggested TV/Movie editors can ask qBittorrent for one shallow directory listing to find possible
+existing series, season, or movie folders. Ranking inspects at most the first 2,000 returned
+directories, excludes an explicit conflicting release year, and shows at most eight medium/high
+confidence candidates. It performs no recursive search and never selects a result automatically.
+See [media-placement.md](media-placement.md).
 
 ## Production builds and container runtime
 
@@ -259,19 +299,22 @@ enforcement mode. See [media-placement.md](media-placement.md).
 
 1. `alt-public` builds `public-entry.html` and login assets.
 2. `alt-private` builds `private-entry.html`, application chunks, manifest, and service worker.
-3. The script stages `public/` and `private/`, renames each entry to `index.html`, and places manifest/service-worker resources in `public/`.
-4. Development mock workers are removed.
-5. Every file is checked for qBittorrent's 10 MiB per-file limit and production source maps are rejected.
-6. HTML/CSS/JS text is checked for root- or parent-relative `src`/`href` attributes and literal hardcoded `/api/v2/` URLs.
-7. `dist/alt-webui` is zipped as `dist/qbittorrent-modern-webui.zip`.
+3. The script stages `public/` and `private/`, adds qBittorrent-compatible `index.html` entries, and places manifest/service-worker resources in `public/`.
+4. Recognized repository license/notice files are copied when present, and a deterministic
+   `THIRD_PARTY_NOTICES.txt` inventories reviewed production dependency license texts.
+5. Development mock workers are removed.
+6. Every file is checked for qBittorrent's 10 MiB per-file limit and production source maps are rejected.
+7. HTML/CSS/JS text is checked for root- or parent-relative `src`/`href` attributes and literal hardcoded `/api/v2/` URLs.
+8. A repository-owned deterministic ZIP32 writer sorts paths and normalizes timestamps/metadata to
+   produce `dist/neotorrent-alt-webui-v<version>.zip` without a host `zip` dependency.
 
 Vite uses `base: './'`, separate `login-assets/` and `app-assets/`, hashed chunks, and disabled production source maps. Artifact security considerations are covered in [security.md](security.md).
 
 ### Standalone build and proxy
 
-`vite build --mode standalone` emits one SPA to `dist/standalone`. The Dockerfile builds that output in a Node stage and copies it into the pinned `nginxinc/nginx-unprivileged:1.30.4-alpine-slim@sha256:11f3f6249b4ae3d7a4ec2a51797060107b88ead52b33b6ed3c6c33f55ca96200` runtime. The runtime runs as `101:101` and intentionally contains neither Node nor the source/test tree.
+`vite build --mode standalone` emits one SPA plus generated `THIRD_PARTY_NOTICES.txt` to `dist/standalone`. The Dockerfile builds that output in a Node stage and copies it into the pinned `nginxinc/nginx-unprivileged:1.30.4-alpine-slim@sha256:11f3f6249b4ae3d7a4ec2a51797060107b88ead52b33b6ed3c6c33f55ca96200` runtime. The runtime runs as `101:101` and intentionally contains neither Node nor the source/test tree.
 
-The POSIX entrypoint validates `QBITTORRENT_URL` or the `QB_HOST`/`QB_PORT` fallback, listen port, upload size, and proxy timeouts. It rejects embedded credentials, query/fragment text, unsafe characters, and an upstream ending in `/api/v2`, then renders Nginx configuration and a non-secret Media Placement JSON resource into writable `/tmp` and runs `nginx -t`.
+The POSIX entrypoint validates `QBITTORRENT_URL` or the `QB_HOST`/`QB_PORT` fallback, listen port, upload size, proxy timeouts, and Media Placement values. It rejects embedded credentials, query/fragment text, unsafe characters, and an upstream ending in `/api/v2`. Invalid media modes, unsafe/non-absolute paths, equal or nested TV/Movies roots, or incomplete locked Assist roots produce a fail-closed Media Placement sentinel while the proxy remains usable. The entrypoint renders Nginx configuration and the non-secret runtime resource into writable `/tmp` and runs `nginx -t`.
 
 Nginx serves the hash-routed SPA, proxies root `/api/` to the configured upstream `/api/`, forwards cookies and validation-relevant headers, disables API buffering/caching, and returns proxy statuses without substituting the SPA. `/healthz` and `/readyz` describe only the NeoTorrent process and deliberately do not probe qBittorrent.
 
@@ -279,11 +322,11 @@ Kubernetes has sidecar and separate-Deployment examples. The sidecar shares loop
 
 ## PWA and cache boundary
 
-The standalone and authenticated Alternative WebUI entries register the generated service worker. Workbox precaches JS, CSS, SVG, PNG, and WOFF2 application assets. HTML and the runtime Media Placement resource are not included in the configured glob. GET and POST requests whose URL path contains `/api/`, plus `/_neotorrent/runtime-config.json`, use `NetworkOnly`; API and runtime-config fetches also use `no-store`.
+The standalone and authenticated Alternative WebUI entries register generated service workers; the public Alternative WebUI login entry does not. Standalone precaches its HTML shell plus static application assets and uses `index.html` as its navigation fallback. The authenticated Alternative WebUI build precaches only its static application assets: HTML is excluded and `navigateFallback` is disabled so cached authenticated content cannot replace qBittorrent's public login boundary after logout or SID expiry. The runtime Media Placement resource is excluded in every mode. GET and POST requests whose URL path contains `/api/`, plus `/_neotorrent/runtime-config.json`, use `NetworkOnly`; API and runtime-config fetches also use `no-store`.
 
 The manifest declares standalone display, generated 192×192 and 512×512 PNG icons, the local SVG source icon, and relative start/scope. File and protocol handlers are intentionally absent until the app has a safe launch-payload consumer.
 
-The service-worker update callback presents a confirmation and activates/reloads the update when accepted. PWA behavior has not been fully verified through either deployment mode or a reverse-proxy subpath.
+The service-worker update callback drives an in-application update banner and activates/reloads the update when accepted. The runtime-configuration NetworkOnly matcher is suffix-based so a scoped deployment cannot fall outside the rule. A production Chromium suite verifies standalone registration/control, manifest identity/scope, offline HTML/static assets, an empty private-data cache boundary, and hard offline failure for API/runtime-config requests. Native Alternative WebUI mapping, a real two-version update, and a complete outer-proxy subpath remain unverified.
 
 ## Testing architecture
 
@@ -293,9 +336,12 @@ The service-worker update callback presents a confirmation and activates/reloads
 - Playwright is configured for 1440×900 desktop, 320×700, 375×812, and 430×932 phone projects, plus 768×1024 and 1024×768 tablet projects. It starts standalone-E2E and Alternative-private-E2E Vite servers so session-boundary behavior can be tested separately.
 - Build scripts produce standalone and Alternative WebUI artifacts independently of test fixtures.
 - CI installs the frozen pnpm dependency graph and runs formatting, lint, typecheck, unit/component tests, production builds, and the configured Playwright browser matrix.
+- CI also runs the standalone production PWA cache-boundary suite. Separate scheduled/manual
+  workflows record calibrated Chromium timing/heap/DOM measurements and exercise reviewed official
+  qBittorrent 5.0.5 / Web API 2.11.2 and 5.2.3 / 2.15.1 images by digest.
 - A focused store regression applies a changed delta to a large torrent fixture, verifies that untouched object references remain stable, then applies a removal delta and verifies selection and response-ID cleanup. Its coarse time guard is not a formal benchmark.
 - Playwright covers Chromium and WebKit across the configured desktop, tablet, and phone projects. Viewport-specific skips are intentional and should remain explicit in the test configuration.
-- The deterministic proxy and real qBittorrent 5.2.3 suites exercise the standalone runtime boundary. Container CI builds and scans every supported architecture before it publishes a multi-architecture image, SBOM, provenance, and attestations.
+- The deterministic proxy and real qBittorrent 5.0.5/5.2.3 suites exercise the standalone runtime boundary. Container CI builds and scans every supported architecture before it publishes a multi-architecture image, SBOM, provenance, and attestations.
 - Test, scan, and publication evidence applies only to the exact revision and artifact produced by that run. A local content ID is not an immutable registry reference.
 
 Executed results and missing suites are recorded in [../IMPLEMENTATION_STATUS.md](../IMPLEMENTATION_STATUS.md); configuration files alone are not counted as passing tests.
@@ -313,9 +359,10 @@ Executed results and missing suites are recorded in [../IMPLEMENTATION_STATUS.md
 
 - Targeted runtime schemas are defined but not wired into most requests.
 - Capability checks do not yet cover every API-dependent control or settings field.
-- Several lower-priority stock actions remain wrapper-only or absent, including peer addition and file/folder rename.
-- Component fixtures demonstrate bounded DOM counts for 5,000 desktop/mobile torrents, a searched 10,000-file tree, a 10,000-index priority/reapply flow, and 2,000 RSS articles. Coarse local time guards are not timing, memory, or sustained-poll benchmarks; comparable large peer and Search-result fixture evidence is also absent.
-- Several user-facing strings bypass Vue I18n.
+- Several lower-priority stock actions remain wrapper-only or absent, including tracker tier editing, Search plugin uninstall, and advanced RSS feed/rule operations.
+- Component fixtures demonstrate bounded DOM counts for 5,000 desktop/mobile torrents, a searched 10,000-file tree, a 10,000-index priority/reapply flow, and 2,000 RSS articles. Coarse local time guards remain regression alarms. A separate production Chromium suite records repeated 10/500/5,000-torrent startup/filter timing plus post-GC heap and DOM counters under explicit budgets; comparable calibrated file, peer, Search, RSS, and log browser scenarios remain absent.
+- English and Estonian catalogs are structurally checked and selected-locale formatting is aligned,
+  but several user-facing templates still bypass Vue I18n.
 - Packaging checks reject production source maps, the MSW worker, and an embedded upstream string. Record sizes and checksums for each release artifact instead of treating local build metadata as a publication record.
 - The Kubernetes examples intentionally contain a non-runnable image placeholder. A deployment claim requires an immutable registry reference from a successful workflow for the reviewed source revision.
 - Real qBittorrent coverage includes safe local mutations and outage recovery, but not Search/RSS/Creator/settings/peer workflows, large libraries, full Kubernetes topology validation, outer proxy TLS, subpaths, or PWA lifecycle.

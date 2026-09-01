@@ -30,7 +30,7 @@ It does not claim to protect a session after the browser, qBittorrent host, admi
 - No credential is written to local storage, IndexedDB, client data, URL parameters, or application logs.
 - Authentication uses the browser-managed qBittorrent cookie with `credentials: 'include'`.
 - NeoTorrent does not read, copy, rename, or persist that cookie.
-- Logout clears private in-memory torrent/session state even when the request fails, then reloads the server resource boundary.
+- Logout clears private in-memory torrent/session state even when the request fails. Standalone mode routes in place; native Alternative WebUI mode reloads qBittorrent's public boundary.
 - Expiry clears torrent state and returns to login. Standalone mode routes in place; native Alternative WebUI mode reloads qBittorrent's public boundary.
 - Startup session probes suppress global expiry notifications so an expected anonymous 401/403 cannot create a reload loop.
 - qBittorrent 5.0-style HTTP-200 `Fails.` login text is treated as invalid credentials, not successful authentication.
@@ -43,7 +43,9 @@ It does not claim to protect a session after the browser, qBittorrent host, admi
 - The standalone Media Placement runtime resource is fetched with `no-store`, served with
   `Cache-Control: no-store`, excluded from precaching, and matched by a NetworkOnly rule.
 - The native Alternative WebUI public login entry does not register the service worker. Standalone login shares the SPA worker scope, but its API/login requests still match NetworkOnly and the HTTP client uses `no-store`.
-- HTML is not in the Workbox precache glob.
+- Standalone precaches its HTML shell and uses an offline navigation fallback. Authenticated
+  Alternative WebUI builds exclude HTML and disable navigation fallback so a worker cannot mask
+  qBittorrent's public login boundary after logout or SID expiry.
 - There is no offline torrent-data mode.
 - Standalone Nginx applies `Cache-Control: no-store` to proxied API responses, disables proxy buffering, and never falls back from an unknown `/api/...` route to the SPA.
 - Standalone access logs omit query arguments because qBittorrent GET parameters can contain host paths, torrent hashes, RSS rule names, and other private metadata.
@@ -65,14 +67,24 @@ It does not claim to protect a session after the browser, qBittorrent host, admi
 - Connectivity-critical settings are marked and require a confirmation before submission.
 - Unknown qBittorrent preferences are shown read-only instead of being guessed.
 - Daemon shutdown is exposed in the connection section behind a dedicated confirmation; the accepted request clears live torrent state.
-- No `window.prompt` remains. Native `window.confirm` is limited to the PWA update prompt and secondary security-sensitive Settings changes, not the frequent management flows above.
+- No `window.prompt` remains. PWA updates use an in-application banner. Native `window.confirm` is limited to secondary security-sensitive Settings changes, not the frequent management flows above.
 
 ### Data minimization
 
 - No custom backend or database exists.
 - No telemetry, analytics, advertising, remote fonts, or runtime CDN is used.
-- Interface preferences contain layout/formatting choices only.
+- Interface preferences contain layout, selected locale, and formatting choices only.
 - Interface preference migration reconstructs an allow-listed schema, validates/clamps every stored field, and drops unknown keys.
+- Saved torrent filters are separately namespaced and bounded to 20 entries. They can contain
+  category, tag, tracker, and save-path conditions, so client data is authoritative when supported;
+  the older-target fallback is session storage and is cleared at private-session transitions.
+- The recent-operations store is memory-only and bounded to 100 non-authentication POST
+  observations. It records only an endpoint path, timing, accepted HTTP status or normalized error
+  kind, and outcome; query strings, bodies, headers, response text, torrent hashes, and credentials
+  are excluded.
+- Diagnostics copy/download snapshots exclude torrent collections, request/query bodies,
+  credentials, cookies, and Media Placement paths. They still contain browser, build/version,
+  health, and bounded operation metadata and must be reviewed before sharing.
 - Uploaded `.torrent` `File` objects and typed magnet/URL sources live in component memory and are cleared when the dialog closes.
 - Media names, paths, magnets, and bounded `.torrent` structure are analyzed locally and are never
   sent to metadata, AI, search, telemetry, or Jellyfin services.
@@ -90,6 +102,9 @@ It does not claim to protect a session after the browser, qBittorrent host, admi
   preserving useful Unicode. Manual paths are validated but never silently rewritten.
 - Containment is segment-aware and path-style-aware. Browser code does not resolve host symlinks or
   claim filesystem authority; qBittorrent remains authoritative for permissions and creation.
+- TV and Movies configuration roots must be distinct and non-nested. Equal or nested roots are
+  rejected in Settings, persisted-value parsing, runtime JSON validation, and standalone
+  environment processing; an invalid standalone media configuration turns the feature Off.
 - Exact-root and wrong-library destinations require acknowledgement but are not permanently blocked.
   There is no forced destination mode.
 
@@ -98,6 +113,9 @@ It does not claim to protect a session after the browser, qBittorrent host, admi
 The Alternative WebUI script:
 
 - Removes the development MSW worker.
+- Inventories production dependencies against the reviewed license allow-list and embeds their
+  license texts in deterministic `THIRD_PARTY_NOTICES.txt` output.
+- Copies recognized repository license/notice files into the distribution when present.
 - Rejects symlinks.
 - Rejects any file at or above qBittorrent's 10 MiB per-file limit.
 - Rejects production source-map files.
@@ -112,7 +130,7 @@ The standalone image additionally:
 - Rejects embedded upstream credentials, unsafe characters, query/fragment text, and a URL ending in `/api/v2`.
 - Supports a read-only root filesystem with only a small `/tmp` writable, all Linux capabilities dropped, no privilege escalation, and `RuntimeDefault` seccomp in the Kubernetes examples.
 - Serves process-only health/readiness endpoints; these do not make a false claim that qBittorrent is reachable.
-- Pins the runtime to `nginxinc/nginx-unprivileged:1.30.4-alpine-slim@sha256:11f3f6249b4ae3d7a4ec2a51797060107b88ead52b33b6ed3c6c33f55ca96200`. The OCI license label remains `NOASSERTION` until the project owner selects a license; update it to match the repository `LICENSE` when one is added.
+- Pins the runtime to `nginxinc/nginx-unprivileged:1.30.4-alpine-slim@sha256:11f3f6249b4ae3d7a4ec2a51797060107b88ead52b33b6ed3c6c33f55ca96200`. Local Docker builds default the OCI license label to `NOASSERTION`; workflow builds inject `package.json` metadata (currently `UNLICENSED`), and tagged publication remains blocked until the owner supplies aligned license text and a reviewed SPDX expression.
 
 ## qBittorrent settings that should remain enabled
 
@@ -152,7 +170,12 @@ Native Alternative WebUI deployments are served by qBittorrent and do not inheri
 
 - Dependencies are pinned through `pnpm-lock.yaml` but still require routine vulnerability and provenance review.
 - Run `corepack pnpm audit --prod --audit-level high` for each release and review the result. Registry advisories are a useful scoped check, not a formal review or guarantee.
-- Run `corepack pnpm run licenses` for each release and review the production dependency graph. Dependency licenses and the root package license must remain compatible with the repository's selected license and distribution policy.
+- Run `corepack pnpm run licenses` for each release. It inventories production dependencies,
+  rejects missing or non-allow-listed declarations, resolves license text from the installed
+  package or a disclosed installed version of the same package with the same declared license, and
+  builds deterministic notice content. Its reviewed allow-list and generated text are still an
+  engineering gate, not legal advice; dependency licenses, package metadata, container OCI labels,
+  archive contents, and the root project license must align with the selected distribution policy.
 - Production source maps are disabled in the current Vite configuration and are not intended to ship in either build output. Keep this invariant in the artifact checks if build tooling changes.
 - The generated 192 px/512 px PNG icons, source SVG icon, and all runtime code are local.
 - Search-plugin installation delegates code acquisition/execution to qBittorrent's search subsystem. Install only trusted plugins and sources.
@@ -175,30 +198,33 @@ The Add Torrent path validates typed URLs, RSS feed creation explicitly requires
 
 ### Destructive action breadth
 
-Destructive confirmation is implemented, and frequent tracker/Web Seed/RSS/category/tag/plugin/shutdown flows use application dialogs rather than `window.prompt`. PWA update and four secondary Settings decisions still use native confirmation, and some bulk mutations cannot report a per-item result. Full action authorization still depends entirely on the qBittorrent session.
+Destructive confirmation is implemented, and frequent tracker/Web Seed/RSS/category/tag/plugin/shutdown flows and PWA updates use application dialogs or banners rather than `window.prompt`. Four secondary Settings decisions still use native confirmation, and some bulk mutations cannot report a per-item result. Full action authorization still depends entirely on the qBittorrent session.
 
 ### PWA verification
 
-API caching rules are explicit, and the service-worker update callback presents a confirmation before activating and reloading. PWA registration, update, and scope behavior have not been fully tested through every public/private and reverse-proxy deployment.
+API caching rules are explicit, and the service-worker update callback presents an in-application update surface before activating and reloading. A production Chromium suite verifies the standalone offline HTML/static shell, worker registration/control, empty private-data cache entries, and hard offline failure for API and runtime-configuration requests. Alternative WebUI precaches static application assets only, excludes HTML, and has no navigation fallback. A two-version update and native public/private mapping have not been fully tested through every reverse-proxy deployment.
 
 ### No formal security audit
 
-The real qBittorrent 5.2.3 integration suite exercises the standalone login/session lifecycle, same-origin mutations, outage/recovery behavior, and unexpected browser errors. The deterministic proxy suite and per-architecture image scans cover separate runtime concerns. A passing result from any of these is not a penetration test, formal source/provenance review, complete CSRF/CSP deployment test, hostile-content fuzzing campaign, or review of a particular live deployment.
+The real qBittorrent 5.0.5 and 5.2.3 compatibility matrix exercises the standalone login/session lifecycle, same-origin mutations, outage/recovery behavior, and unexpected browser errors. Its fixtures contain no external tracker or third-party content dependency; the selected-tracker contract uses an unreachable loopback URL. The deterministic proxy suite and per-architecture image scans cover separate runtime concerns. A passing result from any of these is not a penetration test, formal source/provenance review, complete CSRF/CSP deployment test, hostile-content fuzzing campaign, or review of a particular live deployment.
 
 ## Private-data handling
 
-| Data                           | Location                                       | Persistence                                                                            |
-| ------------------------------ | ---------------------------------------------- | -------------------------------------------------------------------------------------- |
-| Username                       | Login component memory                         | Cleared with page/component lifecycle; not stored by NeoTorrent                        |
-| Password                       | Login component memory                         | Explicitly cleared after submit result                                                 |
-| qBittorrent session cookie     | Browser cookie jar                             | Controlled by qBittorrent/browser; unread by app                                       |
-| Torrent names/paths/state      | Pinia memory                                   | Current page session only; API/service worker no-store                                 |
-| Add sources and uploaded files | Dialog memory                                  | Cleared when dialog closes                                                             |
-| Media Placement runtime config | Standalone `/tmp` and browser memory           | Non-secret; `no-store`; regenerated at container startup                               |
-| UI preferences                 | qB client data and/or namespaced local storage | Versioned schema                                                                       |
-| Server preferences             | Settings-route draft memory                    | Sensitive-looking keys are filtered; known changes are sent only when explicitly saved |
-| Transfer graph                 | Bounded Pinia memory                           | Browser session only                                                                   |
-| Mock data                      | Bundled development source                     | Mock mode only; worker removed from production package                                 |
+| Data                           | Location                                              | Persistence                                                                            |
+| ------------------------------ | ----------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| Username                       | Login component memory                                | Cleared with page/component lifecycle; not stored by NeoTorrent                        |
+| Password                       | Login component memory                                | Explicitly cleared after submit result                                                 |
+| qBittorrent session cookie     | Browser cookie jar                                    | Controlled by qBittorrent/browser; unread by app                                       |
+| Torrent names/paths/state      | Pinia memory                                          | Current page session only; API/service worker no-store                                 |
+| Add sources and uploaded files | Dialog memory                                         | Cleared when dialog closes                                                             |
+| Media Placement runtime config | Standalone `/tmp` and browser memory                  | Non-secret; `no-store`; regenerated at container startup                               |
+| UI preferences                 | qB client data and/or namespaced local storage        | Versioned allow-listed schema                                                          |
+| Saved torrent filters          | qB client data or namespaced browser session storage  | Up to 20; browser fallback cleared at private-session transitions                      |
+| Recent operation observations  | Bounded Pinia memory                                  | Up to 100 endpoint/status/timing records; current private session only                 |
+| Diagnostics snapshot           | Browser memory, clipboard, or user-triggered download | Created only on request; user must review metadata before sharing                      |
+| Server preferences             | Settings-route draft memory                           | Sensitive-looking keys are filtered; known changes are sent only when explicitly saved |
+| Transfer graph                 | Bounded Pinia memory                                  | Browser session only                                                                   |
+| Mock data                      | Bundled development source                            | Mock mode only; worker removed from production package                                 |
 
 ## Reporting a vulnerability
 

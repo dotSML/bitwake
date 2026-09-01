@@ -7,6 +7,14 @@ ARG NGINX_IMAGE=nginxinc/nginx-unprivileged:1.30.4-alpine-slim@sha256:11f3f6249b
 # runner rather than executing Node under QEMU for every target platform.
 FROM --platform=$BUILDPLATFORM ${NODE_IMAGE} AS build
 
+ARG BUILD_CREATED=unspecified
+ARG BUILD_REVISION=unknown
+ARG BUILD_VERSION=0.1.0-preview
+ARG BUILD_LICENSE=NOASSERTION
+ENV NEOTORRENT_BUILD_DATE=${BUILD_CREATED} \
+    NEOTORRENT_BUILD_REVISION=${BUILD_REVISION} \
+    NEOTORRENT_BUILD_VERSION=${BUILD_VERSION}
+
 WORKDIR /app
 
 COPY package.json pnpm-lock.yaml ./
@@ -25,6 +33,7 @@ FROM ${NGINX_IMAGE} AS runtime
 ARG BUILD_CREATED=unspecified
 ARG BUILD_REVISION=unknown
 ARG BUILD_VERSION=0.1.0-preview
+ARG BUILD_LICENSE=NOASSERTION
 
 LABEL org.opencontainers.image.title="NeoTorrent" \
       org.opencontainers.image.description="Standalone qBittorrent WebUI reverse proxy" \
@@ -34,7 +43,7 @@ LABEL org.opencontainers.image.title="NeoTorrent" \
       org.opencontainers.image.created="${BUILD_CREATED}" \
       org.opencontainers.image.revision="${BUILD_REVISION}" \
       org.opencontainers.image.version="${BUILD_VERSION}" \
-      org.opencontainers.image.licenses="NOASSERTION"
+      org.opencontainers.image.licenses="${BUILD_LICENSE}"
 
 ENV LISTEN_PORT=8081 \
     MAX_UPLOAD_SIZE=100m \

@@ -96,7 +96,7 @@ async function submit(): Promise<void> {
         </button>
       </form>
       <p class="login-footnote">
-        Credentials are sent directly to this qBittorrent instance and are never stored.
+        {{ t('auth.privacy') }}
       </p>
     </section>
   </main>

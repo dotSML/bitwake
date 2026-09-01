@@ -34,6 +34,9 @@
     "vite.config.ts",
     "vitest.config.ts",
     "playwright.config.ts",
+    "playwright.performance.config.ts",
+    "playwright.pwa.config.ts",
+    "playwright.alt-pwa.config.ts",
     "tailwind.config.ts"
   ],
   "exclude": ["dist", "node_modules"]

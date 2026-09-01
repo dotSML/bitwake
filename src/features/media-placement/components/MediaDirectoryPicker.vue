@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ChevronRight, Folder, FolderOpen, LoaderCircle, MoveUp, Search, X } from 'lucide-vue-next'
-import { computed, onBeforeUnmount, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, useId } from 'vue'
 import { useApi } from '@/app/providers/api'
 import { directoryNames, hostJoinPath, hostParentPath } from '../domain/hostDirectory'
 import { isAbsoluteMediaPath } from '../domain/pathUtils'
@@ -24,6 +24,10 @@ const directories = ref<string[]>([])
 const loading = ref(false)
 const error = ref<string | null>(null)
 const search = ref('')
+const navigationAnnouncement = ref('')
+const browseButton = ref<HTMLButtonElement | null>(null)
+const searchInput = ref<HTMLInputElement | null>(null)
+const browserId = `media-directory-${useId()}`
 let requestNumber = 0
 let controller: AbortController | null = null
 
@@ -46,6 +50,11 @@ async function loadDirectory(nextPath: string): Promise<void> {
   cancelLoad()
   const candidatePath = nextPath.trim()
   search.value = ''
+  navigationAnnouncement.value = ''
+  // Directory rows are replaced while their children load. Move focus to the
+  // stable search control first so keyboard users never fall back to the page
+  // or enclosing dialog when the activated row disappears.
+  searchInput.value?.focus({ preventScroll: true })
   if (!candidatePath) {
     directories.value = []
     path.value = ''
@@ -85,6 +94,7 @@ async function loadDirectory(nextPath: string): Promise<void> {
     if (request !== requestNumber) return
     directories.value = directoryNames(entries)
     path.value = candidatePath
+    navigationAnnouncement.value = `Opened ${candidatePath}. ${directories.value.length} child folder${directories.value.length === 1 ? '' : 's'}.`
   } catch (cause) {
     if (request !== requestNumber) return
     directories.value = []
@@ -102,6 +112,8 @@ async function show(): Promise<void> {
   cancelLoad()
   const request = requestNumber
   open.value = true
+  await nextTick()
+  searchInput.value?.focus()
   let initial = props.modelValue.trim()
     ? props.modelValue
     : props.browseRoot.trim()
@@ -131,6 +143,7 @@ async function show(): Promise<void> {
 function close(): void {
   cancelLoad()
   open.value = false
+  void nextTick(() => browseButton.value?.focus())
 }
 
 function choose(): void {
@@ -142,10 +155,24 @@ onBeforeUnmount(cancelLoad)
 </script>
 
 <template>
-  <button class="btn browse-button" type="button" :disabled="disabled" @click="show">
+  <button
+    ref="browseButton"
+    class="btn browse-button"
+    type="button"
+    :disabled="disabled"
+    :aria-expanded="open"
+    :aria-controls="browserId"
+    @click="show"
+  >
     <FolderOpen :size="16" />{{ buttonLabel }}
   </button>
-  <section v-if="open" class="directory-browser" aria-label="qBittorrent folders">
+  <section
+    v-if="open"
+    :id="browserId"
+    class="directory-browser"
+    aria-label="qBittorrent folders"
+    @keydown.esc.stop.prevent="close"
+  >
     <header>
       <div class="current-directory">
         <Folder :size="16" /><code>{{ path }}</code>
@@ -154,11 +181,12 @@ onBeforeUnmount(cancelLoad)
         <X :size="17" />
       </button>
     </header>
+    <p class="sr-only" role="status" aria-live="polite">{{ navigationAnnouncement }}</p>
     <div class="browser-actions">
       <label>
         <Search :size="15" />
         <span class="sr-only">Search folders</span>
-        <input v-model="search" type="search" placeholder="Search folders" />
+        <input ref="searchInput" v-model="search" type="search" placeholder="Search folders" />
       </label>
       <button class="btn btn-primary" type="button" :disabled="!path" @click="choose">
         Use this folder

@@ -18,7 +18,12 @@ function safeNotificationText(value: string): string {
         :key="item.id"
         class="toast"
         :class="`toast-${item.tone}`"
-        role="status"
+        :role="item.tone === 'error' ? 'alert' : 'status'"
+        aria-atomic="true"
+        @mouseenter="notifications.pause(item.id, 'pointer')"
+        @mouseleave="notifications.resume(item.id, 'pointer')"
+        @focusin="notifications.pause(item.id, 'focus')"
+        @focusout="notifications.resume(item.id, 'focus')"
       >
         <span>{{ safeNotificationText(item.message) }}</span>
         <button
@@ -69,7 +74,7 @@ function safeNotificationText(value: string): string {
   border-left-color: rgb(var(--color-danger));
 }
 .toast-warning {
-  border-left-color: rgb(var(--color-warning));
+  border-left-color: rgb(var(--color-warning-foreground));
 }
 .toast-close {
   display: grid;
@@ -97,6 +102,10 @@ function safeNotificationText(value: string): string {
   .toast-region {
     right: 14px;
     bottom: calc(76px + env(safe-area-inset-bottom));
+  }
+  .toast-close {
+    width: 44px;
+    height: 44px;
   }
 }
 </style>

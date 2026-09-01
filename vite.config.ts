@@ -4,6 +4,7 @@ import vue from '@vitejs/plugin-vue'
 import { defineConfig, loadEnv } from 'vite'
 import { VitePWA } from 'vite-plugin-pwa'
 import type { DeploymentMode } from './src/config/deployment'
+import packageMetadata from './package.json' with { type: 'json' }
 
 function deploymentModeForViteMode(mode: string): DeploymentMode {
   switch (mode) {
@@ -58,6 +59,7 @@ export default defineConfig(({ mode }) => {
           'icons/neotorrent-512.png'
         ],
         manifest: {
+          id: './',
           name: 'NeoTorrent',
           short_name: 'NeoTorrent',
           description: 'A focused, responsive qBittorrent WebUI',
@@ -89,12 +91,21 @@ export default defineConfig(({ mode }) => {
         },
         workbox: {
           sourcemap: false,
-          navigateFallback: null,
-          globPatterns: ['**/*.{js,css,svg,png,woff2}'],
+          // Standalone owns its origin and can safely provide an offline HTML
+          // shell. An Alternative WebUI shares qBittorrent's origin: caching
+          // authenticated HTML there could mask the native login document
+          // after SID expiry or logout, so only its immutable assets are
+          // precached and it has no navigation fallback.
+          navigateFallback: alternativePrivate ? null : 'index.html',
+          globPatterns: alternativePrivate
+            ? ['**/*.{js,css,svg,png,woff2}']
+            : ['**/*.{html,js,css,svg,png,woff2}'],
           globIgnores: ['**/_neotorrent/**', '**/runtime-config.json'],
           runtimeCaching: [
             {
-              urlPattern: ({ url }) => url.pathname === '/_neotorrent/runtime-config.json',
+              // Match the runtime resource relative to any deployment scope;
+              // a root-only equality check misses reverse-proxy subpaths.
+              urlPattern: ({ url }) => url.pathname.endsWith('/_neotorrent/runtime-config.json'),
               handler: 'NetworkOnly',
               method: 'GET'
             },
@@ -131,7 +142,14 @@ export default defineConfig(({ mode }) => {
     },
     define: {
       __DEPLOYMENT_MODE__: JSON.stringify(deploymentMode),
-      __MOCK_BACKEND__: JSON.stringify(mockBackendEnabled)
+      __MOCK_BACKEND__: JSON.stringify(mockBackendEnabled),
+      __NEOTORRENT_VERSION__: JSON.stringify(
+        env.NEOTORRENT_BUILD_VERSION || packageMetadata.version
+      ),
+      __NEOTORRENT_REVISION__: JSON.stringify(
+        env.NEOTORRENT_BUILD_REVISION || env.GITHUB_SHA || 'development'
+      ),
+      __NEOTORRENT_BUILD_DATE__: JSON.stringify(env.NEOTORRENT_BUILD_DATE || '')
     },
     ...(proxyTarget
       ? {

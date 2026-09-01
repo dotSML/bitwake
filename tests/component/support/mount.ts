@@ -30,6 +30,7 @@ export function createTestContext(): TestContext {
       { path: '/search', component: EmptyRoute },
       { path: '/creator', component: EmptyRoute },
       { path: '/statistics', component: EmptyRoute },
+      { path: '/diagnostics', component: EmptyRoute },
       { path: '/logs', component: EmptyRoute }
     ]
   })

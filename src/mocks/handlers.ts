@@ -6,7 +6,30 @@ const torrents = createTorrents(24)
 const files = createFiles()
 let rid = 0
 let searchId = 1
-const clientData: Record<string, unknown> = {}
+const clientDataStorageKey = 'neotorrent:mock-client-data'
+
+function readClientData(): Record<string, unknown> {
+  try {
+    const value: unknown = JSON.parse(
+      globalThis.sessionStorage.getItem(clientDataStorageKey) ?? '{}'
+    )
+    return value && typeof value === 'object' && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : {}
+  } catch {
+    return {}
+  }
+}
+
+function persistClientData(value: Record<string, unknown>): void {
+  try {
+    globalThis.sessionStorage.setItem(clientDataStorageKey, JSON.stringify(value))
+  } catch {
+    // Browser mocks remain usable in memory when session storage is unavailable.
+  }
+}
+
+const clientData: Record<string, unknown> = readClientData()
 let creatorTasks: Array<Record<string, unknown>> = []
 
 const preferences: Record<string, unknown> = {
@@ -166,6 +189,7 @@ export const handlers = [
       if (value === null) delete clientData[key]
       else clientData[key] = value
     }
+    persistClientData(clientData)
     return new HttpResponse(null, { status: 204 })
   }),
   http.get(api('sync/maindata'), async ({ request }) => {
@@ -322,8 +346,16 @@ export const handlers = [
         headers: { 'Content-Type': 'application/x-bittorrent' }
       })
   ),
+  http.post(api('torrents/addPeers'), async ({ request }) => {
+    const body = await form(request)
+    const hashes = (body.hashes ?? '').split('|').filter(Boolean)
+    const peers = (body.peers ?? '').split('|').filter(Boolean)
+    return HttpResponse.json(
+      Object.fromEntries(hashes.map((hash) => [hash, { added: peers.length, failed: 0 }]))
+    )
+  }),
   http.post(
-    /\/api\/v2\/torrents\/(?:start|stop|delete|recheck|reannounce|increasePrio|decreasePrio|topPrio|bottomPrio|setForceStart|setAutoManagement|toggleSequentialDownload|toggleFirstLastPiecePrio|setSuperSeeding|setDownloadLimit|setUploadLimit|setShareLimits|setComment|setLocation|rename|setCategory|addTags|removeTags|addTrackers|editTracker|removeTrackers|addPeers|filePrio|renameFile|renameFolder|addWebSeeds|editWebSeed|removeWebSeeds)$/,
+    /\/api\/v2\/torrents\/(?:start|stop|delete|recheck|reannounce|increasePrio|decreasePrio|topPrio|bottomPrio|setForceStart|setAutoManagement|toggleSequentialDownload|toggleFirstLastPiecePrio|setSuperSeeding|setDownloadLimit|setUploadLimit|setShareLimits|setComment|setLocation|rename|setCategory|addTags|removeTags|addTrackers|editTracker|removeTrackers|filePrio|renameFile|renameFolder|addWebSeeds|editWebSeed|removeWebSeeds)$/,
     () => new HttpResponse(null, { status: 204 })
   ),
   http.post(api('torrents/add'), async ({ request }) => {

@@ -30,6 +30,54 @@ function notificationMessages(context: TestContext): string[] {
 }
 
 describe('existing torrent Media Placement', () => {
+  it('exposes the current assist step and moves keyboard focus when the step changes', async () => {
+    const context = createTestContext()
+    configureAssist(context)
+    await mountWithContext(AddTorrentDialog, context, {
+      props: { open: true },
+      attachTo: document.body
+    })
+    await new DOMWrapper(document.querySelector('#torrent-sources')).setValue(
+      'magnet:?xt=urn:btih:3030303030303030303030303030303030303030&dn=Dune.Part.Two.2024.1080p'
+    )
+    await nextTick()
+
+    const continueButton = () =>
+      [...document.querySelectorAll<HTMLButtonElement>('button')].find(
+        (candidate) => candidate.textContent?.trim() === 'Continue'
+      )!
+    continueButton().focus()
+    await new DOMWrapper(continueButton()).trigger('click')
+    await nextTick()
+
+    const currentStep = () => document.querySelector<HTMLElement>('.stepper [aria-current="step"]')!
+    const heading = () => document.querySelector<HTMLElement>('h2[tabindex="-1"]')!
+    expect(currentStep().getAttribute('aria-label')).toContain(
+      'Media and destination, step 2 of 3, current'
+    )
+    expect(document.querySelector('.stepper .complete')?.getAttribute('aria-label')).toContain(
+      'completed'
+    )
+    expect(heading().textContent).toContain('Step 2 of 3: Media and destination')
+    expect(heading()).toBe(document.activeElement)
+
+    await new DOMWrapper(continueButton()).trigger('click')
+    await nextTick()
+    expect(currentStep().getAttribute('aria-label')).toContain('Options and review, step 3 of 3')
+    expect(heading()).toBe(document.activeElement)
+
+    const back = [...document.querySelectorAll<HTMLButtonElement>('button')].find(
+      (candidate) => candidate.textContent?.trim() === 'Back'
+    )!
+    back.focus()
+    await new DOMWrapper(back).trigger('click')
+    await nextTick()
+    expect(currentStep().getAttribute('aria-label')).toContain(
+      'Media and destination, step 2 of 3, current'
+    )
+    expect(heading()).toBe(document.activeElement)
+  })
+
   it('uses explicitly selected existing series, season, and movie folders', async () => {
     const context = createTestContext()
     configureAssist(context)

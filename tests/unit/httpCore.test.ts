@@ -62,6 +62,81 @@ describe('request body encoding', () => {
 })
 
 describe('HttpClient', () => {
+  it('reports bounded-history metadata for mutations without exposing request values', async () => {
+    const onOperation = vi.fn()
+    const client = new HttpClient({
+      fetch: vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 204 })),
+      baseUrl: 'https://example.test/api/v2/',
+      onOperation
+    })
+
+    await client.request('torrents/setCategory', {
+      method: 'POST',
+      body: { hashes: 'private-hash', category: 'private-category' },
+      response: 'empty'
+    })
+
+    expect(onOperation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        endpoint: 'torrents/setCategory',
+        outcome: 'completed',
+        status: 204
+      })
+    )
+    expect(JSON.stringify(onOperation.mock.calls)).not.toContain('private-hash')
+    expect(JSON.stringify(onOperation.mock.calls)).not.toContain('private-category')
+  })
+
+  it('reports mutation failures by safe error kind and status', async () => {
+    const onOperation = vi.fn()
+    const client = new HttpClient({
+      fetch: vi.fn<typeof fetch>().mockResolvedValue(new Response('', { status: 409 })),
+      baseUrl: 'https://example.test/api/v2/',
+      onOperation
+    })
+
+    await expect(
+      client.request('torrents/rename', {
+        method: 'POST',
+        body: { hash: 'private-hash', name: 'private-name' }
+      })
+    ).rejects.toMatchObject({ kind: 'conflict', status: 409 })
+    expect(onOperation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        endpoint: 'torrents/rename',
+        outcome: 'failed',
+        status: 409,
+        errorKind: 'conflict'
+      })
+    )
+  })
+
+  it('does not carry an old-session mutation into the next session history', async () => {
+    let resolveResponse!: (response: Response) => void
+    const onOperation = vi.fn()
+    const client = new HttpClient({
+      fetch: vi.fn<typeof fetch>().mockImplementation(
+        () =>
+          new Promise<Response>((resolve) => {
+            resolveResponse = resolve
+          })
+      ),
+      baseUrl: 'https://example.test/api/v2/',
+      onOperation
+    })
+
+    const oldRequest = client.request('torrents/setCategory', {
+      method: 'POST',
+      body: { hashes: 'private-hash', category: 'private-category' },
+      response: 'empty'
+    })
+    advanceAuthenticationEpoch()
+    resolveResponse(new Response(null, { status: 204 }))
+
+    await expect(oldRequest).rejects.toMatchObject({ kind: 'cancelled' })
+    expect(onOperation).not.toHaveBeenCalled()
+  })
+
   it('cancels an old-session response without expiring the newer session', async () => {
     let resolveResponse!: (response: Response) => void
     let requestSignal: AbortSignal | undefined

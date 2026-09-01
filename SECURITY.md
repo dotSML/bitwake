@@ -12,11 +12,11 @@ controls, known gaps, and deployment hardening guidance.
 
 Security reports are evaluated against these targets:
 
-| Target                         | Status                  |
-| ------------------------------ | ----------------------- |
-| Current `main` branch          | Supported               |
-| Latest published release       | Supported               |
-| Older releases and other forks | Not routinely supported |
+| Target                         | Status                                      |
+| ------------------------------ | ------------------------------------------- |
+| Current `main` branch          | Supported                                   |
+| Published releases             | None yet; publication is blocked by license |
+| Older releases and other forks | Not routinely supported                     |
 
 You may be asked to confirm an issue on `main` or upgrade from an older
 release. Support for `main` does not imply a release schedule or stability
@@ -36,6 +36,12 @@ Include, where relevant:
 - the security impact and conditions required to reproduce it;
 - minimal reproduction steps or a proof of concept using synthetic data;
 - any known mitigation or workaround.
+
+NeoTorrent's **Diagnostics and System Health** route can copy or download a
+minimized support snapshot. It excludes torrent names, hashes, request bodies,
+query strings, credentials, cookies, and Media Placement paths, but still
+contains browser/build/version and operation-status metadata. Review and redact
+it for your environment before attaching it.
 
 Do not include real credentials, cookies, tokens, tracker passkeys, torrent
 metadata, torrent contents, personal data, or private network details. Use

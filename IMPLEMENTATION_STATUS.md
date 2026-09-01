@@ -2,7 +2,7 @@
 
 NeoTorrent is a functional preview of a responsive qBittorrent WebUI. This file is a living summary of the implementation; the [feature parity inventory](docs/feature-parity.md) provides the detailed feature-by-feature view.
 
-The primary compatibility target is qBittorrent 5.2.3 with Web API 2.15.1. Other qBittorrent 5.x releases may work, but should not be treated as verified unless they are added to the compatibility test matrix.
+The primary compatibility target is qBittorrent 5.2.3 with Web API 2.15.1. The automated compatibility baseline is qBittorrent 5.0.5 with Web API 2.11.2; other qBittorrent 5.x releases may work, but should not be treated as verified unless they are added to the pinned compatibility matrix.
 
 ## Status definitions
 
@@ -40,46 +40,48 @@ An implemented feature does not imply complete stock-WebUI parity or production 
 
 ## Torrent workspace and actions
 
-| Area                              | Status                          | Notes                                                                                                                                                                  |
-| --------------------------------- | ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Incremental `sync/maindata` state | Implemented                     | Uses non-overlapping polling, full/delta merges, resync handling, and copy-on-change row identity preservation.                                                        |
-| Desktop torrent table             | Implemented                     | Virtualized sorting, filtering, persistent column layout, keyboard navigation, range selection, and contextual actions.                                                |
-| Mobile and tablet layouts         | Implemented                     | Purpose-built virtualized rows, bulk actions, adaptive detail views, and persistent tablet navigation.                                                                 |
-| Large-library behavior            | Partial                         | Bounded-DOM regression fixtures exist, but there is no calibrated browser timing or memory benchmark.                                                                  |
-| Common torrent lifecycle actions  | Implemented                     | Start, stop, delete, recheck, reannounce, force start, queue movement, limits, location, rename, and management modes.                                                 |
-| Add and export flows              | Implemented                     | Supports torrent files, magnets, HTTP(S) sources, drag-and-drop, partial-result reporting, and single-torrent metadata export.                                         |
-| Media Placement                   | Implemented, integration-tested | Assist mode plans independent TV/Movie/Other Suggested or Manual destinations; Off preserves generic addition, and Manual remains available with locked runtime roots. |
-| Torrent details                   | Implemented                     | Includes Overview, Files, Trackers, Peers, Web Seeds, and Pieces on desktop and mobile.                                                                                |
-| File priorities                   | Implemented                     | Virtualized immutable tree with folder descendants, conventional multi-selection, keyboard navigation, and guarded submissions.                                        |
-| Tracker management                | Implemented                     | Add, edit, and remove dialogs are available; tier editing and reordering are not.                                                                                      |
-| Peer management                   | Partial                         | Incremental peer updates and banning are implemented; adding peers is not exposed in the UI.                                                                           |
-| Web Seed management               | Implemented, integration-tested | Add, edit, and remove paths preserve encoded URL octets required by the target qBittorrent API.                                                                        |
-| File and folder rename            | Partial                         | API support exists, but no user-facing workflow is available.                                                                                                          |
+| Area                              | Status                          | Notes                                                                                                                                                                                                                                                            |
+| --------------------------------- | ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Incremental `sync/maindata` state | Implemented                     | Uses non-overlapping polling, full/delta merges, resync handling, and copy-on-change row identity preservation.                                                                                                                                                  |
+| Desktop torrent table             | Implemented                     | Virtualized sorting, filtering, persistent column layout, keyboard navigation, range selection, and contextual actions.                                                                                                                                          |
+| Mobile and tablet layouts         | Implemented                     | Purpose-built virtualized rows, bulk actions, adaptive detail views, and persistent tablet navigation.                                                                                                                                                           |
+| Advanced and saved filters        | Implemented                     | Combines text/regex/exclusion, state, category, tag, tracker, and save-path conditions; up to 20 named filters persist through qBittorrent client data or a session-scoped browser fallback.                                                                     |
+| Large-library behavior            | Partial                         | Bounded-DOM regressions cover major large surfaces; a separate production Chromium harness records calibrated 10/500/5,000-torrent timing, heap, and DOM budgets, while comparable browser baselines for files, peers, Search, RSS, and logs remain future work. |
+| Common torrent lifecycle actions  | Implemented                     | Start, stop, delete, recheck, reannounce, force start, queue movement, limits, location, rename, and management modes.                                                                                                                                           |
+| Add and export flows              | Implemented                     | Supports torrent files, magnets, HTTP(S) sources, drag-and-drop, partial-result reporting, and single-torrent metadata export.                                                                                                                                   |
+| Media Placement                   | Implemented, integration-tested | Assist mode plans independent TV/Movie/Other Suggested or Manual destinations; Off preserves generic addition, and Manual remains available with locked runtime roots.                                                                                           |
+| Torrent details                   | Implemented                     | Includes Overview, Files, Trackers, Peers, Web Seeds, and Pieces on desktop and mobile.                                                                                                                                                                          |
+| File priorities                   | Implemented                     | Virtualized immutable tree with folder descendants, conventional multi-selection, keyboard navigation, and guarded submissions.                                                                                                                                  |
+| Tracker management                | Implemented                     | Add, edit, and remove dialogs are available; tier editing and reordering are not.                                                                                                                                                                                |
+| Peer management                   | Partial                         | Incremental peer updates, validated addition of up to 100 endpoints, and banning are implemented; peer sorting and filtering remain absent.                                                                                                                      |
+| Web Seed management               | Implemented, integration-tested | Add, edit, and remove paths preserve encoded URL octets required by the target qBittorrent API.                                                                                                                                                                  |
+| File and folder rename            | Implemented                     | A single selected file or folder can be renamed through a leaf-only dialog that preserves its torrent-relative parent path.                                                                                                                                      |
 
 ## Extended tools and administration
 
-| Area                          | Status                              | Notes                                                                                                                                              |
-| ----------------------------- | ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Search                        | Implemented                         | Search jobs, results, downloads, and common plugin operations are available; plugin uninstall remains wrapper-only.                                |
-| RSS                           | Partial                             | Feed and article workflows are usable, with sanitized content and basic rules; advanced rule and feed operations remain incomplete.                |
-| Torrent Creator               | Implemented, not integration-tested | Supports host-path tasks, status refresh, result download, and removal.                                                                            |
-| Logs and statistics           | Implemented                         | Incremental logs, filters, pause/follow behavior, transfer information, and a bounded session graph are available.                                 |
-| Curated daemon settings       | Partial                             | Common settings, warnings, dependency handling, and daemon-provided network interface/address choices are implemented; full stock coverage is not. |
-| Categories and tags           | Partial                             | Creation, removal, filtering, and torrent assignment are available; category editing and share-limit controls are incomplete.                      |
-| API key and cookie management | Not implemented                     | Some API wrappers exist without user-facing workflows.                                                                                             |
-| qBittorrent shutdown          | Implemented                         | Exposed through a guarded confirmation flow.                                                                                                       |
+| Area                          | Status                              | Notes                                                                                                                                                                                                     |
+| ----------------------------- | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Search                        | Implemented                         | Search jobs, results, downloads, and common plugin operations are available; plugin uninstall remains wrapper-only.                                                                                       |
+| RSS                           | Partial                             | Feed and article workflows are usable, with sanitized content and basic rules; advanced rule and feed operations remain incomplete.                                                                       |
+| Torrent Creator               | Implemented, not integration-tested | Supports host-path tasks, status refresh, result download, and removal.                                                                                                                                   |
+| Logs and statistics           | Implemented                         | Incremental logs, filters, pause/follow behavior, transfer information, and a bounded session graph are available.                                                                                        |
+| Diagnostics and System Health | Implemented                         | Reports browser/session/sync/build health, exports a minimized support snapshot, and shows up to 100 session-only mutation observations without query strings or request bodies.                          |
+| Curated daemon settings       | Partial                             | Common settings, warnings, dependency handling, and daemon-provided network interface/address choices are implemented; full stock coverage is not.                                                        |
+| Categories and tags           | Partial                             | Creation, removal, filtering, assignment, and guarded category save-path editing are available; nested/incomplete-path controls remain absent, and 5.2.3 edits that would erase share limits are blocked. |
+| API key and cookie management | Not implemented                     | Some API wrappers exist without user-facing workflows.                                                                                                                                                    |
+| qBittorrent shutdown          | Implemented                         | Exposed through a guarded confirmation flow.                                                                                                                                                              |
 
 ## Cross-cutting quality
 
-| Area                      | Status      | Notes                                                                                                                                                        |
-| ------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Themes and UI preferences | Implemented | Light, dark, and system themes plus allow-listed, versioned preference persistence.                                                                          |
-| Responsive behavior       | Implemented | Automated coverage includes desktop, tablet, and narrow mobile layouts in Chromium and WebKit.                                                               |
-| Accessibility             | Partial     | Semantic dialogs, menus, tables, trees, focus handling, and automated checks exist; a complete manual keyboard and screen-reader review remains outstanding. |
-| Safe content handling     | Implemented | API text is treated as untrusted, RSS HTML is sanitized, and external links use safe schemes and relationship attributes.                                    |
-| PWA support               | Partial     | Manifest, static worker, network-only API rules, and update prompting exist; install, update, and scope behavior needs end-to-end validation.                |
-| Internationalization      | Partial     | Vue I18n is present, but many user-facing strings remain English-only.                                                                                       |
-| Security assurance        | Partial     | Container hardening, security headers, vulnerability scanning, and supply-chain metadata are automated; this is not a formal security audit.                 |
+| Area                      | Status      | Notes                                                                                                                                                                                                                                                                                                                                       |
+| ------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Themes and UI preferences | Implemented | Light, dark, and system themes plus allow-listed, versioned preference persistence.                                                                                                                                                                                                                                                         |
+| Responsive behavior       | Implemented | Automated coverage includes desktop, tablet, and narrow mobile layouts in Chromium and WebKit.                                                                                                                                                                                                                                              |
+| Accessibility             | Partial     | Semantic dialogs, menus, tables, trees, and focus handling exist. The route matrix rejects serious/critical axe violations from configured WCAG 2.0/2.1 A/AA and WCAG 2.2 AA tags; this is not a conformance claim, and complete manual keyboard/screen-reader review remains outstanding.                                                  |
+| Safe content handling     | Implemented | API text is treated as untrusted, RSS HTML is sanitized, and external links use safe schemes and relationship attributes.                                                                                                                                                                                                                   |
+| PWA support               | Partial     | Manifest, scoped static worker, in-app install/update surfaces, and network-only API rules exist. Standalone has a tested offline HTML shell; Alternative WebUI precaches static application assets only, excludes HTML, has no navigation fallback, and remains unverified through native public/private mapping and a two-version update. |
+| Internationalization      | Partial     | English and Estonian catalogs are structurally checked, and the selected UI locale drives Vue I18n, `document.lang`, and native `Intl` number/date formatting throughout the implemented interface; many UI strings remain English-only.                                                                                                    |
+| Security assurance        | Partial     | Container hardening, security headers, vulnerability scanning, and supply-chain metadata are automated; this is not a formal security audit.                                                                                                                                                                                                |
 
 ## Verification approach
 
@@ -92,6 +94,8 @@ corepack pnpm typecheck
 corepack pnpm lint
 corepack pnpm test:all
 corepack pnpm test:e2e
+corepack pnpm test:pwa
+corepack pnpm test:performance
 corepack pnpm build
 corepack pnpm build:standalone
 corepack pnpm build:alt-webui
@@ -99,18 +103,18 @@ corepack pnpm container:build
 corepack pnpm container:test
 ```
 
-The test layers cover typed API contracts, stores and components, responsive browser workflows, deterministic proxy/container behavior, safe local mutations against the target qBittorrent release, Kubernetes manifest rendering, and container vulnerability policy. Timing assertions and large fixtures are regression alarms, not performance benchmarks.
+The test layers cover typed API contracts, stores and components, responsive browser workflows, deterministic proxy/container behavior, safe local mutations against the target qBittorrent release, Kubernetes manifest rendering, and container vulnerability policy. Coarse component timing assertions remain regression alarms. The dedicated single-worker Chromium performance suite is a calibrated production-build benchmark with warm-ups, repeated samples, retained-heap/DOM counters, explicit budgets, and a JSON artifact; its scope and limits are documented in [docs/performance.md](docs/performance.md).
 
-Real-instance tests use generated local torrents without trackers or third-party downloads. They validate authentication/session behavior, representative torrent mutations, Web Seed URL handling, proxy fidelity, outage behavior, and recovery. They do not cover every UI action or deployment topology.
+Real-instance tests use generated local torrents without external trackers or third-party downloads. They validate authentication/session behavior, representative torrent mutations (including category save-path editing, peer addition, file/folder rename, and capability-gated selected-tracker reannounce), Web Seed URL handling when supported, proxy fidelity, outage behavior, and recovery. The scheduled and manual compatibility workflow always runs reviewed official qBittorrent 5.0.5 / Web API 2.11.2 and 5.2.3 / 2.15.1 images by digest. It does not infer mutable tags or claim that every UI action and deployment topology is covered.
 
 ## Highest-priority incomplete work
 
 1. Complete capability gating and runtime validation across secondary endpoints and settings.
-2. Expose wrapper-only file/folder rename, peer addition, category editing, and other parity gaps with safe user workflows.
+2. Close remaining parity gaps such as tracker tier editing, peer sorting/filtering, advanced RSS operations, and Search plugin uninstall with safe user workflows.
 3. Validate both Kubernetes topologies with NetworkPolicy, Ingress TLS, proxy trust, session recovery, and rollback in a real cluster.
 4. Add reverse-proxy subpath, secure-cookie, and complete PWA lifecycle tests.
 5. Finish manual keyboard and screen-reader review and move remaining strings into Vue I18n.
-6. Add calibrated browser performance and memory measurements for large torrent, file, peer, Search, and RSS datasets.
+6. Extend the calibrated torrent-workspace browser benchmark to large file, peer, Search, RSS, and log datasets.
 7. Keep the [feature parity inventory](docs/feature-parity.md) synchronized with implementation and verification changes.
 
 ## Release guidance

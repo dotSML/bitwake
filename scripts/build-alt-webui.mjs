@@ -2,12 +2,31 @@ import { cp, mkdir, readdir, readFile, rename, rm, stat } from 'node:fs/promises
 import { spawnSync } from 'node:child_process'
 import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { writeDeterministicZip } from './deterministic-zip.mjs'
+import { generateThirdPartyNotices } from './generate-third-party-notices.mjs'
+import { isReleaseVersion } from './release-version.mjs'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const dist = join(root, 'dist')
 const stage = join(dist, 'alt-stage')
 const output = join(dist, 'alt-webui')
-const archive = join(dist, 'qbittorrent-modern-webui.zip')
+const packageMetadata = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'))
+const version = packageMetadata.version
+if (!isReleaseVersion(version)) {
+  throw new Error('package.json must contain a release-compatible semantic version')
+}
+const archive = join(dist, `neotorrent-alt-webui-v${version}.zip`)
+const legacyArchive = join(dist, 'qbittorrent-modern-webui.zip')
+const distributionMetadataFiles = [
+  'LICENSE',
+  'LICENSE.md',
+  'LICENSE.txt',
+  'LICENCE',
+  'COPYING',
+  'NOTICE',
+  'NOTICE.md',
+  'NOTICE.txt'
+]
 
 function run(command, args, cwd = root) {
   const result = spawnSync(command, args, { cwd, stdio: 'inherit' })
@@ -49,6 +68,7 @@ async function moveMatching(fromDirectory, toDirectory, predicate) {
 await rm(stage, { recursive: true, force: true })
 await rm(output, { recursive: true, force: true })
 await rm(archive, { force: true })
+await rm(legacyArchive, { force: true })
 
 run('corepack', ['pnpm', 'exec', 'vite', 'build', '--mode', 'alt-public'])
 run('corepack', ['pnpm', 'exec', 'vite', 'build', '--mode', 'alt-private'])
@@ -57,7 +77,14 @@ await mkdir(output, { recursive: true })
 await cp(join(stage, 'public'), join(output, 'public'), { recursive: true })
 await cp(join(stage, 'private'), join(output, 'private'), { recursive: true })
 await rename(join(output, 'public', 'public-entry.html'), join(output, 'public', 'index.html'))
-await rename(join(output, 'private', 'private-entry.html'), join(output, 'private', 'index.html'))
+// Keep the generated private entry at its precached URL and add the filename
+// qBittorrent requires. The two files are byte-identical and deterministic.
+await cp(join(output, 'private', 'private-entry.html'), join(output, 'private', 'index.html'))
+for (const name of distributionMetadataFiles) {
+  const source = join(root, name)
+  if (await exists(source)) await cp(source, join(output, name))
+}
+await generateThirdPartyNotices(join(output, 'THIRD_PARTY_NOTICES.txt'))
 
 await moveMatching(
   join(output, 'private'),
@@ -82,7 +109,17 @@ for (const required of [
     throw new Error(`Required Alternative WebUI file is missing: ${required}`)
 }
 
-const files = await walk(output)
+const alternativeWorker = await readFile(join(output, 'public', 'sw.js'), 'utf8')
+if (
+  /url:["'][^"']+\.html(?:[?"'])/u.test(alternativeWorker) ||
+  /NavigationRoute/u.test(alternativeWorker)
+) {
+  throw new Error(
+    'Alternative WebUI service worker must not precache authenticated HTML or install a navigation fallback'
+  )
+}
+
+const files = (await walk(output)).sort((left, right) => left.localeCompare(right, 'en'))
 for (const file of files) {
   const metadata = await stat(file)
   if (file.endsWith('.map')) {
@@ -103,7 +140,24 @@ for (const file of files) {
   }
 }
 
-run('zip', ['-q', '-r', archive, '.'], output)
+const sourceDateEpoch = process.env.SOURCE_DATE_EPOCH
+let archiveTimestamp = 315_532_800
+if (sourceDateEpoch !== undefined) {
+  if (!/^\d+$/u.test(sourceDateEpoch)) {
+    throw new Error('SOURCE_DATE_EPOCH must be a non-negative integer')
+  }
+  archiveTimestamp = Number(sourceDateEpoch)
+  if (!Number.isSafeInteger(archiveTimestamp) || archiveTimestamp < 315_532_800) {
+    throw new Error('SOURCE_DATE_EPOCH must be a safe Unix timestamp on or after 1980-01-01')
+  }
+}
+
+await writeDeterministicZip({
+  archive,
+  root: output,
+  paths: files.map((file) => relative(output, file)),
+  epochSeconds: archiveTimestamp
+})
 await rm(stage, { recursive: true, force: true })
 
 console.log(`Alternative WebUI: ${output}`)

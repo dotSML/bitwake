@@ -1,6 +1,13 @@
 import type { ZodType } from 'zod'
 import { authenticationEpoch, authenticationSignal } from './authenticationEpoch'
-import { ApiError, isAuthenticationExpiryResponse, kindForStatus, messageForStatus } from './errors'
+import {
+  ApiError,
+  isApiError,
+  isAuthenticationExpiryResponse,
+  kindForStatus,
+  messageForStatus
+} from './errors'
+import type { OperationObservation } from '@/stores/operationsHistory'
 import { parseResponse, type ResponseMode } from './responseParsers'
 import { defaultApiBase, resolveApiUrl, type QueryValue } from './urlResolver'
 
@@ -24,6 +31,7 @@ export interface HttpClientOptions {
   fetch?: typeof globalThis.fetch
   defaultTimeoutMs?: number
   onAuthenticationExpired?: () => void
+  onOperation?: (observation: OperationObservation) => void
 }
 
 function isFormData(value: UrlBody | FormData): value is FormData {
@@ -82,6 +90,7 @@ export class HttpClient {
   readonly #fetch: typeof globalThis.fetch
   readonly #defaultTimeoutMs: number
   readonly #onAuthenticationExpired: (() => void) | undefined
+  readonly #onOperation: ((observation: OperationObservation) => void) | undefined
 
   constructor(options: HttpClientOptions = {}) {
     this.baseUrl = options.baseUrl
@@ -96,12 +105,42 @@ export class HttpClient {
     this.#fetch = options.fetch ?? globalThis.fetch.bind(globalThis)
     this.#defaultTimeoutMs = options.defaultTimeoutMs ?? 15_000
     this.#onAuthenticationExpired = options.onAuthenticationExpired
+    this.#onOperation = options.onOperation
   }
 
   async request<T = void>(path: string, options: RequestOptions<T> = {}): Promise<T> {
     const requestAuthenticationEpoch = authenticationEpoch()
     const requestAuthenticationSignal = authenticationSignal()
     const method = options.method ?? 'GET'
+    const startedAt = Date.now()
+    const observeOperation = method === 'POST' && !path.replace(/^\/+/, '').startsWith('auth/')
+    const reportOperation = (
+      outcome: OperationObservation['outcome'],
+      status?: number,
+      errorKind?: OperationObservation['errorKind']
+    ) => {
+      // A request from an expired authentication epoch belongs to the prior
+      // private session. Its eventual cancellation must not repopulate the
+      // new session's diagnostics after the history has been cleared.
+      if (
+        !observeOperation ||
+        !this.#onOperation ||
+        requestAuthenticationEpoch !== authenticationEpoch()
+      )
+        return
+      try {
+        this.#onOperation({
+          endpoint: path,
+          startedAt,
+          durationMs: Date.now() - startedAt,
+          outcome,
+          ...(status === undefined ? {} : { status }),
+          ...(errorKind === undefined ? {} : { errorKind })
+        })
+      } catch {
+        // Diagnostics must never change the result of a qBittorrent request.
+      }
+    }
     const headers = new Headers({
       Accept:
         options.response === 'blob'
@@ -162,34 +201,44 @@ export class HttpClient {
 
       const result = await parseResponse<T>(response, options.response ?? 'auto', options.schema)
       assertCurrentAuthenticationEpoch(requestAuthenticationEpoch, requestAuthenticationSignal)
+      reportOperation('completed', response.status)
       return result
     } catch (error) {
+      let normalized: ApiError
       if (
         requestAuthenticationSignal.aborted ||
         requestAuthenticationEpoch !== authenticationEpoch()
       ) {
-        throw new ApiError('The request was cancelled.', {
+        normalized = new ApiError('The request was cancelled.', {
           kind: 'cancelled',
           cause: error
         })
-      }
-      if (error instanceof ApiError) throw error
-      if (timeoutController.signal.aborted && !options.signal?.aborted) {
-        throw new ApiError('The request timed out.', { kind: 'timeout', cause: error })
-      }
-      if (
+      } else if (isApiError(error)) normalized = error
+      else if (timeoutController.signal.aborted && !options.signal?.aborted) {
+        normalized = new ApiError('The request timed out.', { kind: 'timeout', cause: error })
+      } else if (
         options.signal?.aborted ||
         (error instanceof DOMException && error.name === 'AbortError')
       ) {
-        throw new ApiError('The request was cancelled.', {
+        normalized = new ApiError('The request was cancelled.', {
           kind: 'cancelled',
           cause: error
         })
+      } else {
+        normalized = new ApiError(
+          'Could not reach qBittorrent. Check the connection and try again.',
+          {
+            kind: 'network',
+            cause: error
+          }
+        )
       }
-      throw new ApiError('Could not reach qBittorrent. Check the connection and try again.', {
-        kind: 'network',
-        cause: error
-      })
+      reportOperation(
+        normalized.kind === 'cancelled' ? 'cancelled' : 'failed',
+        normalized.status,
+        normalized.kind
+      )
+      throw normalized
     } finally {
       globalThis.clearTimeout(timer)
       combinedSignal.cleanup()

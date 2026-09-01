@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import MediaDirectoryPicker from './MediaDirectoryPicker.vue'
+import ExistingFolderSuggestions from './ExistingFolderSuggestions.vue'
+import { computed } from 'vue'
 import type { TvPackChoice } from './editorTypes'
 
 defineProps<{
@@ -14,6 +16,12 @@ const multiSeason = defineModel<boolean>('multiSeason', { required: true })
 const packChoice = defineModel<TvPackChoice>('packChoice', { required: true })
 const existingSeriesPath = defineModel<string>('existingSeriesPath', { required: true })
 const existingSeasonPath = defineModel<string>('existingSeasonPath', { required: true })
+const candidateYear = computed(() => (/^\d{4}$/u.test(year.value) ? Number(year.value) : undefined))
+
+function selectExistingSeries(path: string): void {
+  existingSeriesPath.value = path
+  existingSeasonPath.value = ''
+}
 </script>
 
 <template>
@@ -78,6 +86,13 @@ const existingSeasonPath = defineModel<string>('existingSeasonPath', { required:
           :browse-root="browseRoot"
           button-label="Browse"
         />
+        <ExistingFolderSuggestions
+          :root="browseRoot ?? ''"
+          :title="title"
+          :year="candidateYear"
+          button-label="Find matching series folders"
+          @select="selectExistingSeries"
+        />
       </div>
       <div v-if="!multiSeason" class="existing-field">
         <label>
@@ -94,6 +109,12 @@ const existingSeasonPath = defineModel<string>('existingSeasonPath', { required:
           v-model="existingSeasonPath"
           :browse-root="existingSeriesPath || browseRoot"
           button-label="Browse"
+        />
+        <ExistingFolderSuggestions
+          :root="existingSeriesPath"
+          :title="`Season ${String(season).padStart(2, '0')}`"
+          button-label="Find this season folder"
+          @select="existingSeasonPath = $event"
         />
       </div>
     </details>
@@ -202,6 +223,9 @@ label small {
 .existing-field .field {
   min-width: 0;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.existing-field .folder-suggestions {
+  grid-column: 1 / -1;
 }
 @media (max-width: 520px) {
   .suggested-fields {

@@ -28,10 +28,37 @@ export interface FilterResult {
   invalidRegex: boolean
 }
 
-const maximumRegexLength = 512
+export const maximumTorrentFilterTextLength = 512
+
+export function normalizeTorrentFilters(filters: TorrentFilters): TorrentFilters {
+  const text = filters.text.slice(0, maximumTorrentFilterTextLength)
+  const hasText = text.trim().length > 0
+  const savePath = filters.savePath?.trim() || null
+  return {
+    ...filters,
+    text,
+    savePath,
+    regex: hasText && filters.regex,
+    negative: hasText && filters.negative
+  }
+}
+
+export function countActiveTorrentFilters(filters: TorrentFilters): number {
+  const normalized = normalizeTorrentFilters(filters)
+  return (
+    (normalized.text.trim() ? 1 : 0) +
+    (normalized.state !== 'all' ? 1 : 0) +
+    (normalized.category !== null ? 1 : 0) +
+    (normalized.tag !== null ? 1 : 0) +
+    (normalized.tracker !== null ? 1 : 0) +
+    (normalized.savePath !== null ? 1 : 0) +
+    (normalized.regex ? 1 : 0) +
+    (normalized.negative ? 1 : 0)
+  )
+}
 
 function isSafeRegexSource(source: string): boolean {
-  if (source.length > maximumRegexLength) return false
+  if (source.length > maximumTorrentFilterTextLength) return false
 
   const groups: Array<{ hasAlternation: boolean; hasQuantifier: boolean }> = [
     { hasAlternation: false, hasQuantifier: false }
@@ -151,29 +178,32 @@ export function filterTorrents(
   items: readonly TorrentInfo[],
   filters: TorrentFilters
 ): FilterResult {
-  const matcher = textMatcher(filters)
+  const normalized = normalizeTorrentFilters(filters)
+  const matcher = textMatcher(normalized)
   const torrents = items.filter((torrent) => {
     const textMatches = matcher.test(torrent)
-    const effectiveTextMatch = filters.negative ? !textMatches : textMatches
-    if (!effectiveTextMatch || !matchesTorrentState(torrent, filters.state)) return false
-    if (filters.category !== null && torrent.category !== filters.category) return false
-    if (filters.tag !== null) {
+    const effectiveTextMatch = normalized.negative ? !textMatches : textMatches
+    if (!effectiveTextMatch || !matchesTorrentState(torrent, normalized.state)) return false
+    if (normalized.category !== null && torrent.category !== normalized.category) return false
+    if (normalized.tag !== null) {
       const tags = torrent.tags
         .split(',')
         .map((tag) => tag.trim())
         .filter(Boolean)
-      if (!tags.includes(filters.tag)) return false
+      if (!tags.includes(normalized.tag)) return false
     }
-    if (filters.tracker !== null) {
-      if (filters.tracker === '__trackerless__') {
+    if (normalized.tracker !== null) {
+      if (normalized.tracker === '__trackerless__') {
         if (torrent.tracker) return false
       } else if (
-        !torrent.tracker.toLocaleLowerCase().includes(filters.tracker.toLocaleLowerCase())
+        !torrent.tracker.toLocaleLowerCase().includes(normalized.tracker.toLocaleLowerCase())
       ) {
         return false
       }
     }
-    if (filters.savePath !== null && !torrent.save_path.startsWith(filters.savePath)) return false
+    if (normalized.savePath !== null && !torrent.save_path.startsWith(normalized.savePath)) {
+      return false
+    }
     return true
   })
   return { torrents, invalidRegex: matcher.invalid }

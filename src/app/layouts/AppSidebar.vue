@@ -8,6 +8,7 @@ import {
   FileSearch,
   Gauge,
   Hash,
+  HeartPulse,
   ListFilter,
   LogOut,
   Logs,
@@ -40,13 +41,15 @@ const torrents = useTorrentsStore()
 const transfer = useTransferStore()
 const lifecycle = useSessionLifecycle()
 const collapsed = computed(() => preferences.value.sidebarCollapsed)
-const stateItems: Array<{ id: TorrentFilterState; label: string; icon: typeof Circle }> = [
-  { id: 'all', label: 'All torrents', icon: ListFilter },
-  { id: 'downloading', label: 'Downloading', icon: Download },
-  { id: 'seeding', label: 'Seeding', icon: Upload },
-  { id: 'active', label: 'Active', icon: Activity },
-  { id: 'stopped', label: 'Stopped', icon: Circle }
-]
+const stateItems = computed<Array<{ id: TorrentFilterState; label: string; icon: typeof Circle }>>(
+  () => [
+    { id: 'all', label: t('sidebar.allTorrents'), icon: ListFilter },
+    { id: 'downloading', label: t('torrents.downloading'), icon: Download },
+    { id: 'seeding', label: t('torrents.seeding'), icon: Upload },
+    { id: 'active', label: t('torrents.active'), icon: Activity },
+    { id: 'stopped', label: t('torrents.stopped'), icon: Circle }
+  ]
+)
 
 const stateCounts = computed(() => countTorrentSidebarStates(torrents.torrents))
 
@@ -88,7 +91,7 @@ async function logout(): Promise<void> {
       <button
         class="collapse-button"
         type="button"
-        :aria-label="collapsed ? 'Expand sidebar' : 'Collapse sidebar'"
+        :aria-label="collapsed ? t('sidebar.expand') : t('sidebar.collapse')"
         @click="preferences.patch({ sidebarCollapsed: !collapsed })"
       >
         <ChevronRight v-if="collapsed" :size="17" aria-hidden="true" />
@@ -108,8 +111,8 @@ async function logout(): Promise<void> {
 
       <div v-if="!collapsed" class="graph-wrap"><TransferGraph /></div>
 
-      <nav aria-label="Torrent filters" class="sidebar-section">
-        <p v-if="!collapsed" class="section-label">Library</p>
+      <nav :aria-label="t('sidebar.torrentFilters')" class="sidebar-section">
+        <p v-if="!collapsed" class="section-label">{{ t('sidebar.library') }}</p>
         <button
           v-for="item in stateItems"
           :key="item.id"
@@ -129,7 +132,7 @@ async function logout(): Promise<void> {
       </nav>
 
       <div v-if="!collapsed && torrents.categories.size" class="sidebar-section collection-section">
-        <p class="section-label">Categories</p>
+        <p class="section-label">{{ t('sidebar.categories') }}</p>
         <button
           v-for="[name] in [...torrents.categories].slice(0, 8)"
           :key="name"
@@ -142,7 +145,7 @@ async function logout(): Promise<void> {
       </div>
 
       <div v-if="!collapsed && torrents.tags.size" class="sidebar-section collection-section">
-        <p class="section-label">Tags</p>
+        <p class="section-label">{{ t('sidebar.tags') }}</p>
         <button
           v-for="tag in [...torrents.tags].slice(0, 8)"
           :key="tag"
@@ -155,14 +158,14 @@ async function logout(): Promise<void> {
       </div>
 
       <div v-if="!collapsed && torrents.trackers.size" class="sidebar-section collection-section">
-        <p class="section-label">Trackers</p>
+        <p class="section-label">{{ t('sidebar.trackers') }}</p>
         <button
           class="sidebar-item nested"
           :class="{ active: torrents.filters.tracker === '__trackerless__' }"
           type="button"
           @click="filterTracker('__trackerless__')"
         >
-          <RadioTower :size="14" aria-hidden="true" /><span>Trackerless</span>
+          <RadioTower :size="14" aria-hidden="true" /><span>{{ t('sidebar.trackerless') }}</span>
         </button>
         <button
           v-for="[tracker] in [...torrents.trackers].slice(0, 8)"
@@ -177,8 +180,8 @@ async function logout(): Promise<void> {
         </button>
       </div>
 
-      <nav aria-label="Features" class="sidebar-section feature-links">
-        <p v-if="!collapsed" class="section-label">Tools</p>
+      <nav :aria-label="t('sidebar.features')" class="sidebar-section feature-links">
+        <p v-if="!collapsed" class="section-label">{{ t('sidebar.tools') }}</p>
         <RouterLink
           class="sidebar-item"
           to="/search"
@@ -216,6 +219,14 @@ async function logout(): Promise<void> {
         </RouterLink>
         <RouterLink
           class="sidebar-item"
+          to="/diagnostics"
+          :aria-label="t('nav.diagnostics')"
+          :title="t('nav.diagnostics')"
+        >
+          <HeartPulse :size="17" /><span v-if="!collapsed">{{ t('nav.diagnostics') }}</span>
+        </RouterLink>
+        <RouterLink
+          class="sidebar-item"
           to="/settings"
           :aria-label="t('nav.settings')"
           :title="t('nav.settings')"
@@ -234,7 +245,7 @@ async function logout(): Promise<void> {
     </div>
     <footer class="sidebar-footer">
       <FileSearch v-if="!collapsed" :size="14" aria-hidden="true" />
-      <span v-if="!collapsed">qBittorrent manager</span>
+      <span v-if="!collapsed">{{ t('sidebar.manager') }}</span>
       <button
         type="button"
         :aria-label="t('auth.logout')"

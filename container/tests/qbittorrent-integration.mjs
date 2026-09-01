@@ -11,6 +11,8 @@ const baseUrl = process.env.NEOTORRENT_TEST_URL
 const initialPassword = process.env.QBITTORRENT_TEST_PASSWORD
 const qbitContainer = process.env.QBITTORRENT_TEST_CONTAINER
 const chromePath = process.env.PLAYWRIGHT_CHROME_PATH
+const expectedApplicationVersion = process.env.QBITTORRENT_EXPECTED_VERSION ?? 'v5.2.3'
+const expectedWebApiVersion = process.env.QBITTORRENT_EXPECTED_WEBAPI_VERSION ?? '2.15.1'
 
 if (!baseUrl || !initialPassword || !qbitContainer) {
   throw new Error(
@@ -162,6 +164,24 @@ function webSeedParameter(url) {
   return new URL(url).href.replace(/%([0-9a-f]{2})/giu, '%25$1')
 }
 
+function trackerUrlsParameter(urls) {
+  return urls.map((url) => encodeURIComponent(new URL(url).href)).join('|')
+}
+
+function versionAtLeast(actual, minimum) {
+  const numeric = (value) => {
+    const match = String(value).match(/^(?:v)?(\d+)\.(\d+)(?:\.(\d+))?/iu)
+    return match ? [Number(match[1]), Number(match[2]), Number(match[3] ?? 0)] : null
+  }
+  const left = numeric(actual)
+  const right = numeric(minimum)
+  if (!left || !right) return false
+  for (let index = 0; index < 3; index += 1) {
+    if (left[index] !== right[index]) return left[index] > right[index]
+  }
+  return true
+}
+
 async function torrentInfo(page, hash) {
   const torrents = await apiJson(page, `torrents/info?hashes=${encodeURIComponent(hash)}`)
   return torrents[0]
@@ -203,7 +223,11 @@ function installLegalFile(directory, remotePath, content) {
   const localName = createHash('sha256').update(remotePath).digest('hex')
   const localPath = join(directory, localName)
   writeFileSync(localPath, content)
-  docker('exec', qbitContainer, 'mkdir', '-p', dirname(remotePath))
+  // qBittorrent drops to UID/GID 1000 inside the official container. Creating
+  // fixture directories through an ordinary `docker exec` leaves them owned by
+  // root, so libtorrent can accept a rename request and then fail it
+  // asynchronously when it touches the parent directory.
+  docker('exec', '--user', '1000:1000', qbitContainer, 'mkdir', '-p', dirname(remotePath))
   docker('cp', localPath, `${qbitContainer}:${remotePath}`)
   docker('exec', qbitContainer, 'chown', '1000:1000', remotePath)
 }
@@ -384,6 +408,16 @@ const setLocationTorrent = createTorrent(
   'Set.Location.Series.2026.S02E01.mkv',
   Buffer.from('NeoTorrent legal Set Location fixture\n')
 )
+const parityContentTorrent = createMultiFileTorrent('neotorrent-parity-content', [
+  {
+    path: 'Season 01/episode-one.txt',
+    content: Buffer.from('NeoTorrent legal content-rename fixture episode\n')
+  },
+  {
+    path: 'poster.txt',
+    content: Buffer.from('NeoTorrent legal content-rename fixture poster\n')
+  }
+])
 installLegalContent(fixtureDirectory, torrentA, contentA)
 installLegalContent(fixtureDirectory, torrentB, contentB)
 
@@ -392,7 +426,11 @@ const browser = await chromium.launch(
     ? { executablePath: chromePath, args: ['--disable-dev-shm-usage'] }
     : { args: ['--disable-dev-shm-usage'] }
 )
-const context = await browser.newContext({ viewport: { width: 1440, height: 900 } })
+const context = await browser.newContext({
+  viewport: { width: 1440, height: 900 },
+  // The role and status assertions below intentionally exercise the English UI.
+  locale: 'en-US'
+})
 const page = await context.newPage()
 const pageErrors = []
 const apiResponses = []
@@ -412,6 +450,7 @@ page.on('request', (request) => {
 })
 let contentLayoutObservations = []
 let mediaPlacementOperations = []
+let parityEndpointObservations = null
 
 async function login(password) {
   await page.getByLabel('Username').fill('admin')
@@ -434,6 +473,225 @@ async function login(password) {
       })}`,
       { cause: error }
     )
+  }
+}
+
+async function exerciseParityEndpoints(webApiVersion) {
+  const contentRoot = `/downloads/${parityContentTorrent.name}`
+  await addTorrent(page, parityContentTorrent, {
+    savePath: '/downloads',
+    contentLayout: 'Original'
+  })
+  await waitFor(`${parityContentTorrent.name} registration`, async () =>
+    torrentInfo(page, parityContentTorrent.hash)
+  )
+  await verifyTorrentData(
+    page,
+    parityContentTorrent,
+    parityContentTorrent.files.map((file) => `${contentRoot}/${file.path}`)
+  )
+
+  const reportedFiles = await apiJson(page, `torrents/files?hash=${parityContentTorrent.hash}`)
+  invariant(
+    Array.isArray(reportedFiles) && reportedFiles.length === parityContentTorrent.files.length,
+    `unexpected files response for rename fixture: ${JSON.stringify(reportedFiles)}`
+  )
+  const sourceFile = reportedFiles.find((file) => file.index === 0)
+  const unaffectedFile = reportedFiles.find((file) => file.index === 1)
+  invariant(
+    typeof sourceFile?.name === 'string' &&
+      sourceFile.size === parityContentTorrent.files[0].content.length,
+    `qBittorrent did not report the expected source file at index 0: ${JSON.stringify(reportedFiles)}`
+  )
+  invariant(
+    typeof unaffectedFile?.name === 'string' &&
+      unaffectedFile.size === parityContentTorrent.files[1].content.length,
+    `qBittorrent did not report the expected unaffected file at index 1: ${JSON.stringify(reportedFiles)}`
+  )
+
+  const expectedSourceSuffix = parityContentTorrent.files[0].path
+  const reportedPrefix = sourceFile.name.slice(0, -expectedSourceSuffix.length)
+  invariant(
+    sourceFile.name.endsWith(expectedSourceSuffix) &&
+      (reportedPrefix === '' || reportedPrefix === `${parityContentTorrent.name}/`),
+    `qBittorrent reported an unexpected multifile source path: ${JSON.stringify(sourceFile.name)}`
+  )
+  invariant(
+    unaffectedFile.name === `${reportedPrefix}${parityContentTorrent.files[1].path}`,
+    `qBittorrent reported inconsistent multifile roots: ${JSON.stringify(
+      reportedFiles.map(({ index, name }) => ({ index, name }))
+    )}`
+  )
+
+  const sourceParent = sourceFile.name.slice(0, sourceFile.name.lastIndexOf('/'))
+  invariant(
+    sourceParent.slice(sourceParent.lastIndexOf('/') + 1) === 'Season 01',
+    `rename fixture source file had an unexpected parent: ${JSON.stringify(sourceFile.name)}`
+  )
+  // qBittorrent's rename contract uses the same torrent-relative namespace for
+  // both paths. The response file path is therefore the canonical source and
+  // its parent (including any multifile root) must be preserved verbatim.
+  const renamedFile = `${sourceParent}/episode-renamed.txt`
+  await form(page, 'torrents/renameFile', {
+    hash: parityContentTorrent.hash,
+    oldPath: sourceFile.name,
+    newPath: renamedFile
+  })
+  let observedFilesAfterFileRename = []
+  let filesAfterFileRename
+  try {
+    filesAfterFileRename = await waitFor('file rename endpoint', async () => {
+      observedFilesAfterFileRename = await apiJson(
+        page,
+        `torrents/files?hash=${parityContentTorrent.hash}`
+      )
+      return observedFilesAfterFileRename.find((file) => file.index === 0)?.name === renamedFile
+        ? observedFilesAfterFileRename
+        : false
+    })
+  } catch (cause) {
+    throw new Error(
+      `renameFile did not converge: ${JSON.stringify({
+        oldPath: sourceFile.name,
+        newPath: renamedFile,
+        reportedFiles: observedFilesAfterFileRename.map(({ index, name }) => ({ index, name })),
+        sourceExists: fileExistsInQbittorrent(`${contentRoot}/Season 01/episode-one.txt`),
+        destinationExists: fileExistsInQbittorrent(`${contentRoot}/Season 01/episode-renamed.txt`)
+      })}`,
+      { cause }
+    )
+  }
+  invariant(
+    filesAfterFileRename.find((file) => file.index === 1)?.name === unaffectedFile.name,
+    `renameFile changed an unrelated fixture path: ${JSON.stringify(filesAfterFileRename)}`
+  )
+  await waitFor(
+    'renamed fixture file on disk',
+    async () =>
+      fileExistsInQbittorrent(`${contentRoot}/Season 01/episode-renamed.txt`) &&
+      !fileExistsInQbittorrent(`${contentRoot}/Season 01/episode-one.txt`)
+  )
+  assertLegalFile(
+    `${contentRoot}/Season 01/episode-renamed.txt`,
+    parityContentTorrent.files[0].content
+  )
+  invariant(
+    !fileExistsInQbittorrent(`${contentRoot}/Season 01/episode-one.txt`),
+    'renameFile left the original fixture path in place'
+  )
+
+  const folderSeparator = sourceParent.lastIndexOf('/')
+  const folderParent = folderSeparator >= 0 ? sourceParent.slice(0, folderSeparator) : ''
+  const renamedFolder = folderParent ? `${folderParent}/Season One` : 'Season One'
+  await form(page, 'torrents/renameFolder', {
+    hash: parityContentTorrent.hash,
+    oldPath: sourceParent,
+    newPath: renamedFolder
+  })
+  const fileAfterFolderRename = `${renamedFolder}/episode-renamed.txt`
+  let observedFilesAfterFolderRename = []
+  let filesAfterFolderRename
+  try {
+    filesAfterFolderRename = await waitFor('folder rename endpoint', async () => {
+      observedFilesAfterFolderRename = await apiJson(
+        page,
+        `torrents/files?hash=${parityContentTorrent.hash}`
+      )
+      return observedFilesAfterFolderRename.find((file) => file.index === 0)?.name ===
+        fileAfterFolderRename
+        ? observedFilesAfterFolderRename
+        : false
+    })
+  } catch (cause) {
+    throw new Error(
+      `renameFolder did not converge: ${JSON.stringify({
+        oldPath: sourceParent,
+        newPath: renamedFolder,
+        reportedFiles: observedFilesAfterFolderRename.map(({ index, name }) => ({ index, name })),
+        sourceExists: fileExistsInQbittorrent(`${contentRoot}/Season 01/episode-renamed.txt`),
+        destinationExists: fileExistsInQbittorrent(`${contentRoot}/Season One/episode-renamed.txt`)
+      })}`,
+      { cause }
+    )
+  }
+  invariant(
+    filesAfterFolderRename.find((file) => file.index === 1)?.name === unaffectedFile.name,
+    `renameFolder changed an unrelated fixture path: ${JSON.stringify(filesAfterFolderRename)}`
+  )
+  await waitFor(
+    'renamed fixture folder on disk',
+    async () =>
+      fileExistsInQbittorrent(`${contentRoot}/Season One/episode-renamed.txt`) &&
+      !fileExistsInQbittorrent(`${contentRoot}/Season 01/episode-renamed.txt`)
+  )
+  assertLegalFile(
+    `${contentRoot}/Season One/episode-renamed.txt`,
+    parityContentTorrent.files[0].content
+  )
+  invariant(
+    !fileExistsInQbittorrent(`${contentRoot}/Season 01/episode-renamed.txt`),
+    'renameFolder left the original fixture folder in place'
+  )
+  await form(page, 'torrents/recheck', { hashes: parityContentTorrent.hash })
+  await waitFor(
+    'renamed fixture to remain valid after recheck',
+    async () => {
+      const info = await torrentInfo(page, parityContentTorrent.hash)
+      const files = await apiJson(page, `torrents/files?hash=${parityContentTorrent.hash}`)
+      return info?.progress === 1 && files.every((file) => file.progress === 1)
+    },
+    30_000
+  )
+
+  const peerResponse = await form(page, 'torrents/addPeers', {
+    hashes: parityContentTorrent.hash,
+    peers: '127.0.0.1:65534'
+  })
+  const peerResult = JSON.parse(peerResponse.text)[parityContentTorrent.hash]
+  invariant(
+    Number.isInteger(peerResult?.added) &&
+      Number.isInteger(peerResult?.failed) &&
+      peerResult.added + peerResult.failed === 1,
+    `addPeers returned an unexpected result: ${peerResponse.text}`
+  )
+
+  const trackerUrl = 'http://127.0.0.1:65533/announce?token=alpha%2Fbeta&part=1'
+  // Web API 2.15.1 returns 204 because addTrackers intentionally has no
+  // response result, while Web API 2.11.2 serializes that same success as an
+  // empty 200 response. Keep the compatibility allowance local to this
+  // bodyless endpoint so JSON-returning actions (such as addPeers) stay strict.
+  await form(
+    page,
+    'torrents/addTrackers',
+    {
+      hash: parityContentTorrent.hash,
+      urls: trackerUrl
+    },
+    [200, 204]
+  )
+  await waitFor('tracker registration for selective reannounce', async () => {
+    const trackers = await apiJson(page, `torrents/trackers?hash=${parityContentTorrent.hash}`)
+    return trackers.some((tracker) => tracker.url === trackerUrl)
+  })
+  const selectiveTrackerReannounce = versionAtLeast(webApiVersion, '2.11.10')
+  if (selectiveTrackerReannounce) {
+    await form(
+      page,
+      'torrents/reannounce',
+      {
+        hashes: parityContentTorrent.hash,
+        urls: trackerUrlsParameter([trackerUrl])
+      },
+      [200, 204]
+    )
+  }
+
+  await removeTorrent(page, parityContentTorrent.hash)
+  return {
+    renameFile: true,
+    renameFolder: true,
+    addPeers: true,
+    selectiveTrackerReannounce
   }
 }
 
@@ -649,9 +907,35 @@ async function exerciseExactRootWarning(torrent, kind, root, warningTitle) {
   }
 }
 
+async function navigateToAllTorrents() {
+  const navigation = page.getByRole('navigation', { name: 'Torrent filters' })
+  const allTorrents = navigation.getByRole('button', { name: 'All torrents', exact: true })
+  try {
+    await allTorrents.waitFor({ state: 'visible', timeout: 20_000 })
+    await allTorrents.click()
+    await page.waitForURL(/#\/torrents$/u, { timeout: 20_000 })
+  } catch (cause) {
+    const diagnostics = await page
+      .evaluate(() => ({
+        url: window.location.href,
+        title: document.title,
+        language: document.documentElement.lang,
+        privateShell: Boolean(document.querySelector('[data-private-shell]')),
+        sidebar: Boolean(document.querySelector('.sidebar')),
+        navigationLabels: [...document.querySelectorAll('nav')].map((element) =>
+          element.getAttribute('aria-label')
+        )
+      }))
+      .catch(() => ({ unavailable: true }))
+    throw new Error(
+      `Could not navigate through the All torrents sidebar control: ${JSON.stringify(diagnostics)}`,
+      { cause }
+    )
+  }
+}
+
 async function openSetLocation(torrent) {
-  await page.getByRole('button', { name: 'All torrents' }).click()
-  await page.waitForURL(/#\/torrents$/u, { timeout: 20_000 })
+  await navigateToAllTorrents()
   const clearSelection = page.getByRole('button', { name: 'Clear selection' })
   if (await clearSelection.count()) await clearSelection.click()
   const filter = page.getByRole('searchbox', { name: 'Filter torrents by name or hash' })
@@ -768,8 +1052,7 @@ async function exerciseSetLocation() {
   )
   await verifyMediaTorrent(setLocationTorrent, initialSavePath, initialContentPath)
 
-  await page.getByRole('button', { name: 'All torrents' }).click()
-  await page.waitForURL(/#\/torrents$/u, { timeout: 20_000 })
+  await navigateToAllTorrents()
 
   const suggestedSavePath = '/data/tv-shows/Set Location Series (2026)/Season 02'
   const suggestedContentPath = `${suggestedSavePath}/${setLocationTorrent.name}`
@@ -906,8 +1189,14 @@ try {
 
   const applicationVersion = (await api(page, 'app/version')).text
   const webApiVersion = (await api(page, 'app/webapiVersion')).text
-  invariant(applicationVersion === 'v5.2.3', `unexpected qBittorrent version ${applicationVersion}`)
-  invariant(webApiVersion === '2.15.1', `unexpected Web API version ${webApiVersion}`)
+  invariant(
+    applicationVersion === expectedApplicationVersion,
+    `unexpected qBittorrent version ${applicationVersion}; expected ${expectedApplicationVersion}`
+  )
+  invariant(
+    webApiVersion === expectedWebApiVersion,
+    `unexpected Web API version ${webApiVersion}; expected ${expectedWebApiVersion}`
+  )
   invariant(
     (await context.cookies()).some(
       (cookie) => cookie.name === 'SID' || cookie.name.startsWith('QBT_SID')
@@ -932,12 +1221,12 @@ try {
 
   contentLayoutObservations = await exerciseContentLayouts(page)
   mediaPlacementOperations = await exerciseMediaPlacement()
+  parityEndpointObservations = await exerciseParityEndpoints(webApiVersion)
 
   const responsesBeforeIncrementalAdd = apiResponses.length
   const documentsBeforeTorrentNavigation = documentRequests
   await addTorrent(page, torrentA)
-  await page.getByRole('button', { name: 'All torrents' }).click()
-  await page.waitForURL(/#\/torrents$/, { timeout: 20_000 })
+  await navigateToAllTorrents()
   await page
     .getByRole('grid', { name: 'Torrents' })
     .getByText(torrentA.name, { exact: true })
@@ -972,6 +1261,22 @@ try {
     category: 'integration',
     savePath: '/downloads'
   })
+  await form(page, 'torrents/editCategory', {
+    category: 'integration',
+    savePath: '/downloads/integration',
+    downloadPathEnabled: false,
+    downloadPath: ''
+  })
+  await waitFor('category save-path edit', async () => {
+    const categories = await apiJson(page, 'torrents/categories')
+    return normalizedPath(categories.integration?.savePath) === '/downloads/integration'
+  })
+  await form(page, 'torrents/editCategory', {
+    category: 'integration',
+    savePath: '/downloads',
+    downloadPathEnabled: false,
+    downloadPath: ''
+  })
   await form(page, 'torrents/setCategory', {
     hashes: torrentA.hash,
     category: 'integration'
@@ -984,7 +1289,7 @@ try {
   })
 
   await form(page, 'torrents/recheck', { hashes: torrentA.hash })
-  await form(page, 'torrents/reannounce', { hashes: torrentA.hash })
+  await form(page, 'torrents/reannounce', { hashes: torrentA.hash }, [200, 204])
   await form(page, 'torrents/filePrio', { hash: torrentA.hash, id: 0, priority: 0 })
   await waitFor('file priority zero', async () => {
     const files = await apiJson(page, `torrents/files?hash=${torrentA.hash}`)
@@ -996,41 +1301,43 @@ try {
     return files[0]?.priority === 1
   })
 
-  const originalWebSeed = 'https://seed.example.test/files/fixture%20A?token=alpha%2Fbeta&part=1'
-  const editedWebSeed = 'https://seed.example.test/files/fixture%20B?token=gamma%2Fdelta&part=2'
-  await form(page, 'torrents/addWebSeeds', {
-    hash: torrentA.hash,
-    urls: webSeedParameter(originalWebSeed)
-  })
-  const addedWebSeeds = await waitFor('Web Seed add', async () => {
-    const seeds = await apiJson(page, `torrents/webseeds?hash=${torrentA.hash}`)
-    return seeds.length > 0 ? seeds : false
-  })
-  invariant(
-    addedWebSeeds.some((seed) => new URL(seed.url).href === originalWebSeed),
-    `Web Seed encoded components changed after add: ${JSON.stringify(addedWebSeeds)}`
-  )
-  await form(page, 'torrents/editWebSeed', {
-    hash: torrentA.hash,
-    origUrl: webSeedParameter(originalWebSeed),
-    newUrl: webSeedParameter(editedWebSeed)
-  })
-  const editedWebSeeds = await waitFor('Web Seed edit', async () => {
-    const seeds = await apiJson(page, `torrents/webseeds?hash=${torrentA.hash}`)
-    return seeds.some((seed) => new URL(seed.url).href !== originalWebSeed) ? seeds : false
-  })
-  invariant(
-    editedWebSeeds.some((seed) => new URL(seed.url).href === editedWebSeed),
-    `Web Seed encoded components changed after edit: ${JSON.stringify(editedWebSeeds)}`
-  )
-  await form(page, 'torrents/removeWebSeeds', {
-    hash: torrentA.hash,
-    urls: webSeedParameter(editedWebSeed)
-  })
-  await waitFor('Web Seed removal', async () => {
-    const seeds = await apiJson(page, `torrents/webseeds?hash=${torrentA.hash}`)
-    return seeds.length === 0
-  })
+  if (versionAtLeast(webApiVersion, '2.11.4')) {
+    const originalWebSeed = 'https://seed.example.test/files/fixture%20A?token=alpha%2Fbeta&part=1'
+    const editedWebSeed = 'https://seed.example.test/files/fixture%20B?token=gamma%2Fdelta&part=2'
+    await form(page, 'torrents/addWebSeeds', {
+      hash: torrentA.hash,
+      urls: webSeedParameter(originalWebSeed)
+    })
+    const addedWebSeeds = await waitFor('Web Seed add', async () => {
+      const seeds = await apiJson(page, `torrents/webseeds?hash=${torrentA.hash}`)
+      return seeds.length > 0 ? seeds : false
+    })
+    invariant(
+      addedWebSeeds.some((seed) => new URL(seed.url).href === originalWebSeed),
+      `Web Seed encoded components changed after add: ${JSON.stringify(addedWebSeeds)}`
+    )
+    await form(page, 'torrents/editWebSeed', {
+      hash: torrentA.hash,
+      origUrl: webSeedParameter(originalWebSeed),
+      newUrl: webSeedParameter(editedWebSeed)
+    })
+    const editedWebSeeds = await waitFor('Web Seed edit', async () => {
+      const seeds = await apiJson(page, `torrents/webseeds?hash=${torrentA.hash}`)
+      return seeds.some((seed) => new URL(seed.url).href !== originalWebSeed) ? seeds : false
+    })
+    invariant(
+      editedWebSeeds.some((seed) => new URL(seed.url).href === editedWebSeed),
+      `Web Seed encoded components changed after edit: ${JSON.stringify(editedWebSeeds)}`
+    )
+    await form(page, 'torrents/removeWebSeeds', {
+      hash: torrentA.hash,
+      urls: webSeedParameter(editedWebSeed)
+    })
+    await waitFor('Web Seed removal', async () => {
+      const seeds = await apiJson(page, `torrents/webseeds?hash=${torrentA.hash}`)
+      return seeds.length === 0
+    })
+  }
 
   await form(page, 'torrents/delete', { hashes: torrentA.hash, deleteFiles: false })
   await waitFor(
@@ -1143,12 +1450,20 @@ try {
           'stop',
           'set location while downloading',
           'rename',
+          'rename file and folder content',
+          'add peer endpoint',
           'category assignment',
+          'category save-path edit',
           'tag assignment',
           'recheck',
           'reannounce',
+          ...(parityEndpointObservations?.selectiveTrackerReannounce
+            ? ['selective tracker reannounce']
+            : ['selective tracker reannounce skipped below Web API 2.11.10']),
           'file priority 0 -> 1',
-          'Web Seed add/list/edit/remove',
+          ...(versionAtLeast(webApiVersion, '2.11.4')
+            ? ['Web Seed add/list/edit/remove']
+            : ['Web Seed management skipped below Web API 2.11.4']),
           'delete without files',
           'delete with files'
         ],
@@ -1156,6 +1471,7 @@ try {
         contentLayoutObservations,
         mediaPlacementOperationCount: mediaPlacementOperations.length,
         mediaPlacementOperations,
+        parityEndpointObservations,
         qBittorrentRestartRecovery: true,
         pageErrors
       },

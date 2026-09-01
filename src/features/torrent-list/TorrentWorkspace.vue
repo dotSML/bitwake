@@ -23,6 +23,7 @@ const torrents = useTorrentsStore()
 const preferences = usePreferencesStore()
 const isMobile = useMediaQuery(MOBILE_MEDIA_QUERY)
 const inspectorDrag = useWindowPointerDrag()
+const viewportWidth = ref(typeof window === 'undefined' ? 1440 : window.innerWidth)
 const deleteOpen = ref(false)
 const deleteHashes = ref<string[]>([])
 const operationDialog = ref<{
@@ -52,6 +53,12 @@ const stateChips: Array<{ id: TorrentFilterState; label: string }> = [
 const inspectorHash = computed(() => torrents.selected[0]?.hash ?? null)
 const showInspector = computed(() =>
   Boolean(!isMobile.value && inspectorHash.value && preferences.value.inspectorOpen)
+)
+const inspectorMaximumWidth = computed(() =>
+  Math.min(720, Math.max(320, Math.floor(viewportWidth.value * 0.52)))
+)
+const renderedInspectorWidth = computed(() =>
+  Math.min(preferences.value.inspectorWidth, inspectorMaximumWidth.value)
 )
 
 function activate(hash: string): void {
@@ -170,12 +177,38 @@ function onKeydown(event: KeyboardEvent): void {
 }
 
 function resizeInspector(event: PointerEvent): void {
+  event.preventDefault()
   const startX = event.clientX
-  const startWidth = preferences.value.inspectorWidth
+  const startWidth = renderedInspectorWidth.value
   inspectorDrag.start((moveEvent) => {
-    const width = Math.min(720, Math.max(320, startWidth + startX - moveEvent.clientX))
+    const width = Math.min(
+      inspectorMaximumWidth.value,
+      Math.max(320, startWidth + startX - moveEvent.clientX)
+    )
     preferences.patch({ inspectorWidth: width })
   })
+}
+
+function resizeInspectorWithKeyboard(event: KeyboardEvent): void {
+  if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+  event.preventDefault()
+  if (event.key === 'Home') preferences.patch({ inspectorWidth: 320 })
+  else if (event.key === 'End') {
+    preferences.patch({ inspectorWidth: inspectorMaximumWidth.value })
+  } else {
+    const direction = event.key === 'ArrowLeft' ? 1 : -1
+    const amount = event.shiftKey ? 25 : 10
+    preferences.patch({
+      inspectorWidth: Math.min(
+        inspectorMaximumWidth.value,
+        Math.max(320, renderedInspectorWidth.value + direction * amount)
+      )
+    })
+  }
+}
+
+function updateViewportWidth(): void {
+  viewportWidth.value = window.innerWidth
 }
 
 function onDragOver(event: DragEvent): void {
@@ -194,8 +227,14 @@ function onDrop(event: DragEvent): void {
   if (droppedFiles.length) emit('addTorrent', droppedFiles)
 }
 
-onMounted(() => window.addEventListener('keydown', onKeydown))
-onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
+onMounted(() => {
+  window.addEventListener('keydown', onKeydown)
+  window.addEventListener('resize', updateViewportWidth)
+})
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onKeydown)
+  window.removeEventListener('resize', updateViewportWidth)
+})
 </script>
 
 <template>
@@ -259,11 +298,16 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
       <div
         class="inspector-resizer"
         role="separator"
+        tabindex="0"
         aria-label="Resize torrent details"
         aria-orientation="vertical"
+        aria-valuemin="320"
+        :aria-valuemax="inspectorMaximumWidth"
+        :aria-valuenow="renderedInspectorWidth"
         @pointerdown="resizeInspector"
+        @keydown="resizeInspectorWithKeyboard"
       />
-      <div class="inspector-wrap" :style="{ width: `${preferences.value.inspectorWidth}px` }">
+      <div class="inspector-wrap" :style="{ width: `${renderedInspectorWidth}px` }">
         <TorrentDetailPanel
           :hash="inspectorHash"
           @close="preferences.patch({ inspectorOpen: false })"
@@ -322,14 +366,31 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   display: none;
 }
 .inspector-resizer {
-  width: 5px;
-  margin-left: -2px;
+  position: relative;
+  z-index: 2;
+  width: 24px;
+  margin-right: -12px;
+  margin-left: -12px;
   flex: 0 0 auto;
   cursor: col-resize;
   touch-action: none;
 }
-.inspector-resizer:hover {
-  background: rgb(var(--color-accent) / 0.45);
+.inspector-resizer::after {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 11px;
+  width: 2px;
+  background: transparent;
+  content: '';
+}
+.inspector-resizer:hover,
+.inspector-resizer:focus-visible {
+  outline-offset: -2px;
+}
+.inspector-resizer:hover::after,
+.inspector-resizer:focus-visible::after {
+  background: rgb(var(--color-accent) / 0.55);
 }
 .inspector-wrap {
   min-width: 320px;

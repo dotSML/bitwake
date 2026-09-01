@@ -79,7 +79,7 @@ test.describe('desktop acceptance workflows', () => {
     await openMockApp(page)
 
     const grid = page.getByRole('grid', { name: 'Torrents' })
-    await expect(grid).toHaveAttribute('aria-rowcount', '500')
+    await expect(grid).toHaveAttribute('aria-rowcount', '501')
     const initialIndexes = await grid
       .locator('.table-row')
       .evaluateAll((rows) =>
@@ -336,7 +336,7 @@ test.describe('desktop acceptance workflows', () => {
     await expect(banner).toBeVisible({ timeout: 6_000 })
     await expect(page.getByRole('grid', { name: 'Torrents' })).toHaveAttribute(
       'aria-rowcount',
-      '24'
+      '25'
     )
 
     await setFetchControl(page, { failMainData: false })
@@ -344,7 +344,7 @@ test.describe('desktop acceptance workflows', () => {
     await expect(banner).toBeHidden()
     await expect(page.getByRole('grid', { name: 'Torrents' })).toHaveAttribute(
       'aria-rowcount',
-      '24'
+      '25'
     )
   })
 

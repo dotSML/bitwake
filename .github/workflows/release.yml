@@ -1,0 +1,261 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Exact existing release tag, for example v0.1.0
+        required: true
+        type: string
+
+concurrency:
+  group: release-${{ inputs.tag }}
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  verify:
+    name: Verify source, archive, image, and provenance
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    outputs:
+      revision: ${{ steps.identity.outputs.revision }}
+    permissions:
+      attestations: read
+      contents: read
+      packages: read
+    env:
+      RELEASE_TAG: ${{ inputs.tag }}
+      REGISTRY_IMAGE: ghcr.io/dotsml/neotorrent
+      TZ: UTC
+    steps:
+      - name: Validate requested tag syntax
+        shell: bash
+        run: |
+          if [[ ! "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "Release tag must use the supported v-prefixed release version format: $RELEASE_TAG" >&2
+            exit 1
+          fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.tag }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+      - name: Enable locked pnpm through Corepack
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.15.0+sha512.486ebc259d3e999a4e8691ce03b5cac4a71cbeca39372a9b762cb500cfdf0873e2cb16abe3d951b1ee2cf012503f027b98b6584e4df22524e0c7450d9ec7aa7b --activate
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Verify release source, license, tag, and changelog
+        run: pnpm release:verify -- --tag "$RELEASE_TAG" --require-git-tag --require-license
+      - name: Reject an existing GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "GitHub Release $RELEASE_TAG already exists; published releases are immutable." >&2
+            exit 1
+          fi
+      - name: Check formatting
+        run: pnpm format:check
+      - name: Lint
+        run: pnpm lint
+      - name: Typecheck
+        run: pnpm typecheck
+      - name: Unit and component tests
+        run: pnpm test:all
+      - name: Review production dependency licenses
+        run: pnpm run licenses
+      - name: Derive tagged build identity and reproducible timestamp
+        id: identity
+        shell: bash
+        run: |
+          revision=$(git rev-parse HEAD)
+          build_date=$(git show -s --format=%cI HEAD)
+          version=${RELEASE_TAG#v}
+          {
+            echo "SOURCE_DATE_EPOCH=$(git show -s --format=%ct HEAD)"
+            echo "NEOTORRENT_BUILD_REVISION=${revision}"
+            echo "NEOTORRENT_BUILD_DATE=${build_date}"
+            echo "NEOTORRENT_BUILD_VERSION=${version}"
+          } >> "$GITHUB_ENV"
+          echo "revision=${revision}" >> "$GITHUB_OUTPUT"
+      - name: Build Alternative WebUI twice and require identical archives
+        shell: bash
+        run: |
+          version=${RELEASE_TAG#v}
+          archive="dist/neotorrent-alt-webui-v${version}.zip"
+          pnpm build:alt-webui
+          first=$(sha256sum "$archive" | awk '{print $1}')
+          pnpm build:alt-webui
+          second=$(sha256sum "$archive" | awk '{print $1}')
+          if [[ "$first" != "$second" ]]; then
+            echo "Alternative WebUI archive is not reproducible: $first != $second" >&2
+            exit 1
+          fi
+          echo "Reproducible archive SHA-256: $second"
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+      - name: Log in to GHCR for image verification
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Resolve and validate the immutable multi-architecture image
+        id: image
+        shell: bash
+        run: |
+          version=${RELEASE_TAG#v}
+          tag_reference="${REGISTRY_IMAGE}:${version}"
+          manifest=$(docker buildx imagetools inspect "$tag_reference" --format '{{json .Manifest}}')
+          digest=$(node -e 'const value=JSON.parse(process.argv[1]); const digest=value.digest; if (!/^sha256:[0-9a-f]{64}$/.test(digest ?? "")) process.exit(1); process.stdout.write(digest)' "$manifest")
+          image_reference="${REGISTRY_IMAGE}@${digest}"
+          license=$(node -p "require('./package.json').license")
+          revision=${{ steps.identity.outputs.revision }}
+          for platform in linux/amd64 linux/arm64; do
+            image=$(docker buildx imagetools inspect "$image_reference" --format "{{json (index .Image \"$platform\")}}")
+            node -e '
+              const value = JSON.parse(process.argv[1])
+              const labels = value.config?.Labels ?? {}
+              const expected = JSON.parse(process.argv[2])
+              for (const [name, wanted] of Object.entries(expected)) {
+                if (labels[name] !== wanted) {
+                  console.error(`${process.argv[3]} label ${name}: expected ${wanted}, received ${labels[name] ?? "missing"}`)
+                  process.exit(1)
+                }
+              }
+            ' "$image" "{\"org.opencontainers.image.revision\":\"$revision\",\"org.opencontainers.image.version\":\"$version\",\"org.opencontainers.image.licenses\":\"$license\"}" "$platform"
+          done
+          echo "reference=$image_reference" >> "$GITHUB_OUTPUT"
+      - name: Verify image provenance attestation
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh attestation verify "oci://${{ steps.image.outputs.reference }}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --signer-workflow "github.com/${GITHUB_REPOSITORY}/.github/workflows/container.yml" \
+            --source-digest "${{ steps.identity.outputs.revision }}" \
+            --source-ref "refs/tags/${RELEASE_TAG}" \
+            --deny-self-hosted-runners
+      - name: Verify artifact and generate checksums and release metadata
+        shell: bash
+        run: |
+          version=${RELEASE_TAG#v}
+          pnpm release:verify -- \
+            --tag "$RELEASE_TAG" \
+            --require-git-tag \
+            --require-license \
+            --require-image \
+            --image-reference "${{ steps.image.outputs.reference }}" \
+            --artifact "dist/neotorrent-alt-webui-v${version}.zip"
+          mkdir -p dist/publish
+          cp "dist/neotorrent-alt-webui-v${version}.zip" dist/publish/
+          cp dist/release/SHA256SUMS dist/release/release-metadata.json dist/release/release-notes.md dist/publish/
+      - name: Upload verified release bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: neotorrent-${{ inputs.tag }}-release
+          path: dist/publish
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    name: Publish the pre-verified immutable bundle
+    needs: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: release
+    permissions:
+      actions: read
+      attestations: read
+      contents: write
+      packages: read
+    env:
+      RELEASE_TAG: ${{ inputs.tag }}
+      RELEASE_REVISION: ${{ needs.verify.outputs.revision }}
+    steps:
+      - name: Download verified release bundle
+        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8.0.0
+        with:
+          name: neotorrent-${{ inputs.tag }}-release
+          path: release-bundle
+      - name: Revalidate bundle identity and checksums without executing it
+        shell: bash
+        run: |
+          version=${RELEASE_TAG#v}
+          archive="neotorrent-alt-webui-v${version}.zip"
+          cd release-bundle
+          expected_files=$(printf '%s\n' "$archive" SHA256SUMS release-metadata.json release-notes.md | sort)
+          actual_files=$(find . -maxdepth 1 -type f -printf '%f\n' | sort)
+          if [[ "$actual_files" != "$expected_files" ]]; then
+            echo "Release bundle contains missing or unexpected files." >&2
+            diff <(printf '%s\n' "$expected_files") <(printf '%s\n' "$actual_files") || true
+            exit 1
+          fi
+          checksum_files=$(awk '{print $2}' SHA256SUMS | sort)
+          expected_checksums=$(printf '%s\n' "$archive" release-metadata.json release-notes.md | sort)
+          if [[ "$checksum_files" != "$expected_checksums" ]]; then
+            echo "SHA256SUMS does not cover exactly the expected release files." >&2
+            exit 1
+          fi
+          sha256sum --check --strict SHA256SUMS
+          artifact_sha=$(sha256sum "$archive" | awk '{print $1}')
+          artifact_size=$(stat --format=%s "$archive")
+          jq --exit-status \
+            --arg tag "$RELEASE_TAG" \
+            --arg version "$version" \
+            --arg revision "$RELEASE_REVISION" \
+            --arg artifact "$archive" \
+            --arg sha "$artifact_sha" \
+            --argjson size "$artifact_size" \
+            '(.schemaVersion == 2) and
+             (.tag == $tag) and (.version == $version) and (.revision == $revision) and
+             (.artifact == $artifact) and (.sha256 == $sha) and (.artifactSizeBytes == $size) and
+             (.licenseExpression | type == "string" and . != "UNLICENSED" and . != "NOASSERTION") and
+             (.licenseFiles | type == "array" and length > 0) and
+             (.thirdPartyNotices == "THIRD_PARTY_NOTICES.txt") and
+             (.image | test("^ghcr\\.io/dotsml/neotorrent@sha256:[0-9a-f]{64}$"))' \
+            release-metadata.json >/dev/null
+      - name: Reverify image provenance from release metadata
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          image_reference=$(jq --raw-output .image release-bundle/release-metadata.json)
+          gh attestation verify "oci://${image_reference}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --signer-workflow "github.com/${GITHUB_REPOSITORY}/.github/workflows/container.yml" \
+            --source-digest "$RELEASE_REVISION" \
+            --source-ref "refs/tags/${RELEASE_TAG}" \
+            --deny-self-hosted-runners
+      - name: Reject an existing GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "GitHub Release $RELEASE_TAG already exists; published releases are immutable." >&2
+            exit 1
+          fi
+      - name: Create immutable GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          prerelease=()
+          if [[ "$RELEASE_TAG" == *-* ]]; then prerelease+=(--prerelease); fi
+          version=${RELEASE_TAG#v}
+          gh release create "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --title "NeoTorrent $RELEASE_TAG" \
+            --notes-file release-bundle/release-notes.md \
+            "${prerelease[@]}" \
+            "release-bundle/neotorrent-alt-webui-v${version}.zip" \
+            release-bundle/SHA256SUMS \
+            release-bundle/release-metadata.json \
+            release-bundle/release-notes.md

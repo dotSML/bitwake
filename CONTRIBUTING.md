@@ -19,7 +19,8 @@ Participation in project spaces is governed by the [Code of Conduct](CODE_OF_CON
 
 You need:
 
-- Node.js 22 or newer.
+- Node.js 22.22.2 or newer; `.node-version` records the reviewed CI/runtime
+  toolchain version.
 - Corepack and the pnpm version declared in `package.json` (currently 10.15.0).
 - Git.
 
@@ -99,6 +100,20 @@ excerpt. Do not publish:
 
 Prefer mock data or a minimal public-domain test torrent. If redaction would
 make the report unsafe or incomplete, do not post it publicly.
+
+The Diagnostics and System Health route produces a minimized support snapshot,
+but it still includes browser/build/version and request-status metadata. Review
+that JSON before sharing it; do not treat generated diagnostics as a substitute
+for your own redaction.
+
+## Licensing status
+
+This repository does not yet include a license or declare contributor-license
+terms. Contributors must submit only material they have the right to submit,
+and should not assume that repository visibility grants permission to reuse or
+redistribute the project. Public release remains blocked until the project owner
+chooses a license and aligns repository, package, container, and artifact
+metadata. See [docs/releasing.md](docs/releasing.md).
 
 ## Pull requests
 

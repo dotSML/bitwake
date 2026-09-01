@@ -2,14 +2,17 @@
 import { Clipboard, Pause, Play, Search, Trash2 } from 'lucide-vue-next'
 import { useVirtualizer } from '@tanstack/vue-virtual'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import type { LogEntry } from '@/api/types/models'
 import type { PeerLogEntry } from '@/api/logs/logsApi'
 import { useApi } from '@/app/providers/api'
 import { useNotificationsStore } from '@/stores/notifications'
 import RouteScaffold from '@/ui/components/RouteScaffold.vue'
+import { formatNumber } from '@/utils/format'
 
 type DisplayEntry = { id: number; timestamp: number; level: string; message: string }
 const api = useApi()
+const { locale } = useI18n()
 const notifications = useNotificationsStore()
 const mainEntries = ref<LogEntry[]>([])
 const peerEntries = ref<PeerLogEntry[]>([])
@@ -29,10 +32,13 @@ const maximumRetainedEntries = 10_000
 const normalPollDelay = 2_000
 const hiddenPollDelay = 15_000
 const maximumPollDelay = 30_000
-const logTimestampFormatter = new Intl.DateTimeFormat(undefined, {
-  dateStyle: 'short',
-  timeStyle: 'medium'
-})
+const logTimestampFormatter = computed(
+  () =>
+    new Intl.DateTimeFormat(locale.value, {
+      dateStyle: 'short',
+      timeStyle: 'medium'
+    })
+)
 
 function mainLevel(type: number): string {
   return type === 1
@@ -163,7 +169,7 @@ async function copyEntry(message: string): Promise<void> {
   await copyLogText(message)
 }
 function formatTime(timestamp: number): string {
-  return logTimestampFormatter.format(new Date(timestamp * 1000))
+  return logTimestampFormatter.value.format(new Date(timestamp * 1000))
 }
 
 onMounted(() => {
@@ -246,7 +252,7 @@ onBeforeUnmount(() => {
         <div v-if="!displayEntries.length" class="log-empty">No visible log entries.</div>
       </div>
       <footer>
-        <span>{{ displayEntries.length.toLocaleString() }} visible</span
+        <span>{{ formatNumber(displayEntries.length) }} visible</span
         ><span v-if="paused">Polling paused</span
         ><span v-if="pollError" class="poll-error" role="status">{{ pollError }}</span
         ><span>Clearing this view never deletes qBittorrent server logs.</span>
@@ -288,7 +294,7 @@ onBeforeUnmount(() => {
 }
 .log-tabs button[aria-pressed='true'] {
   background: rgb(var(--color-accent-soft));
-  color: rgb(var(--color-accent));
+  color: rgb(var(--color-ink));
   font-weight: 650;
 }
 .log-search {
@@ -324,7 +330,7 @@ onBeforeUnmount(() => {
   opacity: 1;
 }
 .levels .warning {
-  color: rgb(var(--color-warning));
+  color: rgb(var(--color-warning-foreground));
 }
 .levels .critical {
   color: rgb(var(--color-danger));
@@ -378,7 +384,7 @@ onBeforeUnmount(() => {
   color: rgb(var(--color-muted));
 }
 .log-row.warning .level-mark {
-  color: rgb(var(--color-warning));
+  color: rgb(var(--color-warning-foreground));
 }
 .log-row.critical .level-mark {
   color: rgb(var(--color-danger));
@@ -419,7 +425,7 @@ onBeforeUnmount(() => {
   margin-left: auto;
 }
 .logs-panel footer .poll-error {
-  color: rgb(var(--color-warning));
+  color: rgb(var(--color-warning-foreground));
 }
 @media (max-width: 850px) {
   .logs-toolbar {

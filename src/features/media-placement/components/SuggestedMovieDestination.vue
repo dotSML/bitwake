@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import MediaDirectoryPicker from './MediaDirectoryPicker.vue'
+import ExistingFolderSuggestions from './ExistingFolderSuggestions.vue'
+import { computed } from 'vue'
 
 defineProps<{ browseRoot?: string | undefined }>()
 const title = defineModel<string>('title', { required: true })
 const year = defineModel<string>('year', { required: true })
 const existingMoviePath = defineModel<string>('existingMoviePath', { required: true })
+const candidateYear = computed(() => (/^\d{4}$/u.test(year.value) ? Number(year.value) : undefined))
 </script>
 
 <template>
@@ -40,6 +43,12 @@ const existingMoviePath = defineModel<string>('existingMoviePath', { required: t
           v-model="existingMoviePath"
           :browse-root="browseRoot"
           button-label="Browse"
+        />
+        <ExistingFolderSuggestions
+          :root="browseRoot ?? ''"
+          :title="title"
+          :year="candidateYear"
+          @select="existingMoviePath = $event"
         />
       </div>
     </details>
@@ -85,6 +94,9 @@ small {
 .existing-folder .field {
   min-width: 0;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.existing-folder > div .folder-suggestions {
+  grid-column: 1 / -1;
 }
 @media (max-width: 380px) {
   .suggested-fields {

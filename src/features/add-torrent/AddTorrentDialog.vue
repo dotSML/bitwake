@@ -10,7 +10,7 @@ import {
   Plus,
   XCircle
 } from 'lucide-vue-next'
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import type { AddTorrentResult } from '@/api/types/models'
 import { useApi } from '@/app/providers/api'
 import {
@@ -34,9 +34,11 @@ import {
 import { useNotificationsStore } from '@/stores/notifications'
 import { useTorrentsStore } from '@/stores/torrents'
 import AppDialog from '@/ui/primitives/AppDialog.vue'
+import { formatNumber } from '@/utils/format'
 
 type AddStep = 1 | 2 | 3
 type SourceStatus = 'ready' | 'submitting' | 'success' | 'pending' | 'failed'
+const stepLabels = ['Sources', 'Media and destination', 'Options and review'] as const
 
 interface AddSourcePlan {
   key: string
@@ -81,6 +83,7 @@ function safeFileName(file: File): string {
 const submitting = ref(false)
 const analyzingFiles = ref(false)
 const step = ref<AddStep>(1)
+const stepHeading = ref<HTMLElement | null>(null)
 const error = ref<string | null>(null)
 const result = ref<AddSummary | null>(null)
 const plans = ref<AddSourcePlan[]>([])
@@ -464,7 +467,7 @@ function continueFlow(): void {
       return
     }
     if (!validateSources()) return
-    step.value = 2
+    moveToStep(2)
     return
   }
   if (step.value === 2) {
@@ -473,8 +476,17 @@ function continueFlow(): void {
       error.value = `Review the media destination for ${plans.value[invalid]?.analysis.displayName ?? 'this source'}.`
       return
     }
-    step.value = 3
+    moveToStep(3)
   }
+}
+
+function moveToStep(next: AddStep): void {
+  step.value = next
+  void nextTick(() => stepHeading.value?.focus({ preventScroll: true }))
+}
+
+function goBack(): void {
+  if (step.value > 1) moveToStep((step.value - 1) as AddStep)
 }
 
 function responseSummary(response: AddTorrentResult, count: number): AddSummary {
@@ -668,11 +680,20 @@ function submit(): void {
     @update:open="emit('update:open', $event)"
   >
     <nav v-if="assistMode" class="stepper" aria-label="Add torrent steps">
-      <span v-for="item in 3" :key="item" :class="{ active: step === item, complete: step > item }">
+      <span
+        v-for="item in 3"
+        :key="item"
+        :class="{ active: step === item, complete: step > item }"
+        :aria-current="step === item ? 'step' : undefined"
+        :aria-label="`${stepLabels[item - 1]}, step ${item} of 3${step > item ? ', completed' : step === item ? ', current' : ''}`"
+      >
         <b>{{ item }}</b
-        >{{ item === 1 ? 'Sources' : item === 2 ? 'Media and destination' : 'Options and review' }}
+        >{{ stepLabels[item - 1] }}
       </span>
     </nav>
+    <h2 v-if="assistMode" ref="stepHeading" class="sr-only" tabindex="-1">
+      Step {{ step }} of 3: {{ stepLabels[step - 1] }}
+    </h2>
 
     <form id="add-torrent-form" class="add-form" @submit.prevent="submit">
       <template v-if="!assistMode || step === 1">
@@ -708,7 +729,7 @@ function submit(): void {
           <ul v-if="files.length" class="file-list" aria-label="Selected torrent files">
             <li v-for="(file, index) in files" :key="`${file.name}-${file.size}-${index}`">
               <span>{{ safeFileName(file) }}</span
-              ><small>{{ file.size.toLocaleString() }} bytes</small>
+              ><small>{{ formatNumber(file.size) }} bytes</small>
               <button
                 type="button"
                 :aria-label="`Remove ${safeFileName(file)}`"
@@ -903,7 +924,7 @@ function submit(): void {
         class="btn back-button"
         type="button"
         :disabled="submitting"
-        @click="step = (step - 1) as AddStep"
+        @click="goBack"
       >
         <ChevronLeft :size="16" />Back
       </button>
@@ -1163,7 +1184,7 @@ h3 {
 .source-status.pending,
 .source-status.submitting {
   background: rgb(var(--color-warning) / 0.1);
-  color: rgb(var(--color-warning));
+  color: rgb(var(--color-warning-foreground));
 }
 .source-error {
   margin: 0;

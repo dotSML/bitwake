@@ -145,4 +145,65 @@ describe('responsive component mounting', () => {
     window.dispatchEvent(new PointerEvent('pointermove', { clientX: 180 }))
     expect(preferences.value.sidebarWidth).toBe(304)
   })
+
+  it('keeps inspector pointer and keyboard resizing aligned with the 1280px rendered limit', async () => {
+    const originalInnerWidth = Object.getOwnPropertyDescriptor(window, 'innerWidth')
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1280 })
+    mockMobileViewport(false)
+    const context = createTestContext()
+    const torrent = createTorrents(1)[0]!
+    const torrents = context.run(() => useTorrentsStore(context.pinia))
+    const preferences = context.run(() => usePreferencesStore(context.pinia))
+    torrents.applyMainData({
+      rid: 1,
+      full_update: true,
+      torrents: { [torrent.hash]: torrent }
+    })
+    torrents.setSelection([torrent.hash])
+    preferences.patch({ inspectorWidth: 720 })
+
+    const wrapper = await mountWithContext(TorrentWorkspace, context, {
+      global: {
+        stubs: {
+          TransferGraph: true,
+          TorrentDetailPanel: true,
+          TorrentTable: true,
+          MobileTorrentList: true,
+          TorrentToolbar: true,
+          TorrentActionMenu: true,
+          DeleteTorrentDialog: true,
+          TorrentOperationDialog: true
+        }
+      }
+    })
+
+    try {
+      const resizer = wrapper.get('.inspector-resizer')
+      const inspector = wrapper.get('.inspector-wrap')
+      expect(resizer.attributes('aria-valuemax')).toBe('665')
+      expect(resizer.attributes('aria-valuenow')).toBe('665')
+      expect(inspector.attributes('style')).toContain('width: 665px')
+
+      await resizer.trigger('pointerdown', { clientX: 600 })
+      window.dispatchEvent(new PointerEvent('pointermove', { clientX: 645 }))
+      window.dispatchEvent(new PointerEvent('pointerup'))
+      await nextTick()
+      expect(preferences.value.inspectorWidth).toBe(620)
+      expect(resizer.attributes('aria-valuenow')).toBe('620')
+      expect(inspector.attributes('style')).toContain('width: 620px')
+
+      await resizer.trigger('keydown', { key: 'ArrowLeft', shiftKey: true })
+      expect(preferences.value.inspectorWidth).toBe(645)
+      expect(resizer.attributes('aria-valuenow')).toBe('645')
+      expect(inspector.attributes('style')).toContain('width: 645px')
+
+      await resizer.trigger('keydown', { key: 'End' })
+      expect(preferences.value.inspectorWidth).toBe(665)
+      expect(resizer.attributes('aria-valuenow')).toBe('665')
+      expect(inspector.attributes('style')).toContain('width: 665px')
+    } finally {
+      wrapper.unmount()
+      if (originalInnerWidth) Object.defineProperty(window, 'innerWidth', originalInnerWidth)
+    }
+  })
 })

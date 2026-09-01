@@ -46,6 +46,8 @@ describe('torrent list interactions', () => {
 
     const dataRows = () => wrapper.findAll<HTMLElement>('.table-row')
     expect(dataRows()).toHaveLength(5)
+    expect(wrapper.get('[role="grid"]').attributes('aria-rowcount')).toBe('6')
+    expect(dataRows().at(-1)?.attributes('aria-rowindex')).toBe('6')
 
     await dataRows()[0]!.trigger('click')
     expect(torrents.selectedHashes.size).toBe(1)
@@ -129,6 +131,29 @@ describe('torrent list interactions', () => {
     expect(headers[0]!.attributes('style')).toContain('width: 232px')
   })
 
+  it('invokes the table resize handler for pointer dragging and persists the width', async () => {
+    vi.useFakeTimers()
+    try {
+      const context = createTestContext()
+      const preferences = context.run(() => usePreferencesStore(context.pinia))
+      const wrapper = await mountWithContext(TorrentTable, context, { attachTo: document.body })
+      await nextTick()
+
+      const nameHeader = wrapper.findAll('.table-header-cell')[0]!
+      const resizer = nameHeader.get<HTMLElement>('[aria-label="Resize Name column"]')
+      await resizer.trigger('mousedown', { button: 0, clientX: 310 })
+      document.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: 370 }))
+      document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, clientX: 370 }))
+      await nextTick()
+
+      expect(nameHeader.attributes('style')).toContain('width: 370px')
+      await vi.advanceTimersByTimeAsync(250)
+      expect(preferences.value.columnWidths.name).toBe(370)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('keeps one roving row tab stop and extends keyboard selection from its anchor', async () => {
     const context = createTestContext()
     const torrents = context.run(() => useTorrentsStore(context.pinia))
@@ -169,7 +194,7 @@ describe('torrent list interactions', () => {
     const mobile = await mountWithContext(MobileTorrentList, context, { attachTo: document.body })
     await flushPromises()
 
-    expect(desktop.get('[role="grid"]').attributes('aria-rowcount')).toBe('5000')
+    expect(desktop.get('[role="grid"]').attributes('aria-rowcount')).toBe('5001')
     expect(desktop.findAll('.table-row').length).toBeGreaterThan(0)
     expect(desktop.findAll('.table-row').length).toBeLessThan(100)
     expect(mobile.get('.mobile-list').attributes('data-total-count')).toBe('5000')

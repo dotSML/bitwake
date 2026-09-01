@@ -2,7 +2,7 @@ import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import { useApi } from '@/app/providers/api'
 import { useSessionStore } from '@/stores/session'
-import { isAbsoluteMediaPath } from '../domain/pathUtils'
+import { isAbsoluteMediaPath, mediaLibraryRootsOverlap } from '../domain/pathUtils'
 import { containsControlCharacters } from '../domain/textSafety'
 import {
   loadRuntimeMediaConfig,
@@ -54,7 +54,7 @@ export function sanitizeMediaPlacementSettings(value: unknown): MediaPlacementSe
     return { ...defaultMediaPlacementSettings }
   }
   const record = value as Record<string, unknown>
-  return {
+  const sanitized: MediaPlacementSettings = {
     mode: record.mode === 'assist' ? 'assist' : 'off',
     tvRoot: cleanPath(record.tvRoot),
     moviesRoot: cleanPath(record.moviesRoot),
@@ -62,6 +62,9 @@ export function sanitizeMediaPlacementSettings(value: unknown): MediaPlacementSe
     tvCategory: cleanText(record.tvCategory),
     movieCategory: cleanText(record.movieCategory)
   }
+  return mediaLibraryRootsOverlap(sanitized.tvRoot, sanitized.moviesRoot)
+    ? { ...sanitized, mode: 'off', tvRoot: '', moviesRoot: '' }
+    : sanitized
 }
 
 function parsePersistedSettings(value: unknown): MediaPlacementSettings | null {
@@ -85,6 +88,9 @@ function parsePersistedSettings(value: unknown): MediaPlacementSettings | null {
     const path = typeof record[key] === 'string' ? record[key].trim() : ''
     if (path && !isAbsoluteMediaPath(path)) return null
   }
+  const tvRoot = typeof record.tvRoot === 'string' ? record.tvRoot.trim() : ''
+  const moviesRoot = typeof record.moviesRoot === 'string' ? record.moviesRoot.trim() : ''
+  if (mediaLibraryRootsOverlap(tvRoot, moviesRoot)) return null
   return sanitizeMediaPlacementSettings(record)
 }
 
@@ -118,8 +124,10 @@ export const useMediaPlacementStore = defineStore('media-placement', () => {
   const runtime = ref<RuntimeMediaPlacementConfig | null>(null)
   const runtimeSource = ref<RuntimeMediaConfigSource>('none')
   const warning = ref<string | null>(null)
+  const savedLoadError = ref<string | null>(null)
   const loaded = ref(false)
   const loading = ref(false)
+  const clientDataReady = ref(false)
   let activeLoad: Promise<void> | null = null
   let loadGeneration = 0
 
@@ -157,11 +165,12 @@ export const useMediaPlacementStore = defineStore('media-placement', () => {
     // A failed standalone resource is safe to keep Off, but it must not be
     // latched for the full browser session. Add and Settings call load again,
     // which provides a deterministic recovery path after a transient outage.
-    if (loaded.value && runtimeSource.value !== 'invalid') return
+    if (loaded.value && runtimeSource.value !== 'invalid' && !savedLoadError.value) return
     if (activeLoad) return activeLoad
     const generation = loadGeneration
     const task = (async () => {
       loading.value = true
+      savedLoadError.value = null
       try {
         const runtimeResult = await loadRuntimeMediaConfig()
         if (generation !== loadGeneration) return
@@ -195,13 +204,20 @@ export const useMediaPlacementStore = defineStore('media-placement', () => {
             hasSavedSettings.value = false
             savedFromLocalFallback.value = false
           }
+          clientDataReady.value = true
         } catch {
           // Once qBittorrent advertises per-session client data, an unscoped
-          // browser fallback is not reused across accounts.
+          // browser fallback is not reused across accounts. Keep writes blocked
+          // so a transient read failure cannot overwrite an unseen value.
           saved.value = { ...defaultMediaPlacementSettings }
           hasSavedSettings.value = false
           savedFromLocalFallback.value = false
+          clientDataReady.value = false
+          savedLoadError.value =
+            'Saved Media Placement settings could not be loaded from qBittorrent. Retry before changing them.'
         }
+      } else {
+        clientDataReady.value = false
       }
       if (generation !== loadGeneration) return
       loaded.value = true
@@ -214,10 +230,18 @@ export const useMediaPlacementStore = defineStore('media-placement', () => {
   }
 
   async function save(next: MediaPlacementSettings): Promise<void> {
+    if (mediaLibraryRootsOverlap(next.tvRoot.trim(), next.moviesRoot.trim())) {
+      throw new Error('TV and Movies roots must be separate, non-nested directories.')
+    }
     const sanitized = sanitizeMediaPlacementSettings(next)
     if (config.value.locked) return
     const generation = loadGeneration
     if (session.capabilities?.has('clientData')) {
+      if (!clientDataReady.value) {
+        throw new Error(
+          'Media Placement settings must load successfully before they can be changed.'
+        )
+      }
       await api.clientData.store({ [clientDataKey]: sanitized })
     }
     if (generation !== loadGeneration) return
@@ -254,8 +278,10 @@ export const useMediaPlacementStore = defineStore('media-placement', () => {
     runtime.value = null
     runtimeSource.value = 'none'
     warning.value = null
+    savedLoadError.value = null
     loaded.value = false
     loading.value = false
+    clientDataReady.value = false
     if (typeof localStorage !== 'undefined') {
       try {
         localStorage.removeItem(localStorageKey)
@@ -271,6 +297,7 @@ export const useMediaPlacementStore = defineStore('media-placement', () => {
     runtime,
     runtimeSource,
     warning,
+    savedLoadError,
     loaded,
     loading,
     load,

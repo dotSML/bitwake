@@ -149,6 +149,11 @@ describe('UI preference migrations', () => {
     expect(migrateUiPreferences({ detailTab: 'future-tab' }).detailTab).toBe('overview')
   })
 
+  it('accepts supported interface locales and rejects unknown locale values', () => {
+    expect(migrateUiPreferences({ locale: 'et' }).locale).toBe('et')
+    expect(migrateUiPreferences({ locale: 'future' }).locale).toBe('system')
+  })
+
   it('drops unknown keys and rejects malformed enum, boolean, sort, and interval values', () => {
     const migrated = migrateUiPreferences({
       schemaVersion: 999,

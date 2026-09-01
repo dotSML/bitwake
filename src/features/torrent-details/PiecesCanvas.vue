@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { formatNumber } from '@/utils/format'
 
 const props = defineProps<{ states: number[]; availability?: number[] }>()
 const canvas = ref<HTMLCanvasElement | null>(null)
@@ -40,7 +41,7 @@ function draw(requestedWidth?: number): void {
   const style = getComputedStyle(document.documentElement)
   const colors = {
     downloaded: `rgb(${style.getPropertyValue('--color-accent')})`,
-    downloading: `rgb(${style.getPropertyValue('--color-warning')})`,
+    downloading: `rgb(${style.getPropertyValue('--color-warning-foreground')})`,
     available: `rgb(${style.getPropertyValue('--color-line-strong')})`,
     unavailable: `rgb(${style.getPropertyValue('--color-danger')} / 0.35)`
   }
@@ -93,10 +94,9 @@ onBeforeUnmount(() => resizeObserver?.disconnect())
     </div>
     <canvas ref="canvas" aria-hidden="true" />
     <p class="piece-summary" role="status">
-      {{ states.length.toLocaleString() }} pieces:
-      {{ summary.downloaded.toLocaleString() }} downloaded,
-      {{ summary.downloading.toLocaleString() }} downloading,
-      {{ summary.missing.toLocaleString() }} remaining.
+      {{ formatNumber(states.length) }} pieces: {{ formatNumber(summary.downloaded) }} downloaded,
+      {{ formatNumber(summary.downloading) }} downloading, {{ formatNumber(summary.missing) }}
+      remaining.
     </p>
   </div>
 </template>
@@ -125,7 +125,7 @@ onBeforeUnmount(() => resizeObserver?.disconnect())
   background: rgb(var(--color-accent));
 }
 .active::before {
-  background: rgb(var(--color-warning));
+  background: rgb(var(--color-warning-foreground));
 }
 .available::before {
   background: rgb(var(--color-line-strong));

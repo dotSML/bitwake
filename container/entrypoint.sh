@@ -153,6 +153,72 @@ validate_optional_runtime_path() {
     [ -z "$1" ] || is_absolute_runtime_path "$1" || invalidate_media_configuration
 }
 
+# Return success when two already-validated roots are lexically equal or one is
+# a segment-aware descendant of the other. Windows drive and UNC paths compare
+# case-insensitively, matching the browser-side Media Placement parser.
+runtime_media_roots_overlap() {
+    [ -n "$1" ] && [ -n "$2" ] || return 1
+    printf '%s\n%s\n' "$1" "$2" | awk '
+        # Keep path_index distinct from the AWK built-in index() function. Some
+        # implementations reject a function parameter named "index" outright.
+        function parse_path(value, path_index, normalized, count, fields, field_number, part, prefix) {
+            normalized = value
+            prefix = substr(value, 1, 2)
+            if (substr(value, 2, 1) == ":" \
+                && (substr(value, 3, 1) == "/" || substr(value, 3, 1) == "\\")) {
+                style[path_index] = "windows"
+                root[path_index] = "drive:" tolower(substr(value, 1, 2))
+                gsub(/\\/, "/", normalized)
+                normalized = substr(normalized, 4)
+            } else if (prefix == "\\\\" \
+                || (prefix == "//" && length(value) > 2 && substr(value, 3, 1) != "/")) {
+                style[path_index] = "windows"
+                gsub(/\\/, "/", normalized)
+                sub(/^\/\//, "", normalized)
+                gsub(/\/+/, "/", normalized)
+                count = split(normalized, fields, "/")
+                root[path_index] = "unc:" tolower(fields[1] "/" fields[2])
+                normalized = ""
+                for (field_number = 3; field_number <= count; field_number += 1) {
+                    normalized = normalized (normalized == "" ? "" : "/") fields[field_number]
+                }
+            } else {
+                style[path_index] = "posix"
+                root[path_index] = "posix:/"
+                normalized = substr(normalized, 2)
+            }
+
+            count = split(normalized, fields, "/")
+            segment_count[path_index] = 0
+            for (field_number = 1; field_number <= count; field_number += 1) {
+                part = fields[field_number]
+                if (part == "" || part == ".") continue
+                if (part == "..") {
+                    if (segment_count[path_index] > 0) segment_count[path_index] -= 1
+                    continue
+                }
+                if (style[path_index] == "windows") part = tolower(part)
+                segment_count[path_index] += 1
+                segment[path_index, segment_count[path_index]] = part
+            }
+        }
+        function is_prefix(left, right, field_number) {
+            if (segment_count[left] > segment_count[right]) return 0
+            for (field_number = 1; field_number <= segment_count[left]; field_number += 1) {
+                if (segment[left, field_number] != segment[right, field_number]) return 0
+            }
+            return 1
+        }
+        { path[NR] = $0 }
+        END {
+            parse_path(path[1], 1)
+            parse_path(path[2], 2)
+            if (style[1] != style[2] || root[1] != root[2]) exit 1
+            exit (is_prefix(1, 2) || is_prefix(2, 1)) ? 0 : 1
+        }
+    '
+}
+
 json_escape() {
     # Control characters are rejected before this function is called. JSON's
     # remaining required string escapes are backslash and double quote.
@@ -206,6 +272,10 @@ validate_runtime_text "$NEOTORRENT_MOVIE_CATEGORY" NEOTORRENT_MOVIE_CATEGORY
 validate_optional_runtime_path "$NEOTORRENT_TV_ROOT"
 validate_optional_runtime_path "$NEOTORRENT_MOVIES_ROOT"
 validate_optional_runtime_path "$NEOTORRENT_MEDIA_BROWSE_ROOT"
+
+if runtime_media_roots_overlap "$NEOTORRENT_TV_ROOT" "$NEOTORRENT_MOVIES_ROOT"; then
+    invalidate_media_configuration
+fi
 
 if [ "$NEOTORRENT_MEDIA_MODE" = 'assist' ] \
     && [ "$NEOTORRENT_MEDIA_CONFIG_LOCKED" = 'true' ]; then

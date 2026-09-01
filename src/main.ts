@@ -6,10 +6,13 @@ import App from '@/app/App.vue'
 import { apiKey } from '@/app/providers/api'
 import { router } from '@/app/router'
 import { mockBackendEnabled } from '@/config/deployment'
-import { i18n } from '@/i18n'
+import { i18n, readBootstrapLocalePreference, setApplicationLocale } from '@/i18n'
+import { useOperationsHistoryStore } from '@/stores/operationsHistory'
+import { usePwaStore } from '@/stores/pwa'
 import '@/styles/main.css'
 
 async function bootstrap(): Promise<void> {
+  setApplicationLocale(readBootstrapLocalePreference())
   if (mockBackendEnabled) {
     const { worker } = await import('@/mocks/browser')
     await worker.start({
@@ -20,8 +23,12 @@ async function bootstrap(): Promise<void> {
 
   const app = createApp(App)
   const pinia = createPinia()
+  const operationsHistory = useOperationsHistoryStore(pinia)
+  const pwa = usePwaStore(pinia)
+  pwa.initialize()
   const api = createQbittorrentApi({
-    onAuthenticationExpired: () => window.dispatchEvent(new Event('neotorrent:auth-expired'))
+    onAuthenticationExpired: () => window.dispatchEvent(new Event('neotorrent:auth-expired')),
+    onOperation: operationsHistory.record
   })
   app.use(pinia)
   app.use(router)
@@ -32,12 +39,10 @@ async function bootstrap(): Promise<void> {
 
   const updateServiceWorker = registerSW({
     immediate: false,
-    onNeedRefresh() {
-      if (window.confirm('A new NeoTorrent version is available. Reload now?')) {
-        void updateServiceWorker(true)
-      }
-    }
+    onNeedRefresh: pwa.markUpdateAvailable,
+    onOfflineReady: pwa.markOfflineReady
   })
+  pwa.setUpdater(updateServiceWorker)
 }
 
 void bootstrap()

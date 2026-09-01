@@ -172,6 +172,15 @@ export function isPathInsideRoot(candidate: string, root: string): boolean {
   return isPathWithinRoot(candidate, root) && !isSameMediaPath(candidate, root)
 }
 
+/** True when two non-empty library roots are equal or one contains the other. */
+export function mediaLibraryRootsOverlap(tvRoot: string, moviesRoot: string): boolean {
+  return Boolean(
+    tvRoot &&
+    moviesRoot &&
+    (isPathWithinRoot(tvRoot, moviesRoot) || isPathWithinRoot(moviesRoot, tvRoot))
+  )
+}
+
 export function relativeMediaPath(candidate: string, root: string): string[] | null {
   if (!isPathWithinRoot(candidate, root)) return null
   const candidatePath = parseMediaPath(candidate)

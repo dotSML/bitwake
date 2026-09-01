@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Plus } from 'lucide-vue-next'
-import { computed, defineAsyncComponent, ref, type Component } from 'vue'
+import { computed, defineAsyncComponent, nextTick, ref, watch, type Component } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 import AppSidebar from './AppSidebar.vue'
@@ -8,6 +8,7 @@ import ConnectionBanner from './ConnectionBanner.vue'
 import MobileBottomNav from './MobileBottomNav.vue'
 import { usePreferencesStore } from '@/stores/preferences'
 import ToastRegion from '@/ui/components/ToastRegion.vue'
+import PwaUpdateBanner from '@/ui/components/PwaUpdateBanner.vue'
 import { MOBILE_MEDIA_QUERY, useMediaQuery } from '@/ui/composables/useMediaQuery'
 import { useWindowPointerDrag } from '@/ui/composables/useWindowPointerDrag'
 
@@ -22,8 +23,15 @@ const { t } = useI18n()
 const isMobile = useMediaQuery(MOBILE_MEDIA_QUERY)
 const sidebarDrag = useWindowPointerDrag()
 const addOpen = ref(false)
+const mainElement = ref<HTMLElement | null>(null)
+const routeAnnouncement = ref('')
 const pendingFiles = ref<File[]>([])
-const routeTitle = computed(() => String(route.meta.title ?? t('app.name')))
+const routeTitle = computed(() => t(String(route.meta.titleKey ?? 'app.name')))
+const focusRouteKey = computed(() =>
+  route.name === 'torrent-detail'
+    ? `${String(route.name)}:${String(route.params.hash ?? '')}`
+    : route.fullPath
+)
 
 function openAddTorrent(files?: File[]): void {
   pendingFiles.value = files ? [...files] : []
@@ -53,9 +61,30 @@ function resizeSidebarWithKeyboard(event: KeyboardEvent): void {
   else if (event.key === 'End') setSidebarWidth(380)
   else setSidebarWidth(preferences.value.sidebarWidth + (event.key === 'ArrowRight' ? 10 : -10))
 }
+
+function focusMain(): void {
+  // Hash history owns location.hash, so the skip link must move focus without
+  // navigating to a fragment that the router would interpret as a route.
+  mainElement.value?.focus({ preventScroll: false })
+}
+
+watch(
+  [focusRouteKey, routeTitle],
+  async () => {
+    await nextTick()
+    const title = routeTitle.value
+    document.title = `${title} · ${t('app.name')}`
+    routeAnnouncement.value = title
+    mainElement.value?.focus({ preventScroll: true })
+  },
+  { immediate: true }
+)
 </script>
 
 <template>
+  <a class="skip-link" href="#main-content" @click.prevent="focusMain">{{
+    t('a11y.skipToMain')
+  }}</a>
   <div
     class="app-shell"
     :class="{ 'detail-route': route.name === 'torrent-detail' }"
@@ -93,7 +122,9 @@ function resizeSidebarWithKeyboard(event: KeyboardEvent): void {
         </button>
       </header>
       <ConnectionBanner />
-      <main class="route-content"><RouterView @add-torrent="openAddTorrent" /></main>
+      <main id="main-content" ref="mainElement" class="route-content" tabindex="-1">
+        <RouterView @add-torrent="openAddTorrent" />
+      </main>
     </div>
     <MobileBottomNav v-if="isMobile" />
     <AddTorrentDialog
@@ -103,6 +134,10 @@ function resizeSidebarWithKeyboard(event: KeyboardEvent): void {
       @update:open="updateAddOpen"
     />
     <ToastRegion />
+    <PwaUpdateBanner />
+    <p class="sr-only" role="status" aria-live="polite" aria-atomic="true">
+      {{ routeAnnouncement }}
+    </p>
   </div>
 </template>
 
@@ -113,6 +148,20 @@ function resizeSidebarWithKeyboard(event: KeyboardEvent): void {
   height: 100%;
   background: rgb(var(--color-canvas));
 }
+.skip-link {
+  position: fixed;
+  z-index: 200;
+  top: 8px;
+  left: 8px;
+  transform: translateY(-160%);
+  border-radius: 8px;
+  background: rgb(var(--color-surface-raised));
+  color: rgb(var(--color-ink));
+  padding: 9px 12px;
+}
+.skip-link:focus {
+  transform: translateY(0);
+}
 .shell-workspace {
   display: flex;
   min-width: 0;
@@ -121,22 +170,40 @@ function resizeSidebarWithKeyboard(event: KeyboardEvent): void {
   flex-direction: column;
 }
 .sidebar-resizer {
+  position: relative;
   z-index: 4;
-  width: 5px;
-  margin-right: -5px;
+  width: 24px;
+  margin-right: -12px;
+  margin-left: -12px;
   flex: 0 0 auto;
   cursor: col-resize;
   touch-action: none;
 }
+.sidebar-resizer::after {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 11px;
+  width: 2px;
+  background: transparent;
+  content: '';
+}
 .sidebar-resizer:hover,
 .sidebar-resizer:focus-visible {
-  background: rgb(var(--color-accent) / 0.42);
+  outline-offset: -2px;
+}
+.sidebar-resizer:hover::after,
+.sidebar-resizer:focus-visible::after {
+  background: rgb(var(--color-accent) / 0.55);
 }
 .route-content {
   min-width: 0;
   min-height: 0;
   flex: 1;
   overflow: hidden;
+}
+.route-content:focus {
+  outline: none;
 }
 .mobile-header {
   display: none;
