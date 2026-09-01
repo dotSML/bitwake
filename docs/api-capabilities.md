@@ -44,7 +44,7 @@ The API client never hardcodes scheme, host, port, reverse-proxy prefix, credent
 
 ### Status caveat
 
-The HTTP core can define accepted statuses and an endpoint-specific `treatForbiddenAsAuthExpiry` flag. Login disables 403-as-expiry so the UI can show a temporary-ban/forbidden state. For other routes, a 403 body recognized as a Host, Origin, Referer, or CSRF validation failure remains a forbidden error and does not trigger the expiry callback. Other 403 responses and all 401 responses are treated as authentication expiry. The text-marker distinction is tested but may not recognize every proxy or future qBittorrent wording.
+The HTTP core can define accepted statuses and suppress the authentication-expiry callback for startup/login probes. For ordinary routes, a 403 body recognized as a Host, Origin, Referer, or CSRF validation failure remains a forbidden error and does not trigger the expiry callback. Other 403 responses and all 401 responses are treated as authentication expiry. The text-marker distinction is tested but may not recognize every proxy or future qBittorrent wording.
 
 ### Validation caveat
 
@@ -54,30 +54,32 @@ TypeScript models and initial Zod schemas exist, but endpoint modules generally 
 
 ### Authentication
 
-| Route         | Method/body                       | Client | UI  | Notes                                                             |
-| ------------- | --------------------------------- | ------ | --- | ----------------------------------------------------------------- |
-| `auth/login`  | POST form: `username`, `password` | Yes    | Yes | Public entry; password ref cleared; success reloads in production |
-| `auth/logout` | POST                              | Yes    | Yes | Clears local private state in `finally`, then reloads             |
+| Route         | Method/body                       | Client | UI  | Notes                                                                  |
+| ------------- | --------------------------------- | ------ | --- | ---------------------------------------------------------------------- |
+| `auth/login`  | POST form: `username`, `password` | Yes    | Yes | Password ref cleared; standalone routes in place, native mode reloads  |
+| `auth/logout` | POST                              | Yes    | Yes | Clears local private state; standalone routes in place, native reloads |
 
 Authentication-bypass detection is indirect: successful protected startup requests establish access. Application code does not inspect qBittorrent's cookie.
 
 ### Application and daemon
 
-| Route                             | Method/body                      | Client | UI               | Notes                                                                       |
-| --------------------------------- | -------------------------------- | ------ | ---------------- | --------------------------------------------------------------------------- |
-| `app/version`                     | GET text                         | Yes    | Startup/About    | Builds the capability registry                                              |
-| `app/webapiVersion`               | GET text                         | Yes    | Startup/About    | Pinned target 2.15.1                                                        |
-| `app/buildInfo`                   | GET JSON                         | Yes    | About/Statistics | Build fields are platform-variable                                          |
-| `app/processInfo`                 | GET JSON                         | Yes    | Statistics       | Gated at API 2.15.1                                                         |
-| `app/preferences`                 | GET JSON                         | Yes    | Settings         | Loaded on route; sensitive-looking keys are excluded from the draft/display |
-| `app/setPreferences`              | POST form: JSON string in `json` | Yes    | Settings         | Sends only known changed fields                                             |
-| `app/defaultSavePath`             | GET text                         | Yes    | No               | Wrapper only                                                                |
-| `app/getDirectoryContent`         | GET query                        | Yes    | No               | Wrapper only; host paths, not browser paths                                 |
-| `app/networkInterfaceList`        | GET JSON                         | Yes    | No               | Wrapper only                                                                |
-| `app/networkInterfaceAddressList` | GET `iface`                      | Yes    | No               | Wrapper only                                                                |
-| `app/cookies`                     | GET JSON                         | Yes    | No               | These are qBittorrent RSS/download cookies, not the browser session cookie  |
-| `app/setCookies`                  | POST JSON string in `cookies`    | Yes    | No               | Wrapper only                                                                |
-| `app/shutdown`                    | POST                             | Yes    | Yes              | More/Connection action with an explicit confirmation                        |
+| Route                             | Method/body                           | Client | UI               | Notes                                                                        |
+| --------------------------------- | ------------------------------------- | ------ | ---------------- | ---------------------------------------------------------------------------- |
+| `app/version`                     | GET text                              | Yes    | Startup/About    | Builds the capability registry                                               |
+| `app/webapiVersion`               | GET text                              | Yes    | Startup/About    | Pinned target 2.15.1                                                         |
+| `app/buildInfo`                   | GET JSON                              | Yes    | About/Statistics | Build fields are platform-variable                                           |
+| `app/processInfo`                 | GET JSON                              | Yes    | Statistics       | Gated at API 2.15.1                                                          |
+| `app/preferences`                 | GET JSON                              | Yes    | Settings         | Loaded on route; sensitive-looking keys are excluded from the draft/display  |
+| `app/setPreferences`              | POST form: JSON string in `json`      | Yes    | Settings         | Sends only known changed fields                                              |
+| `app/defaultSavePath`             | GET text                              | Yes    | Set-location     | Initial host path when the selected torrents have no common path             |
+| `app/getDirectoryContent`         | GET `dirPath`, `mode`, `withMetadata` | Yes    | Set-location     | Abortable existing-directory browser; typed absolute destinations may be new |
+| `app/networkInterfaceList`        | GET JSON                              | Yes    | Settings         | Dynamic validated interface choices; empty value means Any interface         |
+| `app/networkInterfaceAddressList` | GET `iface`                           | Yes    | Settings         | Coupled address choices plus all/IPv4/IPv6 sentinels                         |
+| `app/cookies`                     | GET JSON                              | Yes    | No               | These are qBittorrent RSS/download cookies, not the browser session cookie   |
+| `app/setCookies`                  | POST JSON string in `cookies`         | Yes    | No               | Wrapper only                                                                 |
+| `app/shutdown`                    | POST                                  | Yes    | Yes              | More/Connection action with an explicit confirmation                         |
+
+The curated settings model now includes verified 5.2.3 download defaults (`torrent_content_layout`, queue-top, stopped/stop-condition, duplicate tracker merge, category/manual paths, `.unwanted`), metadata export paths, IP filtering, the global share-limit action, and coupled network interface/address binding. Enum names, integer actions, sentinels, dependencies, and destructive confirmations are modeled explicitly; unknown preference keys remain read-only.
 
 ### Synchronization
 
@@ -114,25 +116,43 @@ The main-data store handles torrent additions/changes/removals, category updates
 
 ### Torrent actions and metadata
 
-All multi-torrent hash lists are pipe-separated; the special literal `all` is preserved.
+Multi-torrent hash lists are pipe-separated. The literal `all` is preserved only for handlers that use qBittorrent's `applyToTorrents` path; target 5.2.3 queue-priority handlers silently ignore it, so those wrappers require explicit hash arrays.
 
-| Route/group                                             | Client | UI             | Current limitation                                        |
-| ------------------------------------------------------- | ------ | -------------- | --------------------------------------------------------- |
-| `torrents/start`, `stop`                                | Yes    | Yes            | Pinned qB 5 operations; no legacy fallback                |
-| `torrents/delete`                                       | Yes    | Yes            | Destructive dialog distinguishes metadata-only vs files   |
-| `recheck`, `reannounce`, `setForceStart`                | Yes    | Yes            | Contextual toolbar                                        |
-| `toggleSequentialDownload`, `toggleFirstLastPiecePrio`  | Yes    | Yes            | Contextual toolbar                                        |
-| `increasePrio`, `decreasePrio`, `topPrio`, `bottomPrio` | Yes    | No             | Wrapper only                                              |
-| `setAutoManagement`, `setSuperSeeding`                  | Yes    | No after add   | Wrapper only                                              |
-| `setDownloadLimit`, `setUploadLimit`, `setShareLimits`  | Yes    | No per torrent | Wrapper only                                              |
-| `setComment`, `setLocation`, `rename`                   | Yes    | No             | Wrapper only                                              |
-| `setCategory`, `addTags`, `removeTags`                  | Yes    | Yes            | Desktop/mobile selection action menu                      |
-| `addTrackers`, `editTracker`, `removeTrackers`          | Yes    | Yes            | Tier reordering/editor is absent; native prompts are used |
-| `addWebSeeds`, `editWebSeed`, `removeWebSeeds`          | Yes    | Add/remove     | Edit wrapper has no UI                                    |
-| `addPeers`                                              | Yes    | No             | Wrapper only                                              |
-| `filePrio`                                              | Yes    | Yes            | Multi-select files/folders; no rename UI                  |
-| `renameFile`, `renameFolder`                            | Yes    | No             | Wrapper only                                              |
-| `torrents/export`                                       | Yes    | No             | Capability registered; no download action                 |
+| Route/group                                             | Client | UI  | Current limitation                                           |
+| ------------------------------------------------------- | ------ | --- | ------------------------------------------------------------ |
+| `torrents/start`, `stop`                                | Yes    | Yes | Pinned qB 5 operations; no legacy fallback                   |
+| `torrents/delete`                                       | Yes    | Yes | Destructive dialog distinguishes metadata-only vs files      |
+| `recheck`, `reannounce`, `setForceStart`                | Yes    | Yes | Contextual toolbar                                           |
+| `toggleSequentialDownload`, `toggleFirstLastPiecePrio`  | Yes    | Yes | Contextual toolbar                                           |
+| `increasePrio`, `decreasePrio`, `topPrio`, `bottomPrio` | Yes    | Yes | Explicit selected hashes; 409 when queueing is disabled      |
+| `setAutoManagement`, `setSuperSeeding`                  | Yes    | Yes | Explicit enable/disable actions for single or bulk selection |
+| `setDownloadLimit`, `setUploadLimit`, `setShareLimits`  | Yes    | Yes | Per-torrent dialogs preserve bytes/s and share sentinels     |
+| `setComment`, `setLocation`, `rename`                   | Yes    | Yes | Shared guarded dialogs; location accepts active downloads    |
+| `setCategory`, `addTags`, `removeTags`                  | Yes    | Yes | Desktop/mobile selection action menu                         |
+| `addTrackers`, `editTracker`, `removeTrackers`          | Yes    | Yes | Accessible dialogs; tier reordering/editor is absent         |
+| `addWebSeeds`, `editWebSeed`, `removeWebSeeds`          | Yes    | Yes | Accessible add/edit/remove dialogs                           |
+| `addPeers`                                              | Yes    | No  | Wrapper only                                                 |
+| `filePrio`                                              | Yes    | Yes | Multi-select files/folders; no rename UI                     |
+| `renameFile`, `renameFolder`                            | Yes    | No  | Wrapper only                                                 |
+| `torrents/export`                                       | Yes    | Yes | Single-torrent metadata download; not content download       |
+
+#### Exact round-2 torrent-operation contracts
+
+All mutating requests below are UTF-8 URL-encoded forms. `hashes` is one hash, a pipe-separated list, or the literal `all` only where the scope column permits it; `URLSearchParams` percent-encodes the separators on the wire. Missing required parameters return 400. Generic 401/403 responses remain authentication or proxy-policy failures rather than endpoint-specific operation results. Unless a row says otherwise, invalid or nonexistent hashes are ignored by qBittorrent's multi-torrent iterator.
+
+| Operation                | Exact target request and values                                                                                                                                                                                                                                                                                                                  | Target success and endpoint errors                                                                 | Minimum API / scope                                                                                                              |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| Set location             | `POST torrents/setLocation`; form `hashes`, `location`; qBittorrent trims the host path, attempts to create it, disables Auto TMM, and starts the save-path change                                                                                                                                                                               | 200 accepts the possibly asynchronous move; 400 empty/missing path; 409 directory creation failure | 2.0.0; single, multiple, `all`                                                                                                   |
+| Rename torrent           | `POST torrents/rename`; form single `hash`, `name`; name is trimmed and CR/LF become spaces                                                                                                                                                                                                                                                      | 200; 400 missing parameter; 404 torrent absent; 409 trimmed name empty                             | 2.0.0; single only                                                                                                               |
+| Queue position           | `POST torrents/increasePrio`, `decreasePrio`, `topPrio`, or `bottomPrio`; form `hashes`                                                                                                                                                                                                                                                          | 200; 409 queueing disabled                                                                         | 2.0.0; single/multiple; target 5.2.3 treats literal `all` as an invalid ID and returns a 200 no-op, so NeoTorrent never sends it |
+| Per-torrent rate limits  | `POST torrents/setDownloadLimit` or `setUploadLimit`; form `hashes`, integer `limit` in bytes/s; 0 is unlimited                                                                                                                                                                                                                                  | 200                                                                                                | 2.0.0; single, multiple, `all`                                                                                                   |
+| Per-torrent share limits | `POST torrents/setShareLimits`; form `hashes`, `ratioLimit`, `seedingTimeLimit`, `inactiveSeedingTimeLimit`, `shareLimitAction`; times are minutes; numeric `-2` inherits and `-1` is unlimited; action is `Default`, `Stop`, `Remove`, `RemoveWithContent`, or `EnableSuperSeeding`; `Default` may inherit a destructive category/global action | 200; every listed target field is required                                                         | 2.12.0 for the exact target form; inactive time arrived in 2.9.2; single, multiple, `all`                                        |
+| Automatic management     | `POST torrents/setAutoManagement`; form `hashes`, boolean `enable`                                                                                                                                                                                                                                                                               | 200                                                                                                | 2.0.0; single, multiple, `all`                                                                                                   |
+| Super seeding            | `POST torrents/setSuperSeeding`; form `hashes`, boolean `value`                                                                                                                                                                                                                                                                                  | 200                                                                                                | 2.0.0; single, multiple, `all`                                                                                                   |
+| Comment                  | `POST torrents/setComment`; form `hashes`, `comment`; qBittorrent trims it and empty clears                                                                                                                                                                                                                                                      | 204                                                                                                | 2.12.1; single, multiple, `all`                                                                                                  |
+| Export metadata          | Canonical `GET torrents/export`; query `hash`; binary `application/x-bittorrent` response                                                                                                                                                                                                                                                        | 200; 400 missing hash; 404 torrent absent; 409 export failure                                      | 2.8.11; single only                                                                                                              |
+
+The target source differs from parts of the generic wiki: queue priority does not implement the documented `all` behavior; `setLocation` uses 409 for directory creation rather than the wiki's old endpoint-specific 403 and can create a missing path; rename has 404/409 results; and the 5.2.3 share-limit form requires `shareLimitAction`.
 
 ### Torrent addition
 
@@ -156,7 +176,7 @@ The parser handles both legacy text (`Ok.`) and detailed objects containing `suc
 | `torrents/createTags`       | Yes    | Yes | Collection management        |
 | `torrents/deleteTags`       | Yes    | Yes | Collection management        |
 
-Category share-limit fields and category assignment to selected torrents are not exposed in the UI.
+Category assignment to selected torrents is exposed in the shared action menu. Category share-limit fields and category editing remain absent.
 
 ### Search
 
@@ -167,7 +187,7 @@ Category share-limit fields and category assignment to selected torrents are not
 | `search/stop` / `delete`    | Yes    | Yes | Job controls                          |
 | `search/downloadTorrent`    | Yes    | Yes | Sends result to qBittorrent           |
 | `search/plugins`            | Yes    | Yes | Loads installed plugins               |
-| `search/installPlugin`      | Yes    | Yes | Native prompt for URL/host path       |
+| `search/installPlugin`      | Yes    | Yes | Validated dialog for URL/host path    |
 | `search/enablePlugin`       | Yes    | Yes | Toggle                                |
 | `search/updatePlugins`      | Yes    | Yes | Update all                            |
 | `search/uninstallPlugin`    | Yes    | No  | Wrapper only                          |
@@ -221,22 +241,24 @@ Client data is used only for versioned NeoTorrent interface preferences. Local s
 
 The current registry defines these positive thresholds:
 
-| Capability               | Minimum                 | Current consumer/status                                              |
-| ------------------------ | ----------------------- | -------------------------------------------------------------------- |
-| `startStop`              | qB 5.0.0 and API 2.11.2 | Defined; toolbar does not explicitly query it                        |
-| `clientData`             | API 2.13.1              | Preference store                                                     |
-| `detailedAddResults`     | API 2.14.0              | Defined; tolerant parser is used without explicit gate               |
-| `torrentMetadataPreview` | API 2.11.9              | Defined; no client/UI implementation                                 |
-| `pieceAvailability`      | API 2.15.1              | Pieces tab                                                           |
-| `peerHostnames`          | API 2.15.1              | Defined; response field displayed when present without explicit gate |
-| `categoryShareLimits`    | API 2.11.6              | Defined; no UI                                                       |
-| `editableTrackerTiers`   | API 2.13.0              | Defined; no tier editor                                              |
-| `webSeedManagement`      | API 2.11.4              | Web Seeds controls                                                   |
-| `torrentCreator`         | API 2.11.2              | Registry defined; route visibility is not consistently gated         |
-| `apiKeyManagement`       | API 2.14.1              | Defined; no client/UI                                                |
-| `rssSmartEpisodeFilters` | API 2.11.2              | Defined; RSS editor does not explicitly query it                     |
-| `processInfo`            | API 2.15.1              | Statistics uptime                                                    |
-| `exportTorrent`          | API 2.11.2              | Wrapper exists; no UI                                                |
+| Capability                | Minimum                 | Current consumer/status                                              |
+| ------------------------- | ----------------------- | -------------------------------------------------------------------- |
+| `startStop`               | qB 5.0.0 and API 2.11.2 | Defined; toolbar does not explicitly query it                        |
+| `clientData`              | API 2.13.1              | Preference store                                                     |
+| `detailedAddResults`      | API 2.14.0              | Defined; tolerant parser is used without explicit gate               |
+| `torrentMetadataPreview`  | API 2.11.9              | Defined; no client/UI implementation                                 |
+| `pieceAvailability`       | API 2.15.1              | Pieces tab                                                           |
+| `peerHostnames`           | API 2.15.1              | Defined; response field displayed when present without explicit gate |
+| `categoryShareLimits`     | API 2.11.6              | Defined; no UI                                                       |
+| `editableTrackerTiers`    | API 2.13.0              | Defined; no tier editor                                              |
+| `webSeedManagement`       | API 2.11.4              | Web Seeds controls                                                   |
+| `torrentCreator`          | API 2.11.2              | Registry defined; route visibility is not consistently gated         |
+| `apiKeyManagement`        | API 2.14.1              | Defined; no client/UI                                                |
+| `rssSmartEpisodeFilters`  | API 2.11.2              | Defined; RSS editor does not explicitly query it                     |
+| `processInfo`             | API 2.15.1              | Statistics uptime                                                    |
+| `exportTorrent`           | API 2.8.11              | Single-torrent action-menu download                                  |
+| `torrentShareLimitAction` | API 2.12.0              | Gates the target-complete per-torrent share dialog                   |
+| `torrentComment`          | API 2.12.1              | Gates the edit-comment action                                        |
 
 Raw version comparisons should not be added to components. A capability that depends on more than a version number may need an endpoint probe or additional context, but it must fail closed rather than infer support.
 

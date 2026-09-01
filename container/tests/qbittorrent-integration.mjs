@@ -165,8 +165,10 @@ function latestTemporaryPassword() {
 const fixtureDirectory = mkdtempSync(join(tmpdir(), 'neotorrent-qbit-fixtures-'))
 const contentA = Buffer.from('NeoTorrent legal local integration fixture A\n')
 const contentB = Buffer.from('NeoTorrent legal local integration fixture B\n')
+const contentC = Buffer.from('NeoTorrent legal local active-download fixture\n')
 const torrentA = createTorrent('neotorrent-keep-content.txt', contentA)
 const torrentB = createTorrent('neotorrent-delete-content.txt', contentB)
+const torrentC = createTorrent('neotorrent-active-location.txt', contentC)
 installLegalContent(fixtureDirectory, torrentA, contentA)
 installLegalContent(fixtureDirectory, torrentB, contentB)
 
@@ -365,6 +367,28 @@ try {
     'deleteFiles=false removed the legal test content'
   )
 
+  await addTorrent(page, torrentC)
+  await form(page, 'torrents/start', { hashes: torrentC.hash })
+  await waitFor('the location fixture to enter an active download state', async () => {
+    const info = await torrentInfo(page, torrentC.hash)
+    return ['downloading', 'stalledDL', 'forcedDL', 'metaDL'].includes(info?.state) ? info : false
+  })
+  const activeLocation = '/downloads/active-location'
+  await form(page, 'torrents/setLocation', {
+    hashes: torrentC.hash,
+    location: activeLocation
+  })
+  await waitFor('active-download save-location update', async () => {
+    const info = await torrentInfo(page, torrentC.hash)
+    return info?.save_path?.replace(/\/+$/u, '') === activeLocation && info.auto_tmm === false
+  })
+  await form(page, 'torrents/stop', { hashes: torrentC.hash })
+  await form(page, 'torrents/delete', { hashes: torrentC.hash, deleteFiles: true })
+  await waitFor(
+    'active-location fixture cleanup',
+    async () => !(await torrentInfo(page, torrentC.hash))
+  )
+
   await addTorrent(page, torrentB)
   await page
     .getByRole('grid', { name: 'Torrents' })
@@ -439,6 +463,7 @@ try {
           'add multipart torrent through incremental maindata rendering',
           'start',
           'stop',
+          'set location while downloading',
           'rename',
           'category assignment',
           'tag assignment',

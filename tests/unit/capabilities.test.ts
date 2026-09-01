@@ -66,6 +66,12 @@ describe('capability registry', () => {
     expect(createCapabilityRegistry('5.0.0', '2.11.1').has('startStop')).toBe(false)
     expect(createCapabilityRegistry('5.2.3', '2.14.0').has('detailedAddResults')).toBe(true)
     expect(createCapabilityRegistry('5.2.3', '2.13.9').has('detailedAddResults')).toBe(false)
+    expect(createCapabilityRegistry('5.2.3', '2.8.11').has('exportTorrent')).toBe(true)
+    expect(createCapabilityRegistry('5.2.3', '2.8.10').has('exportTorrent')).toBe(false)
+    expect(createCapabilityRegistry('5.2.3', '2.12.0').has('torrentShareLimitAction')).toBe(true)
+    expect(createCapabilityRegistry('5.2.3', '2.11.9').has('torrentShareLimitAction')).toBe(false)
+    expect(createCapabilityRegistry('5.2.3', '2.12.1').has('torrentComment')).toBe(true)
+    expect(createCapabilityRegistry('5.2.3', '2.12.0').has('torrentComment')).toBe(false)
   })
 
   it('provides a discoverable explanation for unavailable functionality', () => {

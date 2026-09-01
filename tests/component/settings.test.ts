@@ -218,4 +218,192 @@ describe('SettingsView', () => {
     expect(confirm).toHaveBeenCalledWith(expect.stringContaining('Host command warning'))
     expect(save).not.toHaveBeenCalled()
   })
+
+  it('saves verified download defaults and keeps the superseded stop condition disabled', async () => {
+    const context = createTestContext()
+    vi.spyOn(context.api.app, 'preferences').mockResolvedValue({
+      ...validPreferences(),
+      torrent_content_layout: 'Original',
+      add_stopped_enabled: false,
+      torrent_stop_condition: 'None',
+      export_dir_fin: ''
+    })
+    const save = vi.spyOn(context.api.app, 'setPreferences').mockResolvedValue()
+    const wrapper = await mountWithContext(SettingsView, context)
+    await flushPromises()
+
+    await wrapper.get('#setting-torrent_content_layout').setValue('Subfolder')
+    await wrapper.get('#setting-add_stopped_enabled').setValue(true)
+    expect(wrapper.get<HTMLSelectElement>('#setting-torrent_stop_condition').element.disabled).toBe(
+      true
+    )
+    await wrapper.get('#setting-export_dir_fin').setValue('/config/export/finished')
+    await wrapper.get('.route-header > button').trigger('click')
+    await flushPromises()
+
+    expect(save).toHaveBeenCalledWith({
+      torrent_content_layout: 'Subfolder',
+      add_stopped_enabled: true,
+      export_dir_fin: '/config/export/finished'
+    })
+  })
+
+  it('uses daemon-provided interface and address choices and resets the coupled address', async () => {
+    const context = createTestContext()
+    vi.spyOn(context.api.app, 'preferences').mockResolvedValue({
+      ...validPreferences(),
+      current_network_interface: 'eth0',
+      current_interface_address: '192.0.2.10'
+    })
+    vi.spyOn(context.api.app, 'networkInterfaceList').mockResolvedValue([
+      { name: 'Ethernet', value: 'eth0' },
+      { name: 'WireGuard', value: 'wg0' }
+    ])
+    const addresses = vi
+      .spyOn(context.api.app, 'networkInterfaceAddressList')
+      .mockImplementation((iface) =>
+        Promise.resolve(iface === 'wg0' ? ['10.8.0.2'] : ['192.0.2.10', '2001:db8::10'])
+      )
+    const save = vi.spyOn(context.api.app, 'setPreferences').mockResolvedValue()
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    const wrapper = await mountWithContext(SettingsView, context)
+    await flushPromises()
+
+    const connection = wrapper
+      .findAll<HTMLButtonElement>('.settings-nav > button')
+      .find((button) => button.text() === 'Connection')
+    await connection!.trigger('click')
+    expect(wrapper.get('#setting-current_network_interface').text()).toContain('WireGuard')
+
+    await wrapper.get('#setting-current_network_interface').setValue('wg0')
+    await flushPromises()
+    expect(addresses).toHaveBeenLastCalledWith('wg0')
+    expect(wrapper.get<HTMLSelectElement>('#setting-current_interface_address').element.value).toBe(
+      ''
+    )
+    expect(wrapper.get('#setting-current_interface_address').text()).toContain('10.8.0.2')
+    await wrapper.get('#setting-current_interface_address').setValue('10.8.0.2')
+    await wrapper.get('.route-header > button').trigger('click')
+    await flushPromises()
+
+    expect(save).toHaveBeenCalledWith({
+      current_network_interface: 'wg0',
+      current_interface_address: '10.8.0.2'
+    })
+  })
+
+  it('enables an IP filter path only with filtering and sends the exact host path', async () => {
+    const context = createTestContext()
+    vi.spyOn(context.api.app, 'preferences').mockResolvedValue({
+      ...validPreferences(),
+      ip_filter_enabled: false,
+      ip_filter_path: '',
+      ip_filter_trackers: false
+    })
+    const save = vi.spyOn(context.api.app, 'setPreferences').mockResolvedValue()
+    const wrapper = await mountWithContext(SettingsView, context)
+    await flushPromises()
+
+    const connection = wrapper
+      .findAll<HTMLButtonElement>('.settings-nav > button')
+      .find((button) => button.text() === 'Connection')
+    await connection!.trigger('click')
+    expect(wrapper.get<HTMLInputElement>('#setting-ip_filter_path').element.disabled).toBe(true)
+    await wrapper.get('#setting-ip_filter_enabled').setValue(true)
+    await wrapper.get('#setting-ip_filter_path').setValue('/config/ipfilter.p2p')
+    await wrapper.get('.route-header > button').trigger('click')
+    await flushPromises()
+
+    expect(save).toHaveBeenCalledWith({
+      ip_filter_enabled: true,
+      ip_filter_path: '/config/ipfilter.p2p'
+    })
+  })
+
+  it('requires confirmation before a global share limit can delete torrent content', async () => {
+    const context = createTestContext()
+    vi.spyOn(context.api.app, 'preferences').mockResolvedValue({
+      ...validPreferences(),
+      max_ratio_enabled: true,
+      max_ratio: 2,
+      max_ratio_act: 0
+    })
+    const save = vi.spyOn(context.api.app, 'setPreferences').mockResolvedValue()
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    const wrapper = await mountWithContext(SettingsView, context)
+    await flushPromises()
+
+    const bittorrent = wrapper
+      .findAll<HTMLButtonElement>('.settings-nav > button')
+      .find((button) => button.text() === 'BitTorrent')
+    await bittorrent!.trigger('click')
+    await wrapper.get('#setting-max_ratio_act').setValue('3')
+    await wrapper.get('.route-header > button').trigger('click')
+    await flushPromises()
+
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining('delete its content files'))
+    expect(save).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    { action: 1, warning: 'remove the torrent from qBittorrent' },
+    { action: 3, warning: 'delete its content files' }
+  ])(
+    'requires confirmation before enabling a limit activates latent share action $action',
+    async ({ action, warning }) => {
+      const context = createTestContext()
+      vi.spyOn(context.api.app, 'preferences').mockResolvedValue({
+        ...validPreferences(),
+        max_ratio_enabled: false,
+        max_ratio: -1,
+        max_ratio_act: action
+      })
+      const save = vi.spyOn(context.api.app, 'setPreferences').mockResolvedValue()
+      const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+      const wrapper = await mountWithContext(SettingsView, context)
+      await flushPromises()
+
+      const bittorrent = wrapper
+        .findAll<HTMLButtonElement>('.settings-nav > button')
+        .find((button) => button.text() === 'BitTorrent')
+      await bittorrent!.trigger('click')
+      await wrapper.get('#setting-max_ratio_enabled').setValue(true)
+      await wrapper.get('.route-header > button').trigger('click')
+      await flushPromises()
+
+      expect(confirm).toHaveBeenCalledWith(expect.stringContaining(warning))
+      expect(save).not.toHaveBeenCalled()
+    }
+  )
+
+  it.each([
+    { action: 1, warning: 'remove the torrent from qBittorrent' },
+    { action: 3, warning: 'delete its content files' }
+  ])(
+    'requires confirmation before editing an active limit under share action $action',
+    async ({ action, warning }) => {
+      const context = createTestContext()
+      vi.spyOn(context.api.app, 'preferences').mockResolvedValue({
+        ...validPreferences(),
+        max_ratio_enabled: true,
+        max_ratio: 5,
+        max_ratio_act: action
+      })
+      const save = vi.spyOn(context.api.app, 'setPreferences').mockResolvedValue()
+      const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+      const wrapper = await mountWithContext(SettingsView, context)
+      await flushPromises()
+
+      const bittorrent = wrapper
+        .findAll<HTMLButtonElement>('.settings-nav > button')
+        .find((button) => button.text() === 'BitTorrent')
+      await bittorrent!.trigger('click')
+      await wrapper.get('#setting-max_ratio').setValue('2')
+      await wrapper.get('.route-header > button').trigger('click')
+      await flushPromises()
+
+      expect(confirm).toHaveBeenCalledWith(expect.stringContaining(warning))
+      expect(save).not.toHaveBeenCalled()
+    }
+  )
 })

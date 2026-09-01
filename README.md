@@ -2,16 +2,18 @@
 
 NeoTorrent is a Vue 3 WebUI for qBittorrent. It is built around a dense desktop torrent table, compact mobile rows, and direct access to qBittorrent's `/api/v2` Web API. It can be delivered either as a standalone, same-origin reverse-proxy container or as a native qBittorrent Alternative WebUI package with the `public/` and `private/` roots expected by qBittorrent.
 
-The pinned compatibility target is **qBittorrent 5.2.3 / Web API 2.15.1**. qBittorrent 5.0 and later are a best-effort compatibility range through version and capability checks; they have not all been verified. This repository is currently an implementation preview, not a claim of complete stock-WebUI parity or a published container release. See [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) before deploying it as an administrative interface.
+The pinned compatibility target is **qBittorrent 5.2.3 / Web API 2.15.1**. qBittorrent 5.0 and later are a best-effort compatibility range through version and capability checks; they have not all been verified. This repository is currently an implementation preview, not a claim of complete stock-WebUI parity or a published round-2 container release. See [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) before deploying it as an administrative interface.
 
 ## What is here
 
 - A typed, namespace-based Web API client using native `fetch` and browser-managed cookies.
 - Compile-time deployment modes: one in-place standalone application plus separate public and authenticated Alternative WebUI entries.
 - Initial and incremental `sync/maindata` processing with reconnect and full-resync behavior.
+- Automatic initial qBittorrent recovery after temporary connection/502/503/504 failures, with bounded 1/2/4/8/15-second retry and manual Retry.
 - Virtualized desktop and mobile torrent lists, roving keyboard focus, conventional range/additive selection, bulk actions, desktop context menus, a mobile action sheet, and a resizable desktop inspector.
 - Persisted table visibility, ordering, and widths, plus a collapsible and resizable desktop sidebar.
 - Torrent addition from files, magnets, and HTTP(S) URLs, including detailed/partial add-result parsing.
+- Existing-torrent save-location changes, including active downloads, plus queue, rate/share-limit, rename, management, super-seeding, comment, and export actions shared across desktop and mobile.
 - Overview, Files, Trackers, Peers, Web Seeds, and Pieces detail tabs, including accessible tracker/Web Seed mutation dialogs and an immutable virtualized file tree.
 - Search jobs and plugins, RSS feeds and rules, Torrent Creator tasks, logs, transfer statistics, categories, tags, and a curated settings editor.
 - Mock development through MSW.
@@ -20,7 +22,7 @@ The pinned compatibility target is **qBittorrent 5.2.3 / Web API 2.15.1**. qBitt
 - Sidecar and separate-Deployment Kubernetes templates that deliberately contain an immutable-image digest placeholder.
 - A PWA manifest and static-asset service worker that keeps `/api/**` network-only.
 
-Some API wrappers still have no complete UI, several advanced stock-WebUI workflows remain partial, and measured/browser-scale evidence is not complete for every virtualized collection. The current working tree passed its frozen install, format/lint/type, 192-test, full Chromium/WebKit browser, three production-build, deterministic proxy, real qBittorrent 5.2.3, amd64/arm64 image-scan, Kustomize, and workflow-lint gates. No publicly accessible, verified GHCR digest is available.
+Some API wrappers still have no complete UI, several advanced stock-WebUI workflows remain partial, and measured/browser-scale evidence is not complete for every virtualized collection. The current round-2 working tree passed its frozen install, format/lint/type, 229-test, full Chromium/WebKit browser, three production-build, deterministic proxy, real qBittorrent 5.2.3, and local amd64 image-scan gates. Baseline `a266f0f` also passed hosted CI/container gates and has a public amd64/arm64 GHCR image; that published image does not contain the current round-2 changes.
 
 ## Compatibility
 
@@ -93,9 +95,9 @@ corepack pnpm exec playwright install chromium webkit
 
 On Linux, WebKit can also require OS packages installed with `playwright install --with-deps`; that step needs administrator access. The Alternative WebUI build requires the `zip` executable on `PATH`.
 
-The current working tree passed installation with frozen pnpm 10.15.0, formatting, lint, typecheck, 22 files / 192 Vitest tests, all three production builds, and the full Playwright matrix. Playwright ran in official `mcr.microsoft.com/playwright:v1.62.1-noble@sha256:dcc5531e97840b9b5e794f2814476b21571c5124a3fca2267d73041f56e7580e`: 63 passed and 81 intentional project skips across Chromium/WebKit and the configured 320/375/430 phone projects. `actionlint` 1.7.7 also passed.
+The current working tree passed installation with frozen pnpm 10.15.0, formatting, lint, typecheck, 24 files / 229 Vitest tests, all three production builds, and the full Playwright matrix. Playwright ran in official `mcr.microsoft.com/playwright:v1.62.1-noble@sha256:dcc5531e97840b9b5e794f2814476b21571c5124a3fca2267d73041f56e7580e`: 63 passed and 81 intentional project skips across Chromium/WebKit and the configured 320/375/430 phone projects. `actionlint` 1.7.7 also passed.
 
-The committed `.github/workflows/ci.yml` covers formatting, lint, types, Vitest, the Alternative WebUI build, Playwright, and artifact upload. GitHub Actions run **#2** was green for committed HEAD `1ab285bb8dbd61b63ef6296790ff895eb918bb2d`, but it predates the current uncommitted working-tree changes and is not evidence for them. The new container build/test/publish workflow is itself uncommitted and has never run on GitHub. Anonymous inspection of `ghcr.io/dotsml/neotorrent:edge` failed during token acquisition with HTTP 403, so the image is either absent or private; no public multi-architecture manifest, registry digest, SBOM, provenance, attestation, or deployable immutable reference has been verified.
+The committed workflows passed at baseline `a266f0f`: [CI run #3](https://github.com/dotSML/neotorrent/actions/runs/33469038666) and [Container run #1](https://github.com/dotSML/neotorrent/actions/runs/33469038662). The container run verified both platforms, published SBOM/provenance and a GitHub artifact attestation, and produced the public amd64/arm64 index `ghcr.io/dotsml/neotorrent@sha256:07d92efa9f2ff26afccc475ffaab3dccfa98cc34db824ed9743c06142e9bafed`. This is immutable baseline evidence only; the uncommitted round-2 changes require a new hosted run and digest.
 
 ## Standalone container
 
@@ -109,7 +111,7 @@ NEOTORRENT_IMAGE=neotorrent:local corepack pnpm container:build
 
 `QBITTORRENT_URL` must be the qBittorrent base HTTP(S) URL, without credentials, a query, fragment, or `/api/v2`. The image defaults to port `8081`, UID/GID `101:101`, HTTPS-upstream verification enabled, and expects a writable `/tmp` when run with a read-only root filesystem. The Kubernetes examples show the complete environment and security context.
 
-The final local amd64 `neotorrent:test` image has content ID `sha256:686127d46d2539bd41c60b645d172a0352acfe3ab89e448f84c636d7d47a78ef`; the final local arm64 `neotorrent:audit-arm64` image has ID `sha256:42f9d35735bcedabfed6ac581a3ea1ec3dd724f8be023998f78fd479f152aefb`. Both current-source Linux builds run as UID/GID 101:101, carry revision `1ab285bb8dbd61b63ef6296790ff895eb918bb2d-dirty` and created value `unspecified`, and reported 0 HIGH/CRITICAL with Trivy 0.74.0/current DB on Alpine 3.24.1. These are local content identities, not GHCR deployment references or a published multi-architecture manifest.
+The current round-2 local amd64 `neotorrent:test` image has content ID `sha256:d3b017b11147cc2c32377b7a09aa7b96fa63295961b997984e21a2bfa0f4004e`, runs as UID/GID 101:101, carries revision `a266f0f339087547edaacace316a322a348f0a7c-dirty`, and reported 0 HIGH/CRITICAL with Trivy 0.74.0/current DB on Alpine 3.24.1. This local content identity is not a registry reference. The public multi-architecture digest above identifies the clean baseline, not this working tree.
 
 The manifests intentionally contain:
 
@@ -117,7 +119,7 @@ The manifests intentionally contain:
 ghcr.io/dotsml/neotorrent@sha256:REPLACE_WITH_PUBLISHED_DIGEST
 ```
 
-That is a non-runnable placeholder, not an available image. Build and reference a local registry image, or wait for a hosted workflow to publish a digest and replace the whole placeholder. Do not convert it to a mutable production tag. See [docs/deployment.md](docs/deployment.md) for local runtime, sidecar versus separate-Deployment, migration, proxy, and security guidance.
+That placeholder is non-runnable. Replace it with an immutable digest you have reviewed—the published baseline digest above if you intentionally want baseline `a266f0f`, or a newly published digest after the round-2 changes are committed. Do not convert it to a mutable production tag. See [docs/deployment.md](docs/deployment.md) for local runtime, sidecar versus separate-Deployment, migration, proxy, and security guidance.
 
 ## Alternative WebUI build and installation
 
@@ -129,9 +131,9 @@ corepack pnpm build:alt-webui
 
 Generated outputs:
 
-- `dist/alt-webui/` — 1,041,432 bytes; the directory qBittorrent's **Alternative WebUI files location** must point to.
-- `dist/qbittorrent-modern-webui.zip` — 375,293 bytes; SHA-256 `6e9318711a937b89cf8d5b936ebc4de00bcf2f256950b36f589672558c8e8e83`; its top level contains `public/` and `private/`.
-- `dist/standalone/` — 746,801 bytes; the standalone static build, not an Alternative WebUI root.
+- `dist/alt-webui/` — 1,076,344 bytes; the directory qBittorrent's **Alternative WebUI files location** must point to.
+- `dist/qbittorrent-modern-webui.zip` — 384,605 bytes; SHA-256 `8a833b0af9c4a6f00eeb2f323e302ecbce879375766d7c23a6b72b643c00d862`; its top level contains `public/` and `private/`.
+- `dist/standalone/` — 780,965 bytes; the standalone static build, not an Alternative WebUI root.
 
 The expected layout is:
 

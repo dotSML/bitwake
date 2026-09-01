@@ -10,22 +10,27 @@ import {
   DialogTitle
 } from 'reka-ui'
 
-withDefaults(
+const props = withDefaults(
   defineProps<{
     open: boolean
     title: string
     description?: string
     wide?: boolean
     fullscreenMobile?: boolean
+    dismissible?: boolean
   }>(),
-  { description: '', wide: false, fullscreenMobile: false }
+  { description: '', wide: false, fullscreenMobile: false, dismissible: true }
 )
 
 const emit = defineEmits<{ 'update:open': [value: boolean] }>()
+
+function updateOpen(value: boolean): void {
+  if (value || props.dismissible) emit('update:open', value)
+}
 </script>
 
 <template>
-  <DialogRoot :open="open" @update:open="emit('update:open', $event)">
+  <DialogRoot :open="open" @update:open="updateOpen">
     <DialogPortal>
       <DialogOverlay class="dialog-overlay" />
       <DialogContent
@@ -40,7 +45,7 @@ const emit = defineEmits<{ 'update:open': [value: boolean] }>()
               {{ description }}
             </DialogDescription>
           </div>
-          <DialogClose class="dialog-close" aria-label="Close dialog">
+          <DialogClose v-if="dismissible" class="dialog-close" aria-label="Close dialog">
             <X :size="20" aria-hidden="true" />
           </DialogClose>
         </header>

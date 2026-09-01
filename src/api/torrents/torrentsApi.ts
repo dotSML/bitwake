@@ -181,13 +181,13 @@ export function createTorrentsApi(http: HttpClient) {
     recheck: (hashes: TorrentHashes, signal?: AbortSignal) => action('recheck', hashes, {}, signal),
     reannounce: (hashes: TorrentHashes, signal?: AbortSignal) =>
       action('reannounce', hashes, {}, signal),
-    increasePriority: (hashes: TorrentHashes, signal?: AbortSignal) =>
+    increasePriority: (hashes: readonly string[], signal?: AbortSignal) =>
       action('increasePrio', hashes, {}, signal),
-    decreasePriority: (hashes: TorrentHashes, signal?: AbortSignal) =>
+    decreasePriority: (hashes: readonly string[], signal?: AbortSignal) =>
       action('decreasePrio', hashes, {}, signal),
-    topPriority: (hashes: TorrentHashes, signal?: AbortSignal) =>
+    topPriority: (hashes: readonly string[], signal?: AbortSignal) =>
       action('topPrio', hashes, {}, signal),
-    bottomPriority: (hashes: TorrentHashes, signal?: AbortSignal) =>
+    bottomPriority: (hashes: readonly string[], signal?: AbortSignal) =>
       action('bottomPrio', hashes, {}, signal),
     setForceStart: (hashes: TorrentHashes, enabled: boolean, signal?: AbortSignal) =>
       action('setForceStart', hashes, { value: enabled }, signal),
@@ -216,7 +216,12 @@ export function createTorrentsApi(http: HttpClient) {
     setComment: (hashes: TorrentHashes, comment: string, signal?: AbortSignal) =>
       action('setComment', hashes, { comment }, signal),
     setLocation: (hashes: TorrentHashes, location: string, signal?: AbortSignal) =>
-      action('setLocation', hashes, { location }, signal),
+      http.request<void>('torrents/setLocation', {
+        method: 'POST',
+        body: { hashes: hashesValue(hashes), location },
+        response: 'empty',
+        ...(signal ? { signal } : {})
+      }),
     rename: (hash: string, name: string, signal?: AbortSignal) =>
       http.request<void>('torrents/rename', {
         method: 'POST',

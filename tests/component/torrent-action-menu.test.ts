@@ -1,11 +1,21 @@
 import { DOMWrapper, flushPromises } from '@vue/test-utils'
 import { nextTick } from 'vue'
 import { describe, expect, it, vi } from 'vitest'
+import { ApiError } from '@/api/core/errors'
 import { createTorrents } from '@/mocks/fixtures'
 import TorrentActionMenu from '@/features/torrent-actions/TorrentActionMenu.vue'
 import TorrentWorkspace from '@/features/torrent-list/TorrentWorkspace.vue'
+import { useNotificationsStore } from '@/stores/notifications'
 import { useTorrentsStore } from '@/stores/torrents'
 import { createTestContext, mountWithContext } from './support/mount'
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((fulfill) => {
+    resolve = fulfill
+  })
+  return { promise, resolve }
+}
 
 function bodyButton(label: string): HTMLButtonElement {
   const button = [...document.body.querySelectorAll<HTMLButtonElement>('button')].find(
@@ -41,6 +51,59 @@ describe('torrent row action surfaces', () => {
     await new DOMWrapper(bodyButton('Start')).trigger('click')
     await flushPromises()
     expect(start).toHaveBeenCalledWith(['hash-a', 'hash-b'])
+    expect(wrapper.emitted('close')).toHaveLength(1)
+  })
+
+  it('keeps a pending action single-flight across dismiss attempts and a distinct reopening', async () => {
+    const context = createTestContext()
+    const firstRequest = deferred<void>()
+    const start = vi
+      .spyOn(context.api.torrents, 'start')
+      .mockImplementationOnce(() => firstRequest.promise)
+      .mockResolvedValue()
+    const wrapper = await mountWithContext(TorrentActionMenu, context, {
+      props: {
+        open: true,
+        hashes: ['hash-a'],
+        detailHash: 'hash-a',
+        mobile: true
+      },
+      attachTo: document.body
+    })
+    await nextTick()
+
+    await new DOMWrapper(bodyButton('Start')).trigger('click')
+    await nextTick()
+    expect(start).toHaveBeenCalledTimes(1)
+    expect(document.body.querySelector('.torrent-action-panel')?.getAttribute('aria-busy')).toBe(
+      'true'
+    )
+
+    const backdrop = document.body.querySelector<HTMLButtonElement>('.torrent-action-backdrop')
+    const panel = document.body.querySelector<HTMLElement>('.torrent-action-panel')
+    const closeButton = document.body.querySelector<HTMLButtonElement>(
+      '.torrent-action-header [aria-label="Close torrent actions"]'
+    )
+    await new DOMWrapper(backdrop).trigger('pointerdown')
+    await new DOMWrapper(panel).trigger('keydown', { key: 'Escape' })
+    await new DOMWrapper(closeButton).trigger('click')
+    expect(wrapper.emitted('close')).toBeUndefined()
+
+    await wrapper.setProps({ open: false })
+    await wrapper.setProps({ open: true, hashes: ['hash-b'], detailHash: 'hash-b' })
+    expect(bodyButton('Start').disabled).toBe(true)
+    await new DOMWrapper(bodyButton('Start')).trigger('click')
+    expect(start).toHaveBeenCalledTimes(1)
+
+    firstRequest.resolve(undefined)
+    await flushPromises()
+    expect(wrapper.emitted('close')).toBeUndefined()
+    expect(bodyButton('Start').disabled).toBe(false)
+    expect((document.activeElement as HTMLElement).textContent?.trim()).toBe('Start')
+
+    await new DOMWrapper(bodyButton('Start')).trigger('click')
+    await flushPromises()
+    expect(start).toHaveBeenNthCalledWith(2, ['hash-b'])
     expect(wrapper.emitted('close')).toHaveLength(1)
   })
 
@@ -110,6 +173,79 @@ describe('torrent row action surfaces', () => {
     expect(addTags).toHaveBeenCalledWith(['hash-a'], ['Favorite'])
   })
 
+  it('exposes location, queue, and explicit management operations on desktop and mobile', async () => {
+    const context = createTestContext()
+    const topPriority = vi.spyOn(context.api.torrents, 'topPriority').mockResolvedValue()
+    const setAutoManagement = vi
+      .spyOn(context.api.torrents, 'setAutoManagement')
+      .mockResolvedValue()
+    const wrapper = await mountWithContext(TorrentActionMenu, context, {
+      props: {
+        open: true,
+        hashes: ['hash-a', 'hash-b'],
+        detailHash: 'hash-a',
+        mobile: true
+      },
+      attachTo: document.body
+    })
+    await nextTick()
+
+    expect(document.body.textContent).toContain('Set location…')
+    expect(document.body.textContent).toContain('Speed limits…')
+    expect(document.body.textContent).toContain('Share limits…')
+    await new DOMWrapper(bodyButton('Set location…')).trigger('click')
+    expect(wrapper.emitted('operation')).toContainEqual(['location', ['hash-a', 'hash-b']])
+
+    await wrapper.setProps({ open: false })
+    await wrapper.setProps({ open: true })
+    await new DOMWrapper(bodyButton('Queue position…')).trigger('click')
+    await new DOMWrapper(bodyButton('Move to top')).trigger('click')
+    await flushPromises()
+    expect(topPriority).toHaveBeenCalledWith(['hash-a', 'hash-b'])
+
+    await wrapper.setProps({ open: false })
+    await wrapper.setProps({ open: true })
+    await new DOMWrapper(bodyButton('Management…')).trigger('click')
+    await new DOMWrapper(bodyButton('Disable automatic management')).trigger('click')
+    await flushPromises()
+    expect(setAutoManagement).toHaveBeenCalledWith(['hash-a', 'hash-b'], false)
+  })
+
+  it('explains a queueing-disabled conflict and keeps queue actions open', async () => {
+    const context = createTestContext()
+    const notifications = context.run(() => useNotificationsStore(context.pinia))
+    const topPriority = vi.spyOn(context.api.torrents, 'topPriority').mockRejectedValue(
+      new ApiError('qBittorrent could not complete the operation.', {
+        kind: 'conflict',
+        status: 409
+      })
+    )
+    const wrapper = await mountWithContext(TorrentActionMenu, context, {
+      props: {
+        open: true,
+        hashes: ['hash-a'],
+        detailHash: 'hash-a'
+      },
+      attachTo: document.body
+    })
+    await nextTick()
+
+    await new DOMWrapper(bodyButton('Queue position…')).trigger('click')
+    await new DOMWrapper(bodyButton('Move to top')).trigger('click')
+    await flushPromises()
+
+    expect(topPriority).toHaveBeenCalledWith(['hash-a'])
+    expect(wrapper.emitted('close')).toBeUndefined()
+    expect(document.body.querySelector('[role="menu"]')?.getAttribute('aria-label')).toBe(
+      'Queue position'
+    )
+    expect(notifications.items.at(-1)).toMatchObject({
+      message:
+        'Torrent queueing is disabled. Enable torrent queueing in Settings → Queueing and seeding, then try again.',
+      tone: 'error'
+    })
+  })
+
   it('connects desktop context-click and mobile overflow to actions and delete confirmation', async () => {
     const context = createTestContext()
     const torrent = createTorrents(1)[0]!
@@ -156,5 +292,39 @@ describe('torrent row action surfaces', () => {
 
     expect(document.body.textContent).toContain('Remove 1 selected torrent?')
     expect(remove).not.toHaveBeenCalled()
+  })
+
+  it('keeps multi-selection for shared toolbar and mobile-row operations', async () => {
+    const context = createTestContext()
+    const items = createTorrents(2)
+    const torrents = context.run(() => useTorrentsStore(context.pinia))
+    torrents.applyMainData({
+      rid: 1,
+      full_update: true,
+      torrents: Object.fromEntries(items.map((torrent) => [torrent.hash, torrent]))
+    })
+    torrents.setSelection(items.map((torrent) => torrent.hash))
+    const wrapper = await mountWithContext(TorrentWorkspace, context, {
+      attachTo: document.body,
+      global: { stubs: { TransferGraph: true, TorrentDetailPanel: true } }
+    })
+    await flushPromises()
+
+    await wrapper.get('.torrent-toolbar [aria-haspopup="menu"]').trigger('click')
+    expect(document.body.querySelector('[role="menu"]')?.getAttribute('aria-label')).toBe(
+      '2 selected torrents'
+    )
+    await new DOMWrapper(bodyButton('Set location…')).trigger('click')
+    await nextTick()
+    expect(document.body.textContent).toContain('2 selected torrents on the qBittorrent host')
+
+    const closeDialog = document.body.querySelector<HTMLButtonElement>('.dialog-close')
+    await new DOMWrapper(closeDialog).trigger('click')
+    await nextTick()
+    const mobileMenus = wrapper.findAll<HTMLElement>('.row-menu')
+    expect(mobileMenus.length).toBeGreaterThan(0)
+    await mobileMenus[0]!.trigger('click')
+    expect(document.body.querySelector('.mobile-action-sheet')).not.toBeNull()
+    expect(document.body.textContent).toContain('2 selected torrents')
   })
 })

@@ -27,9 +27,15 @@ The Kubernetes examples contain this deliberate placeholder:
 ghcr.io/dotsml/neotorrent@sha256:REPLACE_WITH_PUBLISHED_DIGEST
 ```
 
-It is not deployable. The container workflow is uncommitted and has never run on GitHub. Anonymous inspection of `ghcr.io/dotsml/neotorrent:edge` failed during GHCR token acquisition with HTTP 403, which cannot distinguish an absent package from a private one. Therefore no public manifest or immutable registry digest is available or verified. Separate amd64 and arm64 images have passed locally, but their content IDs are not GHCR references and do not form a published multi-architecture manifest.
+The placeholder itself is not deployable. Baseline `a266f0f` passed [CI run #3](https://github.com/dotSML/neotorrent/actions/runs/33469038666) and [Container run #1](https://github.com/dotSML/neotorrent/actions/runs/33469038662), which published this public amd64/arm64 index with attestation manifests:
 
-Build and push your own reviewed image to a registry you control, or wait for a hosted workflow to publish a verifiable digest. In either case, replace the entire placeholder with an immutable digest and inspect that digest before deploying it.
+```text
+ghcr.io/dotsml/neotorrent@sha256:07d92efa9f2ff26afccc475ffaab3dccfa98cc34db824ed9743c06142e9bafed
+```
+
+That immutable reference is deployable baseline evidence, but it does not include the current uncommitted round-2 changes. Keep the placeholder until you deliberately select the baseline or publish and inspect a new round-2 digest.
+
+Build and push your own reviewed image to a registry you control, use the verified baseline digest intentionally, or let the hosted workflow publish the reviewed round-2 commit. In every case, replace the entire placeholder with an inspected immutable digest before deploying it.
 
 ## Standalone container
 
@@ -147,11 +153,11 @@ The packaging command performs two Vite builds, assembles qBittorrent's public/p
 Outputs:
 
 ```text
-dist/alt-webui/                       1,041,432 bytes
-dist/qbittorrent-modern-webui.zip       375,293 bytes
+dist/alt-webui/                       1,076,344 bytes
+dist/qbittorrent-modern-webui.zip       384,605 bytes
 ```
 
-The current zip SHA-256 is `6e9318711a937b89cf8d5b936ebc4de00bcf2f256950b36f589672558c8e8e83`. The standalone build in `dist/standalone` is 746,801 bytes. Final artifact checks found no production source maps, MSW worker, or embedded upstream string.
+The current zip SHA-256 is `8a833b0af9c4a6f00eeb2f323e302ecbce879375766d7c23a6b72b643c00d862`. The standalone build in `dist/standalone` is 780,965 bytes. Final artifact checks found no production source maps, MSW worker, or embedded upstream string.
 
 The ordinary `corepack pnpm build` output in `dist/standalone` is the standalone SPA and is not the directory configured as an Alternative WebUI.
 
@@ -200,16 +206,16 @@ For headless qBittorrent, set the equivalent Alternative WebUI options using you
 Both suites passed locally. The real suite observed qBittorrent **v5.2.3** and Web API **2.15.1** and verified:
 
 - Anonymous startup, invalid login, valid login, deep-link restoration, authenticated refresh, logout, and expiry without standalone document reload loops.
-- A legal local multipart torrent add, start, stop, rename, category/tag assignment, recheck, reannounce, and file-priority changes.
+- Legal local multipart torrent adds, start, stop, an active-download save-location change, rename, category/tag assignment, recheck, reannounce, and file-priority changes.
 - Web Seed add/list/edit/remove with encoded path and query octets preserved.
 - Delete-without-content and delete-with-content semantics against two generated local fixtures.
 - Proxy 502 behavior, the last-good-data connection banner, and recovery after qBittorrent restart.
 
 Web Seed encoding deserves special care. The UI/API boundary accepts canonical URLs. qBittorrent 5.2.3 form-decodes the request and its Web Seed controller then calls `QUrl::fromPercentEncoding()`. NeoTorrent therefore protects only existing `%HH` octets as `%25HH` before the shared `URLSearchParams` form encoder runs. It does not `encodeURIComponent` the complete URL, because that would also obscure semantic `:`, `/`, `?`, `&`, and `=` delimiters. The real suite compares the added/edited URLs after qBittorrent returns them.
 
-These tests do not establish Kubernetes behavior, outer-Ingress TLS, subpath serving, PWA install/update, every Vue mutation surface, large-library performance, or compatibility beyond the pinned version. They passed against the final local linux/amd64 `neotorrent:test` image, whose content ID is `sha256:686127d46d2539bd41c60b645d172a0352acfe3ab89e448f84c636d7d47a78ef`, revision label is `1ab285bb8dbd61b63ef6296790ff895eb918bb2d-dirty`, created label is `unspecified`, and runtime UID/GID is 101:101.
+These tests do not establish Kubernetes behavior, outer-Ingress TLS, subpath serving, PWA install/update, every Vue mutation surface, large-library performance, or compatibility beyond the pinned version. Their round-2 rerun passed against local linux/amd64 `neotorrent:test`, whose content ID is `sha256:d3b017b11147cc2c32377b7a09aa7b96fa63295961b997984e21a2bfa0f4004e`, revision label is `a266f0f339087547edaacace316a322a348f0a7c-dirty`, created label is `unspecified`, and runtime UID/GID is 101:101.
 
-The previous runtime base failed a Trivy v0.74.0/current-database scan with 25 HIGH and 2 CRITICAL findings. The complete final linux/amd64 image and final linux/arm64 audit image (`sha256:42f9d35735bcedabfed6ac581a3ea1ec3dd724f8be023998f78fd479f152aefb`, UID/GID 101:101) each reported 0 HIGH/CRITICAL under the same current-database policy on Alpine 3.24.1. These local content IDs prove the scanned local images only; they are not registry digests, and no published NeoTorrent multi-architecture manifest has been inspected.
+The previous runtime base failed a Trivy v0.74.0/current-database scan with 25 HIGH and 2 CRITICAL findings. The current round-2 local amd64 image reported 0 HIGH/CRITICAL on Alpine 3.24.1. At baseline `a266f0f`, the hosted container run also built and scanned complete linux/amd64 and linux/arm64 images under the same severity policy before publishing the verified multi-architecture digest above. The hosted baseline scan does not substitute for a round-2 arm64 build and scan.
 
 An earlier native Alternative WebUI authentication/resource smoke exists via `scripts/verify-real-instance.mjs`, but it predates current working-tree changes. The current package build and full browser matrix passed and the current zip identity is recorded above; the older smoke still must not be represented as live-daemon verification of this new zip.
 
@@ -253,9 +259,9 @@ This previews `dist/standalone`; it does not run the bundled Nginx proxy or repr
 
 `.github/workflows/ci.yml` runs on pushes to `main` and pull requests. It installs from the frozen lockfile, checks formatting, lint and types, runs all Vitest projects, builds the Alternative WebUI, installs Chromium and WebKit, runs the six Playwright projects, and uploads `dist/alt-webui` plus `dist/qbittorrent-modern-webui.zip`.
 
-GitHub Actions run #2 was green for committed HEAD `1ab285bb8dbd61b63ef6296790ff895eb918bb2d`. The current working tree contains uncommitted implementation/container changes, so that run is historical evidence only. Locally, the frozen install, format/lint/typecheck, 22-file/192-test Vitest run, all production builds, and full Playwright suite passed. Playwright ran in official `mcr.microsoft.com/playwright:v1.62.1-noble@sha256:dcc5531e97840b9b5e794f2814476b21571c5124a3fca2267d73041f56e7580e` with 63 passed and 81 intentional project skips across Chromium, WebKit, and 320/375/430 phones.
+GitHub Actions CI run #3 and Container run #1 were green for exact baseline `a266f0f339087547edaacace316a322a348f0a7c`. They are baseline evidence only. Locally, the round-2 working tree passed the frozen install, format/lint/typecheck, 24-file/229-test Vitest run, all production builds, and full Playwright suite. Playwright ran in official `mcr.microsoft.com/playwright:v1.62.1-noble@sha256:dcc5531e97840b9b5e794f2814476b21571c5124a3fca2267d73041f56e7580e` with 63 passed and 81 intentional project skips across Chromium, WebKit, and 320/375/430 phones.
 
-The new `.github/workflows/container.yml` is uncommitted and unhosted. actionlint 1.7.7 passed locally. If committed, its verify job would build local images, run both container suites, and fail on HIGH/CRITICAL Trivy findings. Its push-only publish job declares multi-architecture Buildx, GHCR authentication, SBOM, maximum provenance, immutable digest inspection, and a job-summary reference. None of those hosted publication or supply-chain outputs exists yet.
+The committed `.github/workflows/container.yml` completed successfully for baseline `a266f0f`. Its verify job passed the source/browser/package gates, both container suites, and amd64/arm64 HIGH/CRITICAL scans; its publish job produced the public multi-architecture index, SBOM/provenance, a GitHub artifact attestation, and an immutable-reference report. The round-2 working tree has not run in hosted CI and has no published round-2 digest.
 
 ## Reverse proxy and subpath behavior
 

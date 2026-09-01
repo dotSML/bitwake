@@ -79,10 +79,53 @@ describe('central session lifecycle', () => {
 
     expect(harness.session.status).toBe('disconnected')
     expect(harness.session.lastError).toBe(responseText)
+    expect(harness.session.retryableDisconnection).toBe(false)
     expect(harness.context.router.currentRoute.value.path).toBe('/rss')
     expect(harness.torrents.clearAll).not.toHaveBeenCalled()
     expect(harness.notifications.clear).not.toHaveBeenCalled()
     expect(harness.reload).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    new ApiError('Could not connect.', { kind: 'network' }),
+    new ApiError('The request timed out.', { kind: 'timeout' }),
+    new ApiError('Bad Gateway', { kind: 'server', status: 502 })
+  ])('marks a temporary startup failure as retryable: %s', async (error) => {
+    const harness = setup('standalone')
+    vi.spyOn(harness.context.api.app, 'version').mockRejectedValue(error)
+    vi.spyOn(harness.context.api.app, 'webApiVersion').mockResolvedValue('2.15.1')
+    vi.spyOn(harness.context.api.app, 'buildInfo').mockResolvedValue({})
+
+    await expect(harness.lifecycle.initialize()).resolves.toBe(false)
+
+    expect(harness.session.status).toBe('disconnected')
+    expect(harness.session.retryableDisconnection).toBe(true)
+    expect(harness.context.router.currentRoute.value.path).not.toBe('/login')
+    expect(harness.reload).not.toHaveBeenCalled()
+  })
+
+  it('coalesces concurrent detection calls into one protected probe', async () => {
+    const harness = setup('standalone')
+    let resolveVersion: ((version: string) => void) | undefined
+    const version = vi.spyOn(harness.context.api.app, 'version').mockImplementation(
+      () =>
+        new Promise<string>((resolve) => {
+          resolveVersion = resolve
+        })
+    )
+    const webApiVersion = vi
+      .spyOn(harness.context.api.app, 'webApiVersion')
+      .mockResolvedValue('2.15.1')
+    const buildInfo = vi.spyOn(harness.context.api.app, 'buildInfo').mockResolvedValue({})
+
+    const first = harness.session.detect()
+    const second = harness.session.detect()
+
+    expect(version).toHaveBeenCalledOnce()
+    expect(webApiVersion).toHaveBeenCalledOnce()
+    expect(buildInfo).toHaveBeenCalledOnce()
+    resolveVersion?.('v5.2.3')
+    await expect(Promise.all([first, second])).resolves.toEqual([true, true])
   })
 
   it('completes standalone login, logout, and expiry without a document reload', async () => {

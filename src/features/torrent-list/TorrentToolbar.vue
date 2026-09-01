@@ -8,7 +8,6 @@ import {
   Gauge,
   MoreHorizontal,
   Play,
-  RotateCw,
   Search,
   Square,
   Trash2,
@@ -21,7 +20,7 @@ import { useNotificationsStore } from '@/stores/notifications'
 import { torrentTableColumnIds, usePreferencesStore } from '@/stores/preferences'
 import { useTorrentsStore } from '@/stores/torrents'
 
-const emit = defineEmits<{ delete: []; add: [] }>()
+const emit = defineEmits<{ delete: []; add: []; actions: [event: MouseEvent] }>()
 const api = useApi()
 const torrents = useTorrentsStore()
 const preferences = usePreferencesStore()
@@ -138,50 +137,16 @@ function setDensity(): void {
       >
         <Trash2 :size="16" /> <span>{{ t('torrents.delete') }}</span>
       </button>
-      <details class="toolbar-menu">
-        <summary class="btn" :aria-label="t('torrents.moreActions')">
-          <MoreHorizontal :size="17" /><span>{{ t('torrents.moreActions') }}</span
-          ><ChevronDown :size="13" />
-        </summary>
-        <div class="menu-popover">
-          <button
-            type="button"
-            @click="run('Force recheck', () => api.torrents.recheck(selectedHashes))"
-          >
-            <RotateCw :size="15" />Force recheck
-          </button>
-          <button
-            type="button"
-            @click="run('Reannounce', () => api.torrents.reannounce(selectedHashes))"
-          >
-            <Gauge :size="15" />Reannounce
-          </button>
-          <button
-            type="button"
-            @click="run('Force start', () => api.torrents.setForceStart(selectedHashes, true))"
-          >
-            <Play :size="15" />Force start
-          </button>
-          <button
-            type="button"
-            @click="
-              run('Sequential mode', () => api.torrents.toggleSequentialDownload(selectedHashes))
-            "
-          >
-            Toggle sequential download
-          </button>
-          <button
-            type="button"
-            @click="
-              run('First/last priority', () =>
-                api.torrents.toggleFirstLastPiecePriority(selectedHashes)
-              )
-            "
-          >
-            Toggle first/last pieces
-          </button>
-        </div>
-      </details>
+      <button
+        class="btn toolbar-action"
+        type="button"
+        :aria-label="t('torrents.moreActions')"
+        aria-haspopup="menu"
+        :disabled="working"
+        @click="emit('actions', $event)"
+      >
+        <MoreHorizontal :size="17" /><span>{{ t('torrents.moreActions') }}</span>
+      </button>
       <button
         class="clear-selection"
         type="button"
@@ -478,11 +443,18 @@ function setDensity(): void {
     padding: 7px 9px;
   }
   .contextual .selected-count {
+    min-width: 0;
     flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .contextual .toolbar-action {
     width: 44px;
     min-width: 44px;
+    height: 44px;
+    min-height: 44px;
+    flex: 0 0 44px;
     padding: 0;
   }
   .contextual .toolbar-action span,
@@ -497,7 +469,12 @@ function setDensity(): void {
   }
   .contextual .clear-selection {
     width: 44px;
+    min-width: 44px;
+    height: 44px;
+    min-height: 44px;
+    flex: 0 0 44px;
     justify-content: center;
+    padding: 0;
   }
   .contextual .menu-popover {
     right: 0;

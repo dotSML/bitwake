@@ -1,11 +1,20 @@
 <script setup lang="ts">
 import {
+  ArrowDown,
+  ArrowUp,
+  Download,
+  Edit3,
   ExternalLink,
   Folder,
+  FolderInput,
   Gauge,
   ListStart,
+  ListTree,
+  MessageSquare,
   Play,
   RotateCw,
+  Settings2,
+  SlidersHorizontal,
   Square,
   Tag,
   Trash2,
@@ -14,8 +23,11 @@ import {
 } from 'lucide-vue-next'
 import { computed, nextTick, ref, watch, type CSSProperties } from 'vue'
 import { useApi } from '@/app/providers/api'
+import { isApiError } from '@/api/core/errors'
 import { useNotificationsStore } from '@/stores/notifications'
+import { useSessionStore } from '@/stores/session'
 import { useTorrentsStore } from '@/stores/torrents'
+import type { TorrentOperation } from './torrentOperations'
 
 const props = withDefaults(
   defineProps<{
@@ -34,16 +46,21 @@ const emit = defineEmits<{
   close: []
   delete: [hashes: string[]]
   details: [hash: string]
+  operation: [operation: TorrentOperation, hashes: string[]]
 }>()
 
 const api = useApi()
 const notifications = useNotificationsStore()
+const session = useSessionStore()
 const torrents = useTorrentsStore()
 const panel = ref<HTMLElement | null>(null)
 const menu = ref<HTMLElement | null>(null)
 const working = ref(false)
-const view = ref<'main' | 'category' | 'add-tag' | 'remove-tag'>('main')
+let menuRevision = 0
+const view = ref<'main' | 'queue' | 'management' | 'category' | 'add-tag' | 'remove-tag'>('main')
 const viewTitle = computed(() => {
+  if (view.value === 'queue') return 'Queue position'
+  if (view.value === 'management') return 'Torrent management'
   if (view.value === 'category') return 'Set category'
   if (view.value === 'add-tag') return 'Add tag'
   if (view.value === 'remove-tag') return 'Remove tag'
@@ -60,14 +77,18 @@ const positionStyle = computed<CSSProperties | undefined>(() => {
   return { left: `${left}px`, top: `${top}px` }
 })
 
+async function focusFirstItem(): Promise<void> {
+  await nextTick()
+  menu.value?.querySelector<HTMLButtonElement>('[role="menuitem"]:not(:disabled)')?.focus()
+}
+
 watch(
-  () => props.open,
-  async (open) => {
+  [() => props.open, () => props.hashes] as const,
+  async ([open]) => {
     if (!open) return
-    working.value = false
+    menuRevision += 1
     view.value = 'main'
-    await nextTick()
-    menu.value?.querySelector<HTMLButtonElement>('[role="menuitem"]:not(:disabled)')?.focus()
+    await focusFirstItem()
   },
   { immediate: true }
 )
@@ -87,38 +108,75 @@ function applyTag(tag: string): void {
   else void run('Remove tag', () => api.torrents.removeTags(props.hashes, [tag]))
 }
 
-async function run(label: string, operation: () => Promise<void>): Promise<void> {
+async function run(
+  label: string,
+  operation: () => Promise<void>,
+  queueOperation = false
+): Promise<void> {
   if (working.value || !props.hashes.length) return
+  const startedInRevision = menuRevision
   working.value = true
   try {
     await operation()
     notifications.push(`${label} request accepted.`, 'success')
     torrents.refreshNow()
-    emit('close')
+    if (props.open && menuRevision === startedInRevision) emit('close')
   } catch (cause) {
-    notifications.push(cause instanceof Error ? cause.message : `${label} failed.`, 'error')
+    const message =
+      queueOperation && isApiError(cause) && cause.status === 409
+        ? 'Torrent queueing is disabled. Enable torrent queueing in Settings → Queueing and seeding, then try again.'
+        : cause instanceof Error
+          ? cause.message
+          : `${label} failed.`
+    notifications.push(message, 'error')
   } finally {
     working.value = false
+    if (props.open && menuRevision !== startedInRevision) await focusFirstItem()
   }
 }
 
-function openDetails(): void {
-  if (!props.detailHash) return
-  emit('details', props.detailHash)
+function requestClose(): void {
+  if (working.value) return
   emit('close')
 }
 
+function openDetails(): void {
+  if (working.value || !props.detailHash) return
+  emit('details', props.detailHash)
+  requestClose()
+}
+
 function requestDelete(): void {
-  if (!props.hashes.length) return
+  if (working.value || !props.hashes.length) return
   emit('delete', [...props.hashes])
-  emit('close')
+  requestClose()
+}
+
+function openOperation(operation: TorrentOperation): void {
+  if (working.value || !props.hashes.length) return
+  emit('operation', operation, [...props.hashes])
+  requestClose()
+}
+
+async function exportTorrent(): Promise<void> {
+  const hash = props.hashes[0]
+  if (!hash || props.hashes.length !== 1) return
+  const blob = await api.torrents.exportTorrent(hash)
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  const torrentName = torrents.byHash.get(hash)?.name ?? hash
+  const safeName = torrentName.replace(/[\\/:*?"<>|%]/g, '_').trim() || hash
+  anchor.href = url
+  anchor.download = `${safeName}.torrent`
+  anchor.click()
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 
 function onKeydown(event: KeyboardEvent): void {
   if (event.key === 'Escape') {
     event.preventDefault()
     event.stopPropagation()
-    emit('close')
+    requestClose()
     return
   }
 
@@ -162,7 +220,8 @@ function onKeydown(event: KeyboardEvent): void {
         type="button"
         tabindex="-1"
         aria-label="Close torrent actions"
-        @pointerdown="emit('close')"
+        :disabled="working"
+        @pointerdown="requestClose"
       />
       <section
         ref="panel"
@@ -172,11 +231,17 @@ function onKeydown(event: KeyboardEvent): void {
         :role="mobile ? 'dialog' : undefined"
         :aria-modal="mobile ? 'true' : undefined"
         :aria-label="viewTitle"
+        :aria-busy="working"
         @keydown="onKeydown"
       >
         <header v-if="mobile" class="torrent-action-header">
           <strong>{{ viewTitle }}</strong>
-          <button type="button" aria-label="Close torrent actions" @click="emit('close')">
+          <button
+            type="button"
+            aria-label="Close torrent actions"
+            :disabled="working"
+            @click="requestClose"
+          >
             <X :size="19" aria-hidden="true" />
           </button>
         </header>
@@ -258,6 +323,67 @@ function onKeydown(event: KeyboardEvent): void {
           </button>
 
           <div class="torrent-action-separator" role="separator" />
+          <div class="torrent-action-group-label" role="presentation">Torrent settings</div>
+          <button
+            type="button"
+            role="menuitem"
+            :disabled="working"
+            @click="openOperation('location')"
+          >
+            <FolderInput :size="16" aria-hidden="true" />Set location…
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            :disabled="working || hashes.length !== 1"
+            @click="openOperation('rename')"
+          >
+            <Edit3 :size="16" aria-hidden="true" />Rename…
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            :disabled="working"
+            @click="openOperation('speed-limits')"
+          >
+            <SlidersHorizontal :size="16" aria-hidden="true" />Speed limits…
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            :disabled="working || session.capabilities?.has('torrentShareLimitAction') === false"
+            :title="session.capabilities?.reason('torrentShareLimitAction') ?? undefined"
+            @click="openOperation('share-limits')"
+          >
+            <Gauge :size="16" aria-hidden="true" />Share limits…
+          </button>
+          <button type="button" role="menuitem" :disabled="working" @click="setView('queue')">
+            <ListTree :size="16" aria-hidden="true" />Queue position…
+          </button>
+          <button type="button" role="menuitem" :disabled="working" @click="setView('management')">
+            <Settings2 :size="16" aria-hidden="true" />Management…
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            :disabled="working || session.capabilities?.has('torrentComment') === false"
+            :title="session.capabilities?.reason('torrentComment') ?? undefined"
+            @click="openOperation('comment')"
+          >
+            <MessageSquare :size="16" aria-hidden="true" />Edit comment…
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            :disabled="
+              working || hashes.length !== 1 || session.capabilities?.has('exportTorrent') === false
+            "
+            @click="run('Export', exportTorrent)"
+          >
+            <Download :size="16" aria-hidden="true" />Export .torrent
+          </button>
+
+          <div class="torrent-action-separator" role="separator" />
           <button type="button" role="menuitem" :disabled="working" @click="setView('category')">
             <Folder :size="16" aria-hidden="true" />Set category…
           </button>
@@ -294,7 +420,85 @@ function onKeydown(event: KeyboardEvent): void {
             <Undo2 :size="16" aria-hidden="true" />Back to actions
           </button>
           <div class="torrent-action-separator" role="separator" />
-          <template v-if="view === 'category'">
+          <template v-if="view === 'queue'">
+            <button
+              type="button"
+              role="menuitem"
+              :disabled="working"
+              @click="run('Move to top', () => api.torrents.topPriority(hashes), true)"
+            >
+              <ArrowUp :size="16" aria-hidden="true" />Move to top
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              :disabled="working"
+              @click="run('Increase priority', () => api.torrents.increasePriority(hashes), true)"
+            >
+              <ArrowUp :size="16" aria-hidden="true" />Move up
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              :disabled="working"
+              @click="run('Decrease priority', () => api.torrents.decreasePriority(hashes), true)"
+            >
+              <ArrowDown :size="16" aria-hidden="true" />Move down
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              :disabled="working"
+              @click="run('Move to bottom', () => api.torrents.bottomPriority(hashes), true)"
+            >
+              <ArrowDown :size="16" aria-hidden="true" />Move to bottom
+            </button>
+          </template>
+          <template v-else-if="view === 'management'">
+            <button
+              type="button"
+              role="menuitem"
+              :disabled="working"
+              @click="
+                run('Enable automatic management', () =>
+                  api.torrents.setAutoManagement(hashes, true)
+                )
+              "
+            >
+              <Settings2 :size="16" aria-hidden="true" />Enable automatic management
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              :disabled="working"
+              @click="
+                run('Disable automatic management', () =>
+                  api.torrents.setAutoManagement(hashes, false)
+                )
+              "
+            >
+              <Settings2 :size="16" aria-hidden="true" />Disable automatic management
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              :disabled="working"
+              @click="run('Enable super seeding', () => api.torrents.setSuperSeeding(hashes, true))"
+            >
+              <Gauge :size="16" aria-hidden="true" />Enable super seeding
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              :disabled="working"
+              @click="
+                run('Disable super seeding', () => api.torrents.setSuperSeeding(hashes, false))
+              "
+            >
+              <Gauge :size="16" aria-hidden="true" />Disable super seeding
+            </button>
+          </template>
+          <template v-else-if="view === 'category'">
             <button type="button" role="menuitem" :disabled="working" @click="applyCategory('')">
               <Folder :size="16" aria-hidden="true" />Uncategorized
             </button>

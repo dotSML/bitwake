@@ -16,6 +16,7 @@ export interface SettingDefinition {
   control: SettingControl
   description?: string
   options?: Array<{ value: string | number; label: string }>
+  dynamicOptions?: 'network-interfaces' | 'network-addresses'
   min?: number
   max?: number
   apiScale?: number
@@ -26,12 +27,81 @@ export interface SettingDefinition {
 export const settingsSchema: readonly SettingDefinition[] = [
   { key: 'save_path', label: 'Default save path', section: 'Downloads', control: 'text' },
   {
+    key: 'torrent_content_layout',
+    label: 'Default torrent content layout',
+    section: 'Downloads',
+    control: 'select',
+    options: [
+      { value: 'Original', label: 'Original layout' },
+      { value: 'Subfolder', label: 'Create subfolder' },
+      { value: 'NoSubfolder', label: "Don't create subfolder" }
+    ]
+  },
+  {
+    key: 'add_to_top_of_queue',
+    label: 'Add new torrents to top of queue',
+    section: 'Downloads',
+    control: 'boolean'
+  },
+  {
+    key: 'add_stopped_enabled',
+    label: 'Do not start new downloads automatically',
+    section: 'Downloads',
+    control: 'boolean'
+  },
+  {
+    key: 'torrent_stop_condition',
+    label: 'Default torrent stop condition',
+    section: 'Downloads',
+    control: 'select',
+    description: 'Ignored while new torrents are configured to remain stopped.',
+    options: [
+      { value: 'None', label: 'None' },
+      { value: 'MetadataReceived', label: 'Stop after metadata is received' },
+      { value: 'FilesChecked', label: 'Stop after files are checked' }
+    ]
+  },
+  {
+    key: 'merge_trackers',
+    label: 'Merge trackers when adding a duplicate torrent',
+    section: 'Downloads',
+    control: 'boolean',
+    description: 'Private torrents are excluded.'
+  },
+  {
     key: 'temp_path_enabled',
     label: 'Keep incomplete torrents in a separate folder',
     section: 'Downloads',
     control: 'boolean'
   },
   { key: 'temp_path', label: 'Incomplete torrents path', section: 'Downloads', control: 'text' },
+  {
+    key: 'use_unwanted_folder',
+    label: 'Keep unselected files in .unwanted',
+    section: 'Downloads',
+    control: 'boolean'
+  },
+  {
+    key: 'use_category_paths_in_manual_mode',
+    label: 'Use category paths in manual mode',
+    section: 'Downloads',
+    control: 'boolean',
+    description: 'Resolve relative manual save paths against the category path.'
+  },
+  {
+    key: 'export_dir',
+    label: 'Copy new .torrent files to',
+    section: 'Downloads',
+    control: 'text',
+    description: 'Path on the qBittorrent host; leave empty to disable.'
+  },
+  {
+    key: 'export_dir_fin',
+    label: 'Copy finished .torrent files to',
+    section: 'Downloads',
+    control: 'text',
+    description: 'Path on the qBittorrent host; leave empty to disable.'
+  },
   {
     key: 'preallocate_all',
     label: 'Pre-allocate disk space for all files',
@@ -116,6 +186,24 @@ export const settingsSchema: readonly SettingDefinition[] = [
     control: 'boolean'
   },
   {
+    key: 'current_network_interface',
+    label: 'Network interface',
+    section: 'Connection',
+    control: 'select',
+    dynamicOptions: 'network-interfaces',
+    description: 'Bind BitTorrent traffic to a server interface, such as a VPN.',
+    connectivityCritical: true
+  },
+  {
+    key: 'current_interface_address',
+    label: 'Optional IP address to bind to',
+    section: 'Connection',
+    control: 'select',
+    dynamicOptions: 'network-addresses',
+    description: 'Only addresses reported by the qBittorrent host can be selected.',
+    connectivityCritical: true
+  },
+  {
     key: 'max_connec',
     label: 'Global maximum connections',
     section: 'Connection',
@@ -183,6 +271,25 @@ export const settingsSchema: readonly SettingDefinition[] = [
   {
     key: 'proxy_bittorrent',
     label: 'Use proxy for BitTorrent traffic',
+    section: 'Connection',
+    control: 'boolean'
+  },
+  {
+    key: 'ip_filter_enabled',
+    label: 'Enable IP filtering',
+    section: 'Connection',
+    control: 'boolean'
+  },
+  {
+    key: 'ip_filter_path',
+    label: 'IP filter path',
+    section: 'Connection',
+    control: 'text',
+    description: 'Path on the qBittorrent host to a .dat, .p2p, or .p2b file.'
+  },
+  {
+    key: 'ip_filter_trackers',
+    label: 'Apply IP filter to trackers',
     section: 'Connection',
     control: 'boolean'
   },
@@ -351,6 +458,18 @@ export const settingsSchema: readonly SettingDefinition[] = [
     section: 'BitTorrent',
     control: 'number',
     min: 0
+  },
+  {
+    key: 'max_ratio_act',
+    label: 'Action when a global share limit is reached',
+    section: 'BitTorrent',
+    control: 'select',
+    options: [
+      { value: 0, label: 'Stop torrent' },
+      { value: 1, label: 'Remove torrent' },
+      { value: 3, label: 'Remove torrent and its files' },
+      { value: 2, label: 'Enable super seeding' }
+    ]
   },
   {
     key: 'add_trackers_enabled',

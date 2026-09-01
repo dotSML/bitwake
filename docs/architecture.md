@@ -106,7 +106,7 @@ In all modes, successful protected requests also act as authentication-bypass de
 
 ### Expiry and connection failures
 
-The HTTP client invokes an authentication-expired callback for 401 responses and eligible 403 responses. Login and startup probes suppress that callback, and recognized Host, Origin, Referer, and CSRF response text remains a forbidden/request-validation error instead of forcing a login transition. The central lifecycle clears torrent state and preserves a safe intended route, then routes in place for standalone/mock or reloads for a native Alternative WebUI boundary. Network and timeout failures instead put startup or sync into a disconnected state. The sync store preserves the last good state, applies exponential retry delay up to 30 seconds, and offers an explicit full-resync action.
+The HTTP client invokes an authentication-expired callback for 401 responses and eligible 403 responses. Login and startup probes suppress that callback, and recognized Host, Origin, Referer, and CSRF response text remains a forbidden/request-validation error instead of forcing a login transition. The central lifecycle clears torrent state and preserves a safe intended route, then routes in place for standalone/mock or reloads for a native Alternative WebUI boundary. Recoverable initial network/502/503/504 failures keep the disconnected screen and retry without reload at 1, 2, 4, 8, then 15 seconds, with one detection flight and timer cleanup. The independent live-sync loop preserves the last good state, applies exponential retry delay up to 30 seconds, and offers an explicit full-resync action.
 
 Current limitation: request-validation detection is a bounded text-marker heuristic. A differently worded qBittorrent/proxy 403 can still be classified as expiry, while all 401 responses remain authentication failures.
 
@@ -150,7 +150,7 @@ Runtime validation is currently incomplete. Zod and initial schemas exist, but e
 
 ## Capability model
 
-Components should ask one centralized `CapabilityRegistry` rather than compare version strings. The registry uses parsed semantic version tuples and records minimum application/API versions for client data, detailed add results, metadata preview, piece availability, peer hostnames, category share limits, tracker tiers, web-seed management, Torrent Creator, API keys, RSS smart filtering, process information, and torrent export.
+Components should ask one centralized `CapabilityRegistry` rather than compare version strings. The registry uses parsed semantic version tuples and records minimum application/API versions for client data, detailed add results, metadata preview, piece availability, peer hostnames, category share limits, tracker tiers, web-seed management, Torrent Creator, API keys, RSS smart filtering, process information, torrent share-limit actions, torrent comments, and torrent export.
 
 This is a positive threshold model: malformed or older versions return unavailable. It is not endpoint probing. Capability use is currently partial; Pieces, Web Seeds, process uptime, and client-data persistence are gated, while several secondary features and settings still need registry integration.
 
@@ -193,7 +193,7 @@ Atomicity is pragmatic rather than transactional: collection mutations occur syn
 - A resizable right inspector loads per-torrent detail endpoints on demand.
 - Mobile virtualizes purpose-built compact rows and navigates to a dedicated detail route.
 
-The action menu covers start, stop, details, recheck, reannounce, force start, sequential mode, first/last-piece priority, category, tags, and confirmed deletion for the current selection. Queue priority, per-torrent limits, location, rename, automatic management, super seeding, export, and peer addition remain wrapper-only or otherwise lack complete UI. At tablet widths, a persistent 64 px icon rail keeps library and secondary routes reachable while the mobile bottom navigation remains reserved for widths below 768 px.
+The shared desktop/mobile action menu covers start, stop, details, recheck, reannounce, force start, sequential mode, first/last-piece priority, queue movement, per-torrent rate/share limits, save location, single-torrent rename/export, automatic management, super seeding, comments, category, tags, and confirmed deletion for the current selection. Peer addition and file/folder rename remain wrapper-only. At tablet widths, a persistent 64 px icon rail keeps library and secondary routes reachable while the mobile bottom navigation remains reserved for widths below 768 px.
 
 ### Files and pieces
 
@@ -239,13 +239,13 @@ Vite uses `base: './'`, separate `login-assets/` and `app-assets/`, hashed chunk
 
 ### Standalone build and proxy
 
-`vite build --mode standalone` emits one SPA to `dist/standalone`. The Dockerfile builds that output in a Node stage and copies it into the pinned `nginxinc/nginx-unprivileged:1.30.4-alpine@sha256:45ce1e2e699234253d1def7baa96218a5d00b498d1ba0cbb1a17b6bdf73d1351` runtime. The final local amd64 and arm64 images run as `101:101` and intentionally contain neither Node nor the source/test tree.
+`vite build --mode standalone` emits one SPA to `dist/standalone`. The Dockerfile builds that output in a Node stage and copies it into the pinned `nginxinc/nginx-unprivileged:1.30.4-alpine@sha256:45ce1e2e699234253d1def7baa96218a5d00b498d1ba0cbb1a17b6bdf73d1351` runtime. The current local amd64 image and hosted baseline amd64/arm64 images run as `101:101` and intentionally contain neither Node nor the source/test tree.
 
 The POSIX entrypoint validates `QBITTORRENT_URL` or the `QB_HOST`/`QB_PORT` fallback, listen port, upload size, and proxy timeouts. It rejects embedded credentials, query/fragment text, unsafe characters, and an upstream ending in `/api/v2`, then renders Nginx configuration into writable `/tmp` and runs `nginx -t`.
 
 Nginx serves the hash-routed SPA, proxies root `/api/` to the configured upstream `/api/`, forwards cookies and validation-relevant headers, disables API buffering/caching, and returns proxy statuses without substituting the SPA. `/healthz` and `/readyz` describe only the NeoTorrent process and deliberately do not probe qBittorrent.
 
-Kubernetes has sidecar and separate-Deployment examples. The sidecar shares loopback with an operator's unchanged qBittorrent container; the separate form reaches a private qBittorrent Service. Both render with an unprivileged/read-only/capability-drop security context and a small `/tmp` `emptyDir`. Kustomize v5.8.1 render validation passed for both, but neither has been admitted or run in a cluster. Both retain a non-runnable immutable-image placeholder because no public verified NeoTorrent digest exists.
+Kubernetes has sidecar and separate-Deployment examples. The sidecar shares loopback with an operator's unchanged qBittorrent container; the separate form reaches a private qBittorrent Service. Both render with an unprivileged/read-only/capability-drop security context and a small `/tmp` `emptyDir`. Kustomize v5.8.1 render validation passed for both. A live deployment exposed the initial qBittorrent-startup 502 sequence that motivated round-2 recovery, but the repository has not recorded full admission/topology/NetworkPolicy/TLS/rollback verification. Both examples retain a non-runnable immutable-image placeholder so an operator must deliberately choose the published baseline digest or a newly published round-2 digest.
 
 ## PWA and cache boundary
 
@@ -262,12 +262,12 @@ The service-worker update callback presents a confirmation and activates/reloads
 - MSW provides browser development fixtures and can support deterministic component/E2E flows.
 - Playwright is configured for 1440×900 desktop, 320×700, 375×812, and 430×932 phone projects, plus 768×1024 and 1024×768 tablet projects. It starts standalone-E2E and Alternative-private-E2E Vite servers so session-boundary behavior can be tested separately.
 - Build scripts produce standalone and Alternative WebUI artifacts independently of test fixtures.
-- Frozen pnpm 10.15.0 installation, formatting, lint, typecheck, `build`, `build:standalone`, and `build:alt-webui` passed on the current working tree. The final full Vitest run passed 22 files / 192 tests.
+- Frozen pnpm 10.15.0 installation, formatting, lint, typecheck, `build`, `build:standalone`, and `build:alt-webui` passed on the current working tree. The final full Vitest run passed 24 files / 229 tests.
 - A focused store test (8/8, 286 ms file total) applies a changed delta to 5,000 torrents, preserves all 4,999 untouched object references under a generous `<1,000 ms` local regression budget, then applies a separate removal delta and verifies selection cleanup/RID 43. This is not a formal benchmark.
 - The full Playwright suite passed in the official 1.62.1 Noble image at digest `sha256:dcc5531e97840b9b5e794f2814476b21571c5124a3fca2267d73041f56e7580e`: 63 passed and 81 intentional project skips across Chromium, WebKit, and 320/375/430 phone projects.
-- Deterministic proxy and real qBittorrent 5.2.3 suites passed on final local linux/amd64 image content ID `sha256:686127d46d2539bd41c60b645d172a0352acfe3ab89e448f84c636d7d47a78ef`. The final linux/arm64 audit image has content ID `sha256:42f9d35735bcedabfed6ac581a3ea1ec3dd724f8be023998f78fd479f152aefb`. Both run as 101:101 with the dirty-HEAD revision label; Trivy 0.74.0/current DB reported 0 HIGH/CRITICAL for both complete images on Alpine 3.24.1.
-- The committed CI workflow's run #2 was green for HEAD `1ab285bb8dbd61b63ef6296790ff895eb918bb2d`, before current working-tree changes. The new container workflow is uncommitted/unhosted and has produced no verified public image, SBOM, provenance, or multi-architecture manifest.
-- actionlint 1.7.7 passed locally, but that does not make the uncommitted workflow hosted evidence. Local image content digests are not GHCR registry references.
+- Deterministic proxy and real qBittorrent 5.2.3 suites passed on current local linux/amd64 image content ID `sha256:d3b017b11147cc2c32377b7a09aa7b96fa63295961b997984e21a2bfa0f4004e`; Trivy 0.74.0/current DB reported 0 HIGH/CRITICAL on Alpine 3.24.1. This is a local round-2 identity, not a registry reference.
+- CI run #3 and Container run #1 were green for exact baseline `a266f0f339087547edaacace316a322a348f0a7c`. The latter passed amd64/arm64 scans and published public index `sha256:07d92efa9f2ff26afccc475ffaab3dccfa98cc34db824ed9743c06142e9bafed` plus attestation manifests.
+- Hosted baseline evidence predates the round-2 working-tree changes. Round 2 needs a new hosted run, per-architecture scan, and digest.
 
 Executed results and missing suites are recorded in [../IMPLEMENTATION_STATUS.md](../IMPLEMENTATION_STATUS.md); configuration files alone are not counted as passing tests.
 
@@ -284,9 +284,9 @@ Executed results and missing suites are recorded in [../IMPLEMENTATION_STATUS.md
 
 - Targeted runtime schemas are defined but not wired into most requests.
 - Capability checks do not yet cover every API-dependent control or settings field.
-- Full stock action coverage is present in API wrappers but not in the interaction model.
+- Several lower-priority stock actions remain wrapper-only or absent, including peer addition and file/folder rename.
 - Component fixtures demonstrate bounded DOM counts for 5,000 desktop/mobile torrents, a searched 10,000-file tree, a 10,000-index priority/reapply flow, and 2,000 RSS articles. Coarse local time guards are not timing, memory, or sustained-poll benchmarks; comparable large peer and Search-result fixture evidence is also absent.
 - Several user-facing strings bypass Vue I18n.
-- Current builds are recorded: standalone tree 746,801 bytes; Alternative WebUI tree 1,041,432 bytes; zip 375,293 bytes with SHA-256 `6e9318711a937b89cf8d5b936ebc4de00bcf2f256950b36f589672558c8e8e83`. Final checks found no maps, MSW worker, or embedded upstream string.
-- The container publication workflow is not in committed HEAD, the public GHCR manifest is absent or inaccessible/private, and a deployable immutable reference is unavailable.
-- Real qBittorrent coverage includes safe local mutations and outage recovery, but not Search/RSS/Creator/settings/peer workflows, large libraries, Kubernetes, outer proxy TLS, subpaths, or PWA lifecycle.
+- Current builds are recorded: standalone tree 780,965 bytes; Alternative WebUI tree 1,076,344 bytes; zip 384,605 bytes with SHA-256 `8a833b0af9c4a6f00eeb2f323e302ecbce879375766d7c23a6b72b643c00d862`. Final checks found no maps, MSW worker, or embedded upstream string.
+- A deployable public baseline digest exists, but there is no hosted run or immutable registry reference for the current round-2 working tree.
+- Real qBittorrent coverage includes safe local mutations and outage recovery, but not Search/RSS/Creator/settings/peer workflows, large libraries, full Kubernetes topology validation, outer proxy TLS, subpaths, or PWA lifecycle.

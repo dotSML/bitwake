@@ -58,6 +58,7 @@ export interface TorrentInfo {
   ratio_limit: number
   seeding_time_limit: number
   inactive_seeding_time_limit?: number
+  share_limit_action?: 'Default' | 'Stop' | 'Remove' | 'RemoveWithContent' | 'EnableSuperSeeding'
   auto_tmm: boolean
   force_start: boolean
   seq_dl: boolean

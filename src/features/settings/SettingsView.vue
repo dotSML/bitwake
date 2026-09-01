@@ -21,6 +21,11 @@ const activeSection = ref<SettingsSection | 'Interface'>('Downloads')
 const loading = ref(true)
 const saving = ref(false)
 const errors = ref<Record<string, string>>({})
+const networkInterfaces = ref<Array<{ name: string; value: string }>>([])
+const networkAddresses = ref<string[]>([])
+const networkOptionsLoading = ref(false)
+const networkOptionsError = ref<string | null>(null)
+let networkAddressRequest = 0
 const sections: Array<SettingsSection | 'Interface'> = [
   'Downloads',
   'Connection',
@@ -106,12 +111,87 @@ function selectSection(section: SettingsSection | 'Interface'): void {
   search.value = ''
 }
 
+function uniqueOptions(
+  options: Array<{ value: string; label: string }>
+): Array<{ value: string; label: string }> {
+  return [...new Map(options.map((option) => [option.value, option])).values()]
+}
+
+function optionsFor(
+  definition: SettingDefinition
+): Array<{ value: string | number; label: string }> {
+  if (definition.dynamicOptions === 'network-interfaces') {
+    const current = String(draft.value.current_network_interface ?? '')
+    return uniqueOptions([
+      { value: '', label: 'Any interface' },
+      ...networkInterfaces.value.map(({ name, value }) => ({ value, label: name || value })),
+      ...(current && !networkInterfaces.value.some(({ value }) => value === current)
+        ? [{ value: current, label: `${current} (current selection)` }]
+        : [])
+    ])
+  }
+  if (definition.dynamicOptions === 'network-addresses') {
+    const current = String(draft.value.current_interface_address ?? '')
+    return uniqueOptions([
+      { value: '', label: 'All addresses' },
+      { value: '0.0.0.0', label: 'All IPv4 addresses' },
+      { value: '::', label: 'All IPv6 addresses' },
+      ...networkAddresses.value.map((value) => ({ value, label: value })),
+      ...(current && !['0.0.0.0', '::', ...networkAddresses.value].includes(current)
+        ? [{ value: current, label: `${current} (current selection)` }]
+        : [])
+    ])
+  }
+  return definition.options ?? []
+}
+
+async function loadNetworkAddresses(interfaceName: string): Promise<void> {
+  const request = ++networkAddressRequest
+  networkOptionsLoading.value = true
+  try {
+    const addresses = await api.app.networkInterfaceAddressList(interfaceName)
+    if (request === networkAddressRequest) {
+      networkAddresses.value = addresses
+      networkOptionsError.value = null
+    }
+  } catch {
+    if (request === networkAddressRequest) {
+      networkAddresses.value = []
+      networkOptionsError.value =
+        'Network interface addresses could not be loaded. Current values remain available.'
+    }
+  } finally {
+    if (request === networkAddressRequest) networkOptionsLoading.value = false
+  }
+}
+
+async function loadNetworkOptions(values: Record<string, unknown>): Promise<void> {
+  let interfaceLoadFailed = false
+  networkOptionsLoading.value = true
+  try {
+    networkInterfaces.value = await api.app.networkInterfaceList()
+    networkOptionsError.value = null
+  } catch {
+    interfaceLoadFailed = true
+    networkInterfaces.value = []
+    networkOptionsError.value =
+      'Network interfaces could not be loaded. Current values remain available.'
+  } finally {
+    networkOptionsLoading.value = false
+  }
+  await loadNetworkAddresses(String(values.current_network_interface ?? ''))
+  if (interfaceLoadFailed)
+    networkOptionsError.value =
+      'Network interfaces could not be loaded. Current values remain available.'
+}
+
 async function load(): Promise<void> {
   loading.value = true
   try {
     const values = sanitizePreferences(await api.app.preferences())
     serverValues.value = values
     draft.value = structuredClone(values)
+    await loadNetworkOptions(values)
   } catch (cause) {
     notifications.push(
       cause instanceof Error ? cause.message : 'Settings could not be loaded.',
@@ -130,6 +210,10 @@ function setValue(definition: SettingDefinition, raw: string | boolean): void {
       ? Number(raw) * (definition.apiScale ?? 1)
       : raw
   draft.value = { ...draft.value, [definition.key]: value }
+  if (definition.key === 'current_network_interface') {
+    draft.value = { ...draft.value, current_interface_address: '' }
+    void loadNetworkAddresses(String(value))
+  }
   const pair = shareLimitPairs.find(({ enabled }) => enabled === definition.key)
   if (pair && value === true && Number(draft.value[pair.value]) < 0) {
     draft.value = { ...draft.value, [pair.value]: pair.defaultValue }
@@ -163,7 +247,17 @@ function displayValue(definition: SettingDefinition): string {
 }
 function isSettingDisabled(definition: SettingDefinition): boolean {
   const pair = shareLimitPairs.find(({ value }) => value === definition.key)
-  return Boolean(pair && draft.value[pair.enabled] === false)
+  if (pair && draft.value[pair.enabled] === false) return true
+  if (definition.key === 'torrent_stop_condition' && draft.value.add_stopped_enabled === true)
+    return true
+  if (definition.key === 'ip_filter_path' && draft.value.ip_filter_enabled !== true) return true
+  if (definition.key === 'current_interface_address' && networkOptionsLoading.value) return true
+  if (
+    definition.key === 'max_ratio_act' &&
+    !shareLimitPairs.some(({ enabled }) => draft.value[enabled] === true)
+  )
+    return true
+  return false
 }
 async function save(): Promise<void> {
   for (const definition of settingsSchema) {
@@ -232,6 +326,22 @@ async function save(): Promise<void> {
     autorunChanged &&
     !window.confirm(
       'Host command warning: this changes a program qBittorrent can execute on the server. Run only commands you trust. Save anyway?'
+    )
+  )
+    return
+  const shareAction = Number(draft.value.max_ratio_act)
+  const destructiveShareLimitsChanged = shareLimitPairs.some(
+    ({ enabled, value }) =>
+      draft.value[enabled] === true &&
+      (serverValues.value[enabled] !== true || draft.value[value] !== serverValues.value[value])
+  )
+  if (
+    (shareAction !== Number(serverValues.value.max_ratio_act) || destructiveShareLimitsChanged) &&
+    (shareAction === 1 || shareAction === 3) &&
+    !window.confirm(
+      shareAction === 3
+        ? 'Destructive action warning: reaching a global share limit will remove the torrent and delete its content files. Save anyway?'
+        : 'Removal warning: reaching a global share limit will remove the torrent from qBittorrent. Save anyway?'
     )
   )
     return
@@ -397,6 +507,12 @@ onMounted(() => void load())
               UI.</span
             >
           </div>
+          <div
+            v-if="networkOptionsError && (activeSection === 'Connection' || search)"
+            class="option-error"
+          >
+            <AlertTriangle :size="18" /><span>{{ networkOptionsError }}</span>
+          </div>
           <div class="setting-list">
             <label
               v-for="definition in visibleDefinitions"
@@ -419,10 +535,11 @@ onMounted(() => void load())
                 v-else-if="definition.control === 'select'"
                 :id="`setting-${definition.key}`"
                 :value="draft[definition.key] as string | number"
+                :disabled="isSettingDisabled(definition)"
                 @change="setValue(definition, ($event.target as HTMLSelectElement).value)"
               >
                 <option
-                  v-for="option in definition.options"
+                  v-for="option in optionsFor(definition)"
                   :key="option.value"
                   :value="option.value"
                 >
@@ -560,7 +677,8 @@ onMounted(() => void load())
   gap: 8px;
   color: rgb(var(--color-muted));
 }
-.critical-banner {
+.critical-banner,
+.option-error {
   display: flex;
   align-items: center;
   gap: 8px;

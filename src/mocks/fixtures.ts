@@ -65,6 +65,7 @@ export function createTorrent(index: number): TorrentInfo {
     ratio_limit: -1,
     seeding_time_limit: -1,
     inactive_seeding_time_limit: -1,
+    share_limit_action: 'Default',
     auto_tmm: index % 3 === 0,
     force_start: false,
     seq_dl: false,

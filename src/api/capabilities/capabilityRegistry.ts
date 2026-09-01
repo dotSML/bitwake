@@ -15,6 +15,8 @@ export type Capability =
   | 'rssSmartEpisodeFilters'
   | 'processInfo'
   | 'exportTorrent'
+  | 'torrentShareLimitAction'
+  | 'torrentComment'
 
 interface CapabilityDefinition {
   minimumApi?: string
@@ -46,7 +48,15 @@ export const capabilityDefinitions: Readonly<Record<Capability, CapabilityDefini
   apiKeyManagement: { minimumApi: '2.14.1', description: 'Web API key management' },
   rssSmartEpisodeFilters: { minimumApi: '2.11.2', description: 'RSS smart episode filters' },
   processInfo: { minimumApi: '2.15.1', description: 'qBittorrent process information' },
-  exportTorrent: { minimumApi: '2.11.2', description: 'Download a completed torrent metadata file' }
+  exportTorrent: {
+    minimumApi: '2.8.11',
+    description: 'Download a torrent metadata file'
+  },
+  torrentShareLimitAction: {
+    minimumApi: '2.12.0',
+    description: 'Per-torrent share-limit actions'
+  },
+  torrentComment: { minimumApi: '2.12.1', description: 'Editable torrent comments' }
 }
 
 export interface CapabilityRegistry {

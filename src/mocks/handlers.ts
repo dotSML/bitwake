@@ -11,14 +11,25 @@ let creatorTasks: Array<Record<string, unknown>> = []
 
 const preferences: Record<string, unknown> = {
   save_path: '/downloads',
+  torrent_content_layout: 'Original',
+  add_to_top_of_queue: false,
+  add_stopped_enabled: false,
+  torrent_stop_condition: 'None',
+  merge_trackers: false,
   temp_path_enabled: false,
   temp_path: '/downloads/incomplete',
+  use_unwanted_folder: false,
+  use_category_paths_in_manual_mode: false,
+  export_dir: '',
+  export_dir_fin: '',
   preallocate_all: false,
   incomplete_files_ext: true,
   auto_tmm_enabled: false,
   listen_port: 51413,
   random_port: false,
   upnp: true,
+  current_network_interface: '',
+  current_interface_address: '',
   max_connec: 500,
   max_connec_per_torrent: 100,
   max_uploads: 20,
@@ -28,6 +39,9 @@ const preferences: Record<string, unknown> = {
   proxy_port: 8080,
   proxy_auth_enabled: false,
   proxy_username: '',
+  ip_filter_enabled: false,
+  ip_filter_path: '',
+  ip_filter_trackers: false,
   dl_limit: 0,
   up_limit: 0,
   alt_dl_limit: 10240,
@@ -43,6 +57,7 @@ const preferences: Record<string, unknown> = {
   lsd: true,
   encryption: 0,
   anonymous_mode: false,
+  max_ratio_act: 0,
   queueing_enabled: true,
   max_active_downloads: 5,
   max_active_uploads: 5,
@@ -124,6 +139,16 @@ export const handlers = [
       }
     ])
   ),
+  http.get(api('app/networkInterfaceList'), () =>
+    HttpResponse.json([
+      { name: 'Ethernet (eth0)', value: 'eth0' },
+      { name: 'WireGuard (wg0)', value: 'wg0' }
+    ])
+  ),
+  http.get(api('app/networkInterfaceAddressList'), ({ request }) => {
+    const iface = new URL(request.url).searchParams.get('iface')
+    return HttpResponse.json(iface === 'wg0' ? ['10.8.0.2'] : ['192.0.2.10', '2001:db8::10'])
+  }),
   http.get(api('clientdata/load'), ({ request }) => {
     const keys = JSON.parse(new URL(request.url).searchParams.get('keys') ?? '[]') as string[]
     return HttpResponse.json(
@@ -289,8 +314,16 @@ export const handlers = [
   http.get(api('torrents/pieceAvailability'), () =>
     HttpResponse.json(Array.from({ length: 900 }, (_, index) => (index % 37 ? 3 : 0)))
   ),
+  http.get(
+    api('torrents/export'),
+    () =>
+      new HttpResponse(new Blob(['mock torrent metadata'], { type: 'application/x-bittorrent' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/x-bittorrent' }
+      })
+  ),
   http.post(
-    /\/api\/v2\/torrents\/(?:start|stop|delete|recheck|reannounce|increasePrio|decreasePrio|topPrio|bottomPrio|setForceStart|setAutoManagement|toggleSequentialDownload|toggleFirstLastPiecePrio|setSuperSeeding|setDownloadLimit|setUploadLimit|setShareLimits|setLocation|rename|setCategory|addTags|removeTags|addTrackers|editTracker|removeTrackers|addPeers|filePrio|renameFile|renameFolder|addWebSeeds|editWebSeed|removeWebSeeds)$/,
+    /\/api\/v2\/torrents\/(?:start|stop|delete|recheck|reannounce|increasePrio|decreasePrio|topPrio|bottomPrio|setForceStart|setAutoManagement|toggleSequentialDownload|toggleFirstLastPiecePrio|setSuperSeeding|setDownloadLimit|setUploadLimit|setShareLimits|setComment|setLocation|rename|setCategory|addTags|removeTags|addTrackers|editTracker|removeTrackers|addPeers|filePrio|renameFile|renameFolder|addWebSeeds|editWebSeed|removeWebSeeds)$/,
     () => new HttpResponse(null, { status: 204 })
   ),
   http.post(api('torrents/add'), async ({ request }) => {

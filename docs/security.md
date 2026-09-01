@@ -136,10 +136,9 @@ Native Alternative WebUI deployments are served by qBittorrent and do not inheri
 - Production source maps are disabled in the current Vite configuration and are not intended to ship in either build output. Keep this invariant in the artifact checks if build tooling changes.
 - The generated 192 px/512 px PNG icons, source SVG icon, and all runtime code are local.
 - Search-plugin installation delegates code acquisition/execution to qBittorrent's search subsystem. Install only trusted plugins and sources.
-- The previous runtime base failed a Trivy v0.74.0 scan with 25 HIGH and 2 CRITICAL findings. The complete final local amd64 and arm64 NeoTorrent images (Alpine 3.24.1) each passed a current-database scan with 0 HIGH/CRITICAL using `--scanners vuln --severity HIGH,CRITICAL --ignore-unfixed=false --exit-code 1`.
-- The final linux/amd64 content ID is `sha256:686127d46d2539bd41c60b645d172a0352acfe3ab89e448f84c636d7d47a78ef`; the final linux/arm64 audit image ID is `sha256:42f9d35735bcedabfed6ac581a3ea1ec3dd724f8be023998f78fd479f152aefb`. Both run as UID/GID 101:101 with revision `1ab285bb8dbd61b63ef6296790ff895eb918bb2d-dirty`. These are local content identifiers, not GHCR references or proof of a published multi-architecture manifest.
-- Anonymous inspection of `ghcr.io/dotsml/neotorrent:edge` failed during GHCR token acquisition with HTTP 403. The image is therefore not publicly verifiable here (it may be absent or private), and no deployable immutable digest has been established.
-- The container publication workflow is currently uncommitted and has never run on GitHub. Its intended SBOM, provenance, scan, and multi-architecture outputs do not exist as hosted release evidence yet.
+- The previous runtime base failed a Trivy v0.74.0 scan with 25 HIGH and 2 CRITICAL findings. The current round-2 local amd64 image passed a current-database scan with 0 HIGH/CRITICAL on Alpine 3.24.1. Its local content ID is `sha256:d3b017b11147cc2c32377b7a09aa7b96fa63295961b997984e21a2bfa0f4004e`; it runs as UID/GID 101:101 with revision `a266f0f339087547edaacace316a322a348f0a7c-dirty`. A local content ID is not a registry reference.
+- The hosted baseline container run passed amd64 and arm64 HIGH/CRITICAL scans, published SBOM/provenance and a GitHub artifact attestation, and produced public index `ghcr.io/dotsml/neotorrent@sha256:07d92efa9f2ff26afccc475ffaab3dccfa98cc34db824ed9743c06142e9bafed` with both platform and attestation manifests.
+- The public image is exact baseline `a266f0f`, not the current round-2 tree. Round 2 still needs hosted per-architecture verification and a new immutable digest before publication claims transfer to it.
 
 ## Known security gaps and caveats
 
@@ -157,7 +156,7 @@ The Add Torrent path validates typed URLs, RSS feed creation explicitly requires
 
 ### Destructive action breadth
 
-Destructive confirmation is implemented, and frequent tracker/Web Seed/RSS/category/tag/plugin/shutdown flows use application dialogs rather than `window.prompt`. PWA update and three secondary Settings decisions still use native confirmation, and some bulk mutations cannot report a per-item result. Full action authorization still depends entirely on the qBittorrent session.
+Destructive confirmation is implemented, and frequent tracker/Web Seed/RSS/category/tag/plugin/shutdown flows use application dialogs rather than `window.prompt`. PWA update and four secondary Settings decisions still use native confirmation, and some bulk mutations cannot report a per-item result. Full action authorization still depends entirely on the qBittorrent session.
 
 ### PWA verification
 
@@ -165,7 +164,7 @@ API caching rules are explicit, and the service-worker update callback presents 
 
 ### No formal security audit
 
-The real qBittorrent 5.2.3 integration verified the standalone login/session lifecycle, same-origin mutations, outage/recovery behavior, and the absence of unexpected browser errors in that suite. The deterministic container contract and complete local amd64/arm64 image scans also passed. None is a penetration test, formal source/provenance review, complete CSRF/CSP deployment test, hostile-content fuzzing campaign, hosted attestation, or live-deployment review.
+The real qBittorrent 5.2.3 integration verified the standalone login/session lifecycle, same-origin mutations, outage/recovery behavior, and the absence of unexpected browser errors in that suite. The deterministic container contract, current local amd64 scan, and hosted baseline amd64/arm64 scans also passed. None is a penetration test, formal source/provenance review, complete CSRF/CSP deployment test, hostile-content fuzzing campaign, hosted attestation, or live-deployment review.
 
 ## Private-data handling
 
@@ -197,4 +196,4 @@ This repository does not currently declare a dedicated security contact or priva
 8. Confirm no proxy or service worker caches `/api/` or login responses.
 9. Confirm the final artifact contains no production source maps.
 10. Keep a tested rollback path.
-11. Before using a published container, verify its immutable digest, expected architecture, vulnerability result, SBOM, and provenance. No such public NeoTorrent image is verified for this snapshot.
+11. Before using a published container, verify its immutable digest, expected architecture, vulnerability result, SBOM, and provenance. No public image containing this round-2 snapshot is verified or published.

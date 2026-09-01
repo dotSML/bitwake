@@ -36,6 +36,7 @@ export function makeTorrent(overrides: Partial<TorrentInfo> = {}): TorrentInfo {
     up_limit: -1,
     ratio_limit: -1,
     seeding_time_limit: -1,
+    share_limit_action: 'Default',
     auto_tmm: false,
     force_start: false,
     seq_dl: false,

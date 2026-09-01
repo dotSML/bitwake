@@ -149,6 +149,80 @@ describe('torrent mutation contracts', () => {
     expect(bodyAt(fetchMock, 0).get('shareLimitAction')).toBe('Stop')
   })
 
+  it('uses the exact target contracts for location, rename, queue, management, and limits', async () => {
+    const { api, fetchMock } = setup()
+
+    await api.setLocation(['one', 'two'], '/mnt/media')
+    await api.rename('one', 'New display name')
+    await api.topPriority(['one', 'two'])
+    await api.increasePriority(['one'])
+    await api.decreasePriority(['two'])
+    await api.bottomPriority(['one', 'two'])
+    await api.setAutoManagement(['one', 'two'], false)
+    await api.setSuperSeeding(['one', 'two'], true)
+    await api.setDownloadLimit(['one', 'two'], 2_560)
+    await api.setUploadLimit(['one', 'two'], 0)
+    await api.setComment(['one', 'two'], 'Updated comment')
+
+    const expected = [
+      ['torrents/setLocation', { hashes: 'one|two', location: '/mnt/media' }],
+      ['torrents/rename', { hash: 'one', name: 'New display name' }],
+      ['torrents/topPrio', { hashes: 'one|two' }],
+      ['torrents/increasePrio', { hashes: 'one' }],
+      ['torrents/decreasePrio', { hashes: 'two' }],
+      ['torrents/bottomPrio', { hashes: 'one|two' }],
+      ['torrents/setAutoManagement', { hashes: 'one|two', enable: 'false' }],
+      ['torrents/setSuperSeeding', { hashes: 'one|two', value: 'true' }],
+      ['torrents/setDownloadLimit', { hashes: 'one|two', limit: '2560' }],
+      ['torrents/setUploadLimit', { hashes: 'one|two', limit: '0' }],
+      ['torrents/setComment', { hashes: 'one|two', comment: 'Updated comment' }]
+    ] as const
+
+    expected.forEach(([route, fields], index) => {
+      expect(String(fetchMock.mock.calls[index]?.[0])).toBe(`https://example.test/api/v2/${route}`)
+      expect(fetchMock.mock.calls[index]?.[1]?.method).toBe('POST')
+      expect(Object.fromEntries(bodyAt(fetchMock, index))).toEqual(fields)
+    })
+  })
+
+  it('treats a forbidden set-location response as an authentication or proxy-policy failure', async () => {
+    const onAuthenticationExpired = vi.fn()
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(new Response('Forbidden', { status: 403 }))
+    const api = createTorrentsApi(
+      new HttpClient({
+        baseUrl: 'https://example.test/api/v2/',
+        fetch: fetchMock,
+        onAuthenticationExpired
+      })
+    )
+
+    await expect(api.setLocation(['one'], '/downloads')).rejects.toMatchObject({
+      kind: 'forbidden',
+      status: 403
+    })
+    expect(onAuthenticationExpired).toHaveBeenCalledOnce()
+  })
+
+  it('exports torrent metadata with a single hash using GET query encoding', async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(new Blob(['torrent']), {
+        status: 200,
+        headers: { 'Content-Type': 'application/x-bittorrent' }
+      })
+    )
+    const api = createTorrentsApi(
+      new HttpClient({ baseUrl: 'https://example.test/api/v2/', fetch: fetchMock })
+    )
+
+    await expect(api.exportTorrent('hash / value?')).resolves.toBeInstanceOf(Blob)
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
+      'https://example.test/api/v2/torrents/export?hash=hash+%2F+value%3F'
+    )
+    expect(fetchMock.mock.calls[0]?.[1]?.method).toBe('GET')
+  })
+
   it('uses target-5.2.3 URL encoding for tracker removal', async () => {
     const { api, fetchMock } = setup()
     const urls = ['https://tracker.test/a|b?x=%2F', 'https://tracker.test/two path']

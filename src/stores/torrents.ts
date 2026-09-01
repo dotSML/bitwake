@@ -48,6 +48,7 @@ function completeTorrent(hash: string, update: Partial<TorrentInfo>): TorrentInf
     up_limit: update.up_limit ?? -1,
     ratio_limit: update.ratio_limit ?? -1,
     seeding_time_limit: update.seeding_time_limit ?? -1,
+    share_limit_action: update.share_limit_action ?? 'Default',
     auto_tmm: update.auto_tmm ?? false,
     force_start: update.force_start ?? false,
     seq_dl: update.seq_dl ?? false,

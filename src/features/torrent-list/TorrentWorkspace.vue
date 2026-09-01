@@ -6,6 +6,8 @@ import TransferGraph from '@/features/statistics/TransferGraph.vue'
 import TorrentDetailPanel from '@/features/torrent-details/TorrentDetailPanel.vue'
 import DeleteTorrentDialog from '@/features/torrent-actions/DeleteTorrentDialog.vue'
 import TorrentActionMenu from '@/features/torrent-actions/TorrentActionMenu.vue'
+import TorrentOperationDialog from '@/features/torrent-actions/TorrentOperationDialog.vue'
+import type { TorrentOperation } from '@/features/torrent-actions/torrentOperations'
 import { usePreferencesStore } from '@/stores/preferences'
 import { useTorrentsStore } from '@/stores/torrents'
 import MobileTorrentList from './MobileTorrentList.vue'
@@ -19,6 +21,11 @@ const torrents = useTorrentsStore()
 const preferences = usePreferencesStore()
 const deleteOpen = ref(false)
 const deleteHashes = ref<string[]>([])
+const operationDialog = ref<{
+  open: boolean
+  operation: TorrentOperation
+  hashes: string[]
+}>({ open: false, operation: 'location', hashes: [] })
 const dragging = ref(false)
 const actionReturnFocus = ref<HTMLElement | null>(null)
 const actionMenu = ref({
@@ -60,8 +67,22 @@ function openDelete(hashes: string[] = [...torrents.selectedHashes]): void {
 function closeActionMenu(): void {
   actionMenu.value = { ...actionMenu.value, open: false }
   void nextTick(() => {
-    if (!deleteOpen.value && actionReturnFocus.value?.isConnected) actionReturnFocus.value.focus()
+    if (!deleteOpen.value && !operationDialog.value.open && actionReturnFocus.value?.isConnected)
+      actionReturnFocus.value.focus()
   })
+}
+
+function openOperation(operation: TorrentOperation, hashes: string[]): void {
+  operationDialog.value = { open: true, operation, hashes: [...hashes] }
+}
+
+function updateOperationOpen(open: boolean): void {
+  operationDialog.value = { ...operationDialog.value, open }
+  if (!open) {
+    void nextTick(() => {
+      if (actionReturnFocus.value?.isConnected) actionReturnFocus.value.focus()
+    })
+  }
 }
 
 function onContext(event: MouseEvent, hash: string): void {
@@ -88,16 +109,42 @@ function onContext(event: MouseEvent, hash: string): void {
 }
 
 function onMobileMenu(hash: string, event: MouseEvent): void {
-  torrents.setSelection([hash])
+  const rowAlreadySelected = torrents.selectedHashes.has(hash)
+  if (!rowAlreadySelected) torrents.setSelection([hash])
+  const hashes = rowAlreadySelected ? [...torrents.selectedHashes] : [hash]
   actionReturnFocus.value = event.currentTarget as HTMLElement | null
   actionMenu.value = {
     open: true,
     mobile: true,
     x: 0,
     y: 0,
-    hashes: [hash],
+    hashes,
     detailHash: hash,
-    title: torrents.byHash.get(hash)?.name ?? 'Torrent actions'
+    title:
+      hashes.length === 1
+        ? (torrents.byHash.get(hash)?.name ?? 'Torrent actions')
+        : `${hashes.length} selected torrents`
+  }
+}
+
+function onSelectionMenu(event: MouseEvent): void {
+  const hashes = [...torrents.selectedHashes]
+  if (!hashes.length) return
+  const element = event.currentTarget as HTMLElement
+  const mobile = matchMedia('(max-width: 767px)').matches
+  const rect = element.getBoundingClientRect()
+  actionReturnFocus.value = element
+  actionMenu.value = {
+    open: true,
+    mobile,
+    x: mobile ? 0 : rect.left,
+    y: mobile ? 0 : rect.bottom + 4,
+    hashes,
+    detailHash: hashes.length === 1 ? hashes[0]! : null,
+    title:
+      hashes.length === 1
+        ? (torrents.byHash.get(hashes[0]!)?.name ?? 'Torrent actions')
+        : `${hashes.length} selected torrents`
   }
 }
 
@@ -173,7 +220,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
           {{ chip.label }}
         </button>
       </div>
-      <TorrentToolbar @delete="openDelete()" @add="emit('addTorrent')" />
+      <TorrentToolbar @delete="openDelete()" @add="emit('addTorrent')" @actions="onSelectionMenu" />
       <div
         v-if="torrents.connectionState === 'syncing' && !torrents.torrents.length"
         class="workspace-state"
@@ -233,8 +280,15 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
       @close="closeActionMenu"
       @delete="openDelete"
       @details="activate"
+      @operation="openOperation"
     />
     <DeleteTorrentDialog v-model:open="deleteOpen" :hashes="deleteHashes" />
+    <TorrentOperationDialog
+      :open="operationDialog.open"
+      :operation="operationDialog.operation"
+      :hashes="operationDialog.hashes"
+      @update:open="updateOperationOpen"
+    />
   </div>
 </template>
 
