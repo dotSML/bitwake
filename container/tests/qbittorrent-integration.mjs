@@ -448,9 +448,9 @@ page.on('response', (response) => {
 page.on('request', (request) => {
   if (request.resourceType() === 'document') documentRequests += 1
 })
-let contentLayoutObservations = []
-let mediaPlacementOperations = []
-let parityEndpointObservations = null
+let contentLayoutObservations
+let mediaPlacementOperations
+let parityEndpointObservations
 
 async function login(password) {
   await page.getByLabel('Username').fill('admin')

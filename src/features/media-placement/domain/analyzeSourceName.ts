@@ -178,7 +178,7 @@ export function analyzeSourceName(
   const tvHints = findTvHints(meaningfulWords)
 
   let kind: MediaKind = 'unknown'
-  let title = ''
+  let title: string
   let year: number | undefined
   let season: number | undefined
   let seasons: number[] = []
