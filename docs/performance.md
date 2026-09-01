@@ -1,6 +1,6 @@
 # Performance and memory verification
 
-NeoTorrent has two distinct scale-test layers:
+Bitwake has two distinct scale-test layers:
 
 - deterministic unit/component regressions prove bounded collections, stable
   identities, and virtualized DOM counts for torrents, files, peers, logs, RSS,
@@ -63,19 +63,22 @@ failed run green.
 The following environment variables provide explicit experimental overrides:
 
 ```text
-NEOTORRENT_PERF_ITERATIONS
-NEOTORRENT_PERF_STARTUP_P95_MS
-NEOTORRENT_PERF_FILTER_P95_MS
-NEOTORRENT_PERF_HEAP_MAX_MB
-NEOTORRENT_PERF_HEAP_GROWTH_MAX_MB
-NEOTORRENT_PERF_DOM_NODES_MAX
-NEOTORRENT_PERF_RENDERED_ROWS_MAX
-NEOTORRENT_PERF_STARTUP_SCALE_RATIO_MAX
-NEOTORRENT_PERFORMANCE_OUTPUT
+BITWAKE_PERF_ITERATIONS
+BITWAKE_PERF_STARTUP_P95_MS
+BITWAKE_PERF_FILTER_P95_MS
+BITWAKE_PERF_HEAP_MAX_MB
+BITWAKE_PERF_HEAP_GROWTH_MAX_MB
+BITWAKE_PERF_DOM_NODES_MAX
+BITWAKE_PERF_RENDERED_ROWS_MAX
+BITWAKE_PERF_STARTUP_SCALE_RATIO_MAX
+BITWAKE_PERFORMANCE_OUTPUT
 ```
 
 All numeric overrides must be positive integers. Record overrides with the
 result; an overridden local pass does not replace the repository defaults.
+The corresponding `NEOTORRENT_*` names remain deprecated compatibility aliases
+for existing automation; a canonical `BITWAKE_*` value takes precedence when
+both are present.
 
 ## Interpretation and limits
 

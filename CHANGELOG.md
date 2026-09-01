@@ -1,12 +1,15 @@
 # Changelog
 
-All notable NeoTorrent changes are recorded here. The project follows
+All notable Bitwake changes are recorded here. The project follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and uses semantic
 versions for published artifacts.
 
 ## [Unreleased]
 
-No unreleased changes are recorded yet.
+### Changed
+
+- Renamed the product from NeoTorrent to Bitwake while retaining compatibility
+  aliases and in-place upgrade paths for existing installations.
 
 ## [0.1.0] - 2026-09-01
 

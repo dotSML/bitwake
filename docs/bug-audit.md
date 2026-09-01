@@ -1,5 +1,10 @@
 # NeoTorrent adversarial bug audit — 2026-09-01
 
+> [!NOTE]
+> This audit was performed before NeoTorrent was renamed to Bitwake. Product
+> names, paths, image tags, commands, and other recorded evidence below remain
+> unchanged intentionally.
+
 ## Scope and outcome
 
 This was a bug hunt and repair pass against NeoTorrent's existing behavior. It started from commit `ca497f60feec3099d21d7be42c85f60c5819cf12` on a clean worktree and was performed on branch `bug-audit/2026-09-01`. No image was published and the branch was not pushed or merged.

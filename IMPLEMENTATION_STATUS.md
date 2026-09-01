@@ -1,6 +1,6 @@
 # Implementation status
 
-NeoTorrent is a functional preview of a responsive qBittorrent WebUI. This file is a living summary of the implementation; the [feature parity inventory](docs/feature-parity.md) provides the detailed feature-by-feature view.
+Bitwake is a functional preview of a responsive qBittorrent WebUI. This file is a living summary of the implementation; the [feature parity inventory](docs/feature-parity.md) provides the detailed feature-by-feature view.
 
 The primary compatibility target is qBittorrent 5.2.3 with Web API 2.15.1. The automated compatibility baseline is qBittorrent 5.0.5 with Web API 2.11.2; other qBittorrent 5.x releases may work, but should not be treated as verified unless they are added to the pinned compatibility matrix.
 
@@ -119,4 +119,4 @@ Real-instance tests use generated local torrents without external trackers or th
 
 ## Release guidance
 
-Treat NeoTorrent as an implementation preview for isolated evaluation and continued development. Do not advertise complete stock-WebUI parity, compatibility with every qBittorrent 5.x release, formal security assurance, or production-validated Kubernetes operation. Operators should pin reviewed artifacts, validate their chosen topology, retain a recovery path to qBittorrent's native UI, and avoid exposing the daemon directly.
+Treat Bitwake as an implementation preview for isolated evaluation and continued development. Do not advertise complete stock-WebUI parity, compatibility with every qBittorrent 5.x release, formal security assurance, or production-validated Kubernetes operation. Operators should pin reviewed artifacts, validate their chosen topology, retain a recovery path to qBittorrent's native UI, and avoid exposing the daemon directly.

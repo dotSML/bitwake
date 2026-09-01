@@ -1,6 +1,6 @@
-# Releasing NeoTorrent
+# Releasing Bitwake
 
-NeoTorrent releases are deliberately staged. A Git tag alone publishes no
+Bitwake releases are deliberately staged. A Git tag alone publishes no
 GitHub Release. The container workflow must first verify and publish the tagged
 image, and then a maintainer runs the manual Release workflow for the exact tag.
 
@@ -17,6 +17,8 @@ permission to copy, modify, or redistribute it. The Release workflow therefore
 uses `--require-license` and fails closed until the project owner chooses and
 adds an appropriate `LICENSE`, `LICENSE.md`, `LICENSE.txt`, `LICENCE`, or
 `COPYING` file. Do not remove or bypass that gate to ship a release.
+See [license-decision.md](license-decision.md) for the owner decision that
+remains deliberately outside this rename.
 
 The automated gate checks that a recognized license file is present, that
 `package.json` has a reviewed non-`UNLICENSED`/`NOASSERTION` SPDX expression,
@@ -64,7 +66,7 @@ with the chosen terms.
    SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)" corepack pnpm build:alt-webui
    corepack pnpm release:verify -- --tag "v${release_version}" \
      --require-license \
-     --artifact "dist/neotorrent-alt-webui-v${release_version}.zip"
+     --artifact "dist/bitwake-alt-webui-v${release_version}.zip"
    ```
 
    A fixed `SOURCE_DATE_EPOCH`, sorted archive entries, and stripped host ZIP
@@ -77,7 +79,7 @@ with the chosen terms.
    `package.json` version, and push only after review:
 
    ```bash
-   git tag -s v0.1.0 -m "NeoTorrent v0.1.0"
+   git tag -s v0.1.0 -m "Bitwake v0.1.0"
    git push origin v0.1.0
    ```
 
@@ -90,7 +92,10 @@ with the chosen terms.
    both pinned official 5.0.5 / Web API 2.11.2 and 5.2.3 / 2.15.1 images.
    Scheduled/manual evidence is revision-specific; rerun those workflows for
    the release commit when needed.
-4. Verify `ghcr.io/dotsml/neotorrent:<version>` resolves to the expected manifest.
+4. Verify `ghcr.io/dotsml/bitwake:<version>` resolves to the expected manifest.
+   During the rename compatibility period, also verify the deprecated
+   `ghcr.io/dotsml/neotorrent:<version>` publication was produced from the same
+   reviewed source revision and equivalent artifact content.
 5. Run the **Release** workflow from GitHub Actions and enter the exact tag. Its
    non-publishing verification job checks out that tag, rejects a package/tag or
    changelog mismatch, repeats the source release gates, builds the Alternative
@@ -105,8 +110,8 @@ with the chosen terms.
 
 The GitHub Release contains:
 
-- `neotorrent-alt-webui-v<version>.zip`;
-- `SHA256SUMS` covering the ZIP, metadata, and rendered notes;
+- `bitwake-alt-webui-v<version>.zip`;
+- `bitwake-v<version>-checksums.txt` covering the ZIP, metadata, and rendered notes;
 - `release-metadata.json` with the version, tag, revision, size, and ZIP digest;
 - release notes rendered from the matching changelog entry.
 
@@ -123,16 +128,20 @@ silently replace a published artifact. Correct the source on a new version.
 Download all release assets into one directory, then run:
 
 ```bash
-sha256sum --check SHA256SUMS
 release_version=$(jq --raw-output .version release-metadata.json)
-unzip -t "neotorrent-alt-webui-v${release_version}.zip"
+sha256sum --check "bitwake-v${release_version}-checksums.txt"
+unzip -t "bitwake-alt-webui-v${release_version}.zip"
 release_image=$(jq --raw-output .image release-metadata.json)
 docker buildx imagetools inspect "${release_image}"
 ```
 
-Confirm that `release_image` is the expected `ghcr.io/dotsml/neotorrent@sha256:…`
+Confirm that `release_image` is the expected `ghcr.io/dotsml/bitwake@sha256:…`
 reference and compare it to the Container workflow summary and deployment
 review. Prefer digest-pinned deployments over version tags.
+
+Release metadata and downloadable artifacts use Bitwake as their canonical
+identity. The NeoTorrent GHCR reference is a deprecated compatibility
+publication and does not change the canonical release subject.
 
 ## Rollback
 

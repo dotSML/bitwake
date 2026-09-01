@@ -1,6 +1,6 @@
-# Contributing to NeoTorrent
+# Contributing to Bitwake
 
-Thanks for helping improve NeoTorrent. Bug reports, focused feature proposals,
+Thanks for helping improve Bitwake. Bug reports, focused feature proposals,
 documentation corrections, tests, and code changes are welcome.
 
 Participation in project spaces is governed by the [Code of Conduct](CODE_OF_CONDUCT.md).
@@ -27,8 +27,8 @@ You need:
 Clone and install the frozen dependency graph:
 
 ```bash
-git clone https://github.com/dotSML/neotorrent.git
-cd neotorrent
+git clone https://github.com/dotSML/bitwake.git
+cd bitwake
 corepack enable
 corepack pnpm install --frozen-lockfile
 ```
@@ -86,7 +86,7 @@ deployment changes. Record the commands and results in the pull request.
 
 ## Reporting bugs safely
 
-A useful bug report includes the NeoTorrent release or commit, qBittorrent
+A useful bug report includes the Bitwake release or commit, qBittorrent
 version, Web API version, deployment mode, browser and operating system,
 reproduction steps, and the expected and actual behavior.
 
@@ -113,7 +113,8 @@ terms. Contributors must submit only material they have the right to submit,
 and should not assume that repository visibility grants permission to reuse or
 redistribute the project. Public release remains blocked until the project owner
 chooses a license and aligns repository, package, container, and artifact
-metadata. See [docs/releasing.md](docs/releasing.md).
+metadata. See the [license decision](docs/license-decision.md) and
+[release guide](docs/releasing.md).
 
 ## Pull requests
 

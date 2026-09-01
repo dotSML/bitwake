@@ -2,7 +2,7 @@
 
 ## Scope and status
 
-NeoTorrent is a client-only Vue application with two production delivery modes. qBittorrent can serve separate public/private Alternative WebUI resources, or an unprivileged Nginx container can serve one standalone SPA and reverse-proxy `/api/` to qBittorrent. The Nginx layer is transport/static delivery, not a custom application API, preference sidecar, or database. Both modes are designed around qBittorrent 5.2.3 / Web API 2.15.1, same-origin browser cookies, relative URLs, and incremental state.
+Bitwake is a client-only Vue application with two production delivery modes. qBittorrent can serve separate public/private Alternative WebUI resources, or an unprivileged Nginx container can serve one standalone SPA and reverse-proxy `/api/` to qBittorrent. The Nginx layer is transport/static delivery, not a custom application API, preference sidecar, or database. Both modes are designed around qBittorrent 5.2.3 / Web API 2.15.1, same-origin browser cookies, relative URLs, and incremental state.
 
 This document describes the code that exists. Items under **Current gaps** are intentional disclosures, not future behavior presented as complete.
 
@@ -240,9 +240,15 @@ Search, RSS, Torrent Creator, Logs, Statistics, Diagnostics, Settings, More, and
 
 Persistence behavior:
 
-1. Read `clientdata/load` for `neotorrent.ui-preferences.v2` when Web API 2.13.1+ is detected.
-2. Fall back to `neotorrent:ui-preferences` in local storage when unavailable or on request failure.
-3. On changes, write local storage immediately and mirror to client data when supported.
+1. Read `clientdata/load` for canonical `bitwake.ui-preferences.v2`, then the
+   legacy `neotorrent.ui-preferences.v2`, when Web API 2.13.1+ is detected.
+2. Fall back to canonical `bitwake:ui-preferences`, then legacy
+   `neotorrent:ui-preferences`, in local storage when client data is
+   unavailable or its request fails.
+3. Pass a legacy value through the same allow-listed schema migration and
+   write the valid result to the canonical key.
+4. On changes, write canonical local storage immediately and mirror only the
+   canonical key to client data when supported.
 
 Passwords, qBittorrent cookies, torrent files, and magnet history are not part of this store.
 
@@ -253,6 +259,9 @@ conditions may be private. At most 20 sanitized filters are stored through `clie
 API 2.13.1+ is available. On older targets the fallback is `sessionStorage`, not durable local
 storage; it is cleared at logout/expiry or another private-session transition. Once a daemon
 advertises client data, an unscoped browser fallback is discarded rather than reused across users.
+The canonical keys are `bitwake.saved-filters.v1` and
+`bitwake:saved-filters`; the corresponding `neotorrent` keys are read only for
+validated migration.
 
 Media Placement uses a separate namespaced preference value because deployment-managed roots are
 not interface layout. A standalone runtime resource is resolved before saved client-data settings;
@@ -260,6 +269,9 @@ a locked runtime value is authoritative, while an unlocked value supplies defaul
 override. Native Alternative WebUI builds have no container environment and therefore use the saved
 client-data value directly. Neither preference schema contains torrent bytes, magnets, credentials,
 or source-analysis history.
+Its canonical keys are `bitwake.media-placement.v1` and
+`bitwake:media-placement`, with validated reads from their legacy `neotorrent`
+counterparts during the compatibility period.
 
 ## Media Placement domain
 
@@ -283,7 +295,7 @@ Exact-root and wrong-library destinations can require acknowledgement, but the c
 Movies library roots themselves must be separate: equal roots and segment-aware nesting in either
 direction are rejected by Settings, persisted-value parsing, runtime-resource validation, and the
 standalone entrypoint. An invalid standalone media configuration produces an explicit sentinel and
-turns Media Placement off without preventing the rest of NeoTorrent from starting.
+turns Media Placement off without preventing the rest of Bitwake from starting.
 
 Suggested TV/Movie editors can ask qBittorrent for one shallow directory listing to find possible
 existing series, season, or movie folders. Ranking inspects at most the first 2,000 returned
@@ -306,7 +318,7 @@ See [media-placement.md](media-placement.md).
 6. Every file is checked for qBittorrent's 10 MiB per-file limit and production source maps are rejected.
 7. HTML/CSS/JS text is checked for root- or parent-relative `src`/`href` attributes and literal hardcoded `/api/v2/` URLs.
 8. A repository-owned deterministic ZIP32 writer sorts paths and normalizes timestamps/metadata to
-   produce `dist/neotorrent-alt-webui-v<version>.zip` without a host `zip` dependency.
+   produce `dist/bitwake-alt-webui-v<version>.zip` without a host `zip` dependency.
 
 Vite uses `base: './'`, separate `login-assets/` and `app-assets/`, hashed chunks, and disabled production source maps. Artifact security considerations are covered in [security.md](security.md).
 
@@ -316,15 +328,15 @@ Vite uses `base: './'`, separate `login-assets/` and `app-assets/`, hashed chunk
 
 The POSIX entrypoint validates `QBITTORRENT_URL` or the `QB_HOST`/`QB_PORT` fallback, listen port, upload size, proxy timeouts, and Media Placement values. It rejects embedded credentials, query/fragment text, unsafe characters, and an upstream ending in `/api/v2`. Invalid media modes, unsafe/non-absolute paths, equal or nested TV/Movies roots, or incomplete locked Assist roots produce a fail-closed Media Placement sentinel while the proxy remains usable. The entrypoint renders Nginx configuration and the non-secret runtime resource into writable `/tmp` and runs `nginx -t`.
 
-Nginx serves the hash-routed SPA, proxies root `/api/` to the configured upstream `/api/`, forwards cookies and validation-relevant headers, disables API buffering/caching, and returns proxy statuses without substituting the SPA. `/healthz` and `/readyz` describe only the NeoTorrent process and deliberately do not probe qBittorrent.
+Nginx serves the hash-routed SPA, proxies root `/api/` to the configured upstream `/api/`, forwards cookies and validation-relevant headers, disables API buffering/caching, and returns proxy statuses without substituting the SPA. `/healthz` and `/readyz` describe only the Bitwake process and deliberately do not probe qBittorrent.
 
-Kubernetes has sidecar and separate-Deployment examples. The sidecar shares loopback with an operator's unchanged qBittorrent container; the separate form reaches a private qBittorrent Service. Both render with an unprivileged/read-only/capability-drop security context and a small `/tmp` `emptyDir`. Kustomize render validation covers both examples, but the repository does not claim full admission, topology, NetworkPolicy, TLS, or rollback verification for an operator's cluster. Both examples retain a non-runnable image placeholder so an operator must deliberately supply an immutable digest for a reviewed and verified revision.
+Kubernetes has sidecar and separate-Deployment examples. The sidecar shares loopback with an operator's unchanged qBittorrent container; the separate form reaches a private qBittorrent Service. Both render with an unprivileged/read-only/capability-drop security context and a small `/tmp` `emptyDir`. Kustomize render validation covers both examples, but the repository does not claim full admission, topology, NetworkPolicy, TLS, or rollback verification for an operator's cluster. Both examples retain a non-runnable image placeholder so an operator must deliberately supply an immutable digest for a reviewed and verified revision. Bitwake names in the separate example are defaults for new installations, not instructions to rename live Deployments, Services, Ingresses, selectors, containers, or volumes.
 
 ## PWA and cache boundary
 
-The standalone and authenticated Alternative WebUI entries register generated service workers; the public Alternative WebUI login entry does not. Standalone precaches its HTML shell plus static application assets and uses `index.html` as its navigation fallback. The authenticated Alternative WebUI build precaches only its static application assets: HTML is excluded and `navigateFallback` is disabled so cached authenticated content cannot replace qBittorrent's public login boundary after logout or SID expiry. The runtime Media Placement resource is excluded in every mode. GET and POST requests whose URL path contains `/api/`, plus `/_neotorrent/runtime-config.json`, use `NetworkOnly`; API and runtime-config fetches also use `no-store`.
+The standalone and authenticated Alternative WebUI entries register generated service workers; the public Alternative WebUI login entry does not. Standalone precaches its HTML shell plus static application assets and uses `index.html` as its navigation fallback. The authenticated Alternative WebUI build precaches only its static application assets: HTML is excluded and `navigateFallback` is disabled so cached authenticated content cannot replace qBittorrent's public login boundary after logout or SID expiry. The runtime Media Placement resource is excluded in every mode. GET and POST requests whose URL path contains `/api/`, plus canonical `/_bitwake/runtime-config.json` and compatibility alias `/_neotorrent/runtime-config.json`, use `NetworkOnly`; API and runtime-config fetches also use `no-store`.
 
-The manifest declares standalone display, generated 192×192 and 512×512 PNG icons, the local SVG source icon, and relative start/scope. File and protocol handlers are intentionally absent until the app has a safe launch-payload consumer.
+The manifest declares standalone display, generated 192×192 and 512×512 PNG icons, the local SVG source icon, and relative identity/start/scope. The rename changes its display name and icon paths without changing origin, `id`, `start_url`, or `scope`, allowing an installed NeoTorrent PWA to update in place. File and protocol handlers are intentionally absent until the app has a safe launch-payload consumer.
 
 The service-worker update callback drives an in-application update banner and activates/reloads the update when accepted. The runtime-configuration NetworkOnly matcher is suffix-based so a scoped deployment cannot fall outside the rule. A production Chromium suite verifies standalone registration/control, manifest identity/scope, offline HTML/static assets, an empty private-data cache boundary, and hard offline failure for API/runtime-config requests. Native Alternative WebUI mapping, a real two-version update, and a complete outer-proxy subpath remain unverified.
 

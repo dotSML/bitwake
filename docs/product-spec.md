@@ -1,4 +1,4 @@
-# NeoTorrent product specification
+# Bitwake product specification
 
 ## Document status
 
@@ -6,7 +6,7 @@ This specification describes the intended product and the boundaries used to jud
 
 ## Product statement
 
-NeoTorrent is a direct, installable alternative WebUI for qBittorrent. It should expose the power of qBittorrent without making every control compete for attention. The torrent manager is the primary screen, desktop prioritizes cross-row comparison and throughput, and mobile is a purpose-built manager rather than a compressed table.
+Bitwake is a direct, installable alternative WebUI for qBittorrent. It should expose the power of qBittorrent without making every control compete for attention. The torrent manager is the primary screen, desktop prioritizes cross-row comparison and throughput, and mobile is a purpose-built manager rather than a compressed table.
 
 The governing principle is:
 

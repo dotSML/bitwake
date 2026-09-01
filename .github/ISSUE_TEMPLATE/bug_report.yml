@@ -5,12 +5,12 @@ body:
   - type: markdown
     attributes:
       value: |
-        Thanks for reporting a bug. Search existing issues first. For a suspected vulnerability, do not continue here; use the private process in [SECURITY.md](https://github.com/dotSML/neotorrent/blob/main/SECURITY.md).
+        Thanks for reporting a bug. Search existing issues first. For a suspected vulnerability, do not continue here; use the private process in [SECURITY.md](https://github.com/dotSML/bitwake/blob/main/SECURITY.md).
 
   - type: input
-    id: neotorrent-version
+    id: bitwake-version
     attributes:
-      label: NeoTorrent version
+      label: Bitwake version
       description: Provide a release, image digest, or full commit SHA.
       placeholder: 'Release, digest, or commit SHA'
     validations:
@@ -105,7 +105,7 @@ body:
           required: true
         - label: I removed torrent names, hashes, magnets, file data, tracker passkeys, RSS data, and peer addresses.
           required: true
-        - label: I reviewed any NeoTorrent diagnostics export and redacted browser, build, version, or operation metadata that is private in my environment.
+        - label: I reviewed any Bitwake diagnostics export and redacted browser, build, version, or operation metadata that is private in my environment.
           required: true
         - label: This is not a vulnerability report and is safe to discuss publicly.
           required: true

@@ -1,7 +1,7 @@
 blank_issues_enabled: false
 contact_links:
   - name: Security policy and private reporting
-    url: https://github.com/dotSML/neotorrent/security/policy
+    url: https://github.com/dotSML/bitwake/security/policy
     about: Read the private reporting instructions; do not disclose vulnerability details publicly.
   - name: qBittorrent support
     url: https://github.com/qbittorrent/qBittorrent/discussions

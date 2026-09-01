@@ -2,7 +2,7 @@
 
 ## Our commitment
 
-NeoTorrent contributors and maintainers are committed to a welcoming, respectful, and harassment-free community. Participation should be safe regardless of experience, identity, background, appearance, disability, nationality, or personal beliefs.
+Bitwake contributors and maintainers are committed to a welcoming, respectful, and harassment-free community. Participation should be safe regardless of experience, identity, background, appearance, disability, nationality, or personal beliefs.
 
 ## Expected behavior
 
@@ -22,4 +22,4 @@ Do not post sensitive conduct reports publicly. Contact the repository owner thr
 
 Maintainers may remove content, issue a correction or warning, restrict participation temporarily, or ban participation permanently according to the seriousness and pattern of the behavior. Reports will be handled as privately as reasonably possible, with conflicts of interest disclosed and avoided.
 
-This code applies to repository issues, pull requests, reviews, discussions, and other spaces where someone is acting on behalf of NeoTorrent.
+This code applies to repository issues, pull requests, reviews, discussions, and other spaces where someone is acting on behalf of Bitwake.

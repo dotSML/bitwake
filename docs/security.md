@@ -2,9 +2,9 @@
 
 ## Security boundary
 
-NeoTorrent is a privileged browser client for qBittorrent. Anyone who can use an authenticated NeoTorrent session can perform consequential daemon actions such as deleting torrent data, changing network/Web UI settings, installing search plugins, banning peers, or manipulating host-side paths through supported qBittorrent APIs.
+Bitwake is a privileged browser client for qBittorrent. Anyone who can use an authenticated Bitwake session can perform consequential daemon actions such as deleting torrent data, changing network/Web UI settings, installing search plugins, banning peers, or manipulating host-side paths through supported qBittorrent APIs.
 
-NeoTorrent does not reduce qBittorrent's privilege. In native Alternative WebUI mode, qBittorrent also serves the static application. In standalone mode, an unprivileged Nginx container serves the SPA and proxies `/api/`; it is not an authorization layer or application backend. The primary security boundary remains qBittorrent, the browser session, the network/reverse proxies, container/cluster policy, and the host account running the daemon.
+Bitwake does not reduce qBittorrent's privilege. In native Alternative WebUI mode, qBittorrent also serves the static application. In standalone mode, an unprivileged Nginx container serves the SPA and proxies `/api/`; it is not an authorization layer or application backend. The primary security boundary remains qBittorrent, the browser session, the network/reverse proxies, container/cluster policy, and the host account running the daemon.
 
 ## Threat model
 
@@ -29,7 +29,7 @@ It does not claim to protect a session after the browser, qBittorrent host, admi
 - Password state is cleared after both success and failure.
 - No credential is written to local storage, IndexedDB, client data, URL parameters, or application logs.
 - Authentication uses the browser-managed qBittorrent cookie with `credentials: 'include'`.
-- NeoTorrent does not read, copy, rename, or persist that cookie.
+- Bitwake does not read, copy, rename, or persist that cookie.
 - Logout clears private in-memory torrent/session state even when the request fails. Standalone mode routes in place; native Alternative WebUI mode reloads qBittorrent's public boundary.
 - Expiry clears torrent state and returns to login. Standalone mode routes in place; native Alternative WebUI mode reloads qBittorrent's public boundary.
 - Startup session probes suppress global expiry notifications so an expected anonymous 401/403 cannot create a reload loop.
@@ -130,7 +130,7 @@ The standalone image additionally:
 - Rejects embedded upstream credentials, unsafe characters, query/fragment text, and a URL ending in `/api/v2`.
 - Supports a read-only root filesystem with only a small `/tmp` writable, all Linux capabilities dropped, no privilege escalation, and `RuntimeDefault` seccomp in the Kubernetes examples.
 - Serves process-only health/readiness endpoints; these do not make a false claim that qBittorrent is reachable.
-- Pins the runtime to `nginxinc/nginx-unprivileged:1.30.4-alpine-slim@sha256:11f3f6249b4ae3d7a4ec2a51797060107b88ead52b33b6ed3c6c33f55ca96200`. Local Docker builds default the OCI license label to `NOASSERTION`; workflow builds inject `package.json` metadata (currently `UNLICENSED`), and tagged publication remains blocked until the owner supplies aligned license text and a reviewed SPDX expression.
+- Pins the runtime to `nginxinc/nginx-unprivileged:1.30.4-alpine-slim@sha256:11f3f6249b4ae3d7a4ec2a51797060107b88ead52b33b6ed3c6c33f55ca96200`. Local Docker builds default the OCI license label to `NOASSERTION`; workflow builds also use `NOASSERTION` when package metadata is missing, `UNLICENSED`, or already `NOASSERTION`, and inject a reviewed SPDX expression otherwise. Tagged publication remains blocked until the owner supplies aligned license text and a reviewed SPDX expression.
 
 ## qBittorrent settings that should remain enabled
 
@@ -156,7 +156,7 @@ Authentication bypass for localhost or subnets is a qBittorrent policy decision.
 - Do not expose qBittorrent's upstream port publicly in parallel with the protected proxy.
 - Trust forwarded headers only from the actual proxy network/address.
 - Verify the final external Origin/Referer behavior instead of disabling CSRF protection. The included proxy intentionally does not rewrite either header.
-- Keep `PROXY_SSL_VERIFY=on` for HTTPS upstreams. Turning it off weakens the connection between NeoTorrent and qBittorrent and should be a narrowly justified exception.
+- Keep `PROXY_SSL_VERIFY=on` for HTTPS upstreams. Turning it off weakens the connection between Bitwake and qBittorrent and should be a narrowly justified exception.
 
 See [deployment.md](deployment.md) for an illustrative routing shape.
 
@@ -212,7 +212,7 @@ The real qBittorrent 5.0.5 and 5.2.3 compatibility matrix exercises the standalo
 
 | Data                           | Location                                              | Persistence                                                                            |
 | ------------------------------ | ----------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| Username                       | Login component memory                                | Cleared with page/component lifecycle; not stored by NeoTorrent                        |
+| Username                       | Login component memory                                | Cleared with page/component lifecycle; not stored by Bitwake                           |
 | Password                       | Login component memory                                | Explicitly cleared after submit result                                                 |
 | qBittorrent session cookie     | Browser cookie jar                                    | Controlled by qBittorrent/browser; unread by app                                       |
 | Torrent names/paths/state      | Pinia memory                                          | Current page session only; API/service worker no-store                                 |

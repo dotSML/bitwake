@@ -2,7 +2,7 @@
 
 ## Executive summary
 
-NeoTorrent is a functional preview of a responsive qBittorrent WebUI with two delivery modes:
+Bitwake is a functional preview of a responsive qBittorrent WebUI with two delivery modes:
 
 - A standalone, unprivileged Nginx image serves a single-page application and reverse-proxies same-origin `/api/` requests to qBittorrent.
 - A native Alternative WebUI package provides the separate `public/` and `private/` resource trees served by qBittorrent.
@@ -14,7 +14,7 @@ bounded local source analysis, generates TV series/season or per-movie destinati
 path independent and always available, previews effective qBittorrent layout, and reuses the planner
 for existing-torrent Set Location.
 
-The primary integration target is qBittorrent 5.2.3 with Web API 2.15.1, with qBittorrent 5.0.5 / Web API 2.11.2 retained as the pinned automated baseline. NeoTorrent does not yet claim complete stock-WebUI parity, compatibility with untested qBittorrent 5.x releases, or production readiness. See the [feature parity inventory](feature-parity.md) for details and the [implementation status](../IMPLEMENTATION_STATUS.md) for the concise living summary.
+The primary integration target is qBittorrent 5.2.3 with Web API 2.15.1, with qBittorrent 5.0.5 / Web API 2.11.2 retained as the pinned automated baseline. Bitwake does not yet claim complete stock-WebUI parity, compatibility with untested qBittorrent 5.x releases, or production readiness. See the [feature parity inventory](feature-parity.md) for details and the [implementation status](../IMPLEMENTATION_STATUS.md) for the concise living summary.
 
 ## Architecture decisions
 
@@ -22,7 +22,7 @@ The primary integration target is qBittorrent 5.2.3 with Web API 2.15.1, with qB
 
 `standalone`, `mock`, `alternative-public`, and `alternative-private` are selected at build time. The application does not infer its authentication lifecycle from the current pathname or runtime environment.
 
-Standalone mode handles anonymous startup, login, logout, session expiry, and intended-route restoration in one document. Native Alternative WebUI mode reloads across qBittorrent's public/private resource boundary. Both use relative same-origin API URLs and browser-managed cookies; NeoTorrent does not persist credentials or session tokens.
+Standalone mode handles anonymous startup, login, logout, session expiry, and intended-route restoration in one document. Native Alternative WebUI mode reloads across qBittorrent's public/private resource boundary. Both use relative same-origin API URLs and browser-managed cookies; Bitwake does not persist credentials or session tokens.
 
 ### Shared typed HTTP transport
 
@@ -101,7 +101,7 @@ Run `corepack pnpm build:alt-webui` to produce:
 
 ```text
 dist/alt-webui/
-dist/neotorrent-alt-webui-v<version>.zip
+dist/bitwake-alt-webui-v<version>.zip
 ```
 
 Point qBittorrent at the parent `dist/alt-webui` directory, which contains both `public/` and `private/`. The packaging policy inventories reviewed production dependency licenses into `THIRD_PARTY_NOTICES.txt`, copies recognized repository license/notice files when present, and rejects symlinks, oversized files, production source maps, unsafe root/parent-relative references, hardcoded API bases, and retained mock-worker assets. A repository-owned deterministic ZIP writer avoids host-specific archive metadata and the external `zip` tool.
@@ -116,9 +116,9 @@ The same entrypoint validates Media Placement environment, including separate no
 roots, emits a correctly escaped non-secret runtime JSON resource in `/tmp`, and serves it no-store.
 Invalid media configuration produces a fail-closed sentinel and leaves the feature Off. The PWA
 treats the resource as NetworkOnly. Locked deployment roots remain read-only in Settings but never
-remove Manual path. NeoTorrent still has no media-volume mount.
+remove Manual path. Bitwake still has no media-volume mount.
 
-The proxy preserves methods, queries, request bodies, statuses, cookies, and download headers. API responses are not cached and `/api/` failures never fall back to the SPA. Health and readiness endpoints report NeoTorrent's process and configuration state, not qBittorrent reachability.
+The proxy preserves methods, queries, request bodies, statuses, cookies, and download headers. API responses are not cached and `/api/` failures never fall back to the SPA. Health and readiness endpoints report Bitwake's process and configuration state, not qBittorrent reachability.
 
 The image adds content-security, anti-framing, content-type, referrer, permissions, and cross-origin isolation headers. These controls reduce common deployment risks but do not constitute a formal security audit.
 
@@ -129,9 +129,9 @@ qBittorrent's public boundary after logout or expiry. Updates use an in-applicat
 
 ### Kubernetes examples
 
-`deploy/kubernetes/sidecar` demonstrates adding NeoTorrent to an existing qBittorrent Pod and exposing NeoTorrent's `webui` port through the Service without publishing qBittorrent directly.
+`deploy/kubernetes/sidecar` demonstrates adding Bitwake to an existing qBittorrent Pod and exposing Bitwake's `webui` port through the Service without publishing qBittorrent directly.
 
-`deploy/kubernetes/separate` demonstrates an independent NeoTorrent rollout that reaches qBittorrent through a private Service. Operators are responsible for an appropriate NetworkPolicy and for configuring qBittorrent to trust only the actual proxy source.
+`deploy/kubernetes/separate` demonstrates an independent Bitwake rollout that reaches qBittorrent through a private Service. Operators are responsible for an appropriate NetworkPolicy and for configuring qBittorrent to trust only the actual proxy source.
 
 Both examples apply non-root execution, dropped capabilities, disabled privilege escalation, `RuntimeDefault` seccomp, read-only roots, memory-backed temporary storage, and restricted service-account behavior. Checked-in image placeholders must be replaced deliberately. Manifest rendering verifies composition only; it does not prove admission, rollout, TLS, NetworkPolicy, or rollback behavior in a live cluster.
 
@@ -179,7 +179,7 @@ It does not establish mobile-device or secondary-surface performance.
 
 ### Real-instance integration scope
 
-The integration suite creates legal local torrent fixtures and does not depend on external trackers or download third-party content. Its selected-tracker contract uses an unreachable loopback URL. Through the NeoTorrent origin it exercises:
+The integration suite creates legal local torrent fixtures and does not depend on external trackers or download third-party content. Its selected-tracker contract uses an unreachable loopback URL. Through the Bitwake origin it exercises:
 
 1. Anonymous deep links, invalid and valid login, intended-route restoration, refresh, logout, and session expiry.
 2. Multipart add, start, stop, save-location change, torrent and file/folder rename, category save-path editing and category/tag assignment, peer addition, recheck, whole-torrent and capability-gated selected-tracker reannounce, and file-priority changes.
@@ -216,4 +216,4 @@ Some mutation assertions use a browser-side same-origin API helper. They establi
 
 ## Conclusion
 
-NeoTorrent has a substantial product surface, explicit delivery architectures, and layered automated verification against its primary qBittorrent target. It remains an implementation preview: contributors and operators should use the documented checks, preserve the recorded limitations, and avoid claims of complete parity, universal compatibility, formal security assurance, or production validation.
+Bitwake has a substantial product surface, explicit delivery architectures, and layered automated verification against its primary qBittorrent target. It remains an implementation preview: contributors and operators should use the documented checks, preserve the recorded limitations, and avoid claims of complete parity, universal compatibility, formal security assurance, or production validation.

@@ -1,6 +1,6 @@
 # Security Policy
 
-NeoTorrent is an administrative interface to qBittorrent. A vulnerability can
+Bitwake is an administrative interface to qBittorrent. A vulnerability can
 therefore affect authentication, private torrent data, filesystem operations,
 or the qBittorrent service itself. Please report suspected security issues
 privately.
@@ -26,18 +26,22 @@ guarantee.
 
 Use GitHub's private vulnerability reporting form:
 
-<https://github.com/dotSML/neotorrent/security/advisories/new>
+<https://github.com/dotSML/bitwake/security/advisories/new>
+
+The repository may still be hosted under its former NeoTorrent name while the
+rename branch is reviewed; GitHub repository redirects are expected after the
+owner performs the separate repository cutover.
 
 Include, where relevant:
 
-- the affected NeoTorrent release or commit;
+- the affected Bitwake release or commit;
 - qBittorrent and Web API versions;
 - standalone, Alternative WebUI, or development deployment mode;
 - the security impact and conditions required to reproduce it;
 - minimal reproduction steps or a proof of concept using synthetic data;
 - any known mitigation or workaround.
 
-NeoTorrent's **Diagnostics and System Health** route can copy or download a
+Bitwake's **Diagnostics and System Health** route can copy or download a
 minimized support snapshot. It excludes torrent names, hashes, request bodies,
 query strings, credentials, cookies, and Media Placement paths, but still
 contains browser/build/version and operation-status metadata. Review and redact
@@ -48,7 +52,7 @@ metadata, torrent contents, personal data, or private network details. Use
 redacted or synthetic values even in a private report whenever possible.
 
 If GitHub private vulnerability reporting is unavailable, open a
-[new public issue](https://github.com/dotSML/neotorrent/issues/new) with a title
+[new public issue](https://github.com/dotSML/bitwake/issues/new) with a title
 such as `Private security report requested`. State only that the private form
 is unavailable and that you need a private reporting path. Do **not** identify
 the affected feature, impact, reproduction steps, or any other vulnerability

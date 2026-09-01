@@ -16,7 +16,7 @@ Media type and destination method are independent:
 - Other + Manual path
 
 Manual path remains visible in Assist mode, including when deployment-managed roots are locked.
-NeoTorrent warns about unusual placement but does not impose a path-enforcement mode.
+Bitwake warns about unusual placement but does not impose a path-enforcement mode.
 
 ## Modes and precedence
 
@@ -27,36 +27,47 @@ Configuration is resolved in this order:
 
 1. Locked standalone runtime configuration.
 2. Unlocked standalone runtime configuration, with saved user overrides.
-3. Saved NeoTorrent Media Placement settings from qBittorrent client data. A namespaced local
+3. Saved Bitwake Media Placement settings from qBittorrent client data. A namespaced local
    fallback is used only when the connected qBittorrent version does not advertise client-data
    support; client data is authoritative when supported.
 4. Off.
 
 A malformed standalone resource is treated as Off. Equal or nested TV/Movies roots are invalid at
 every input boundary: Settings blocks saving them, persisted values are discarded, runtime JSON is
-rejected, and the container entrypoint emits an invalid-configuration sentinel. NeoTorrent shows a
+rejected, and the container entrypoint emits an invalid-configuration sentinel. Bitwake shows a
 configuration warning while the rest of the WebUI continues to work. Logout, session expiry, and an
 anonymous cold start clear the user-scoped Media Placement fallback before another account can reuse
 the standalone SPA.
+
+Canonical saved keys are `bitwake.media-placement.v1` in qBittorrent client
+data and `bitwake:media-placement` in local storage. Valid values under the
+former `neotorrent.media-placement.v1` and `neotorrent:media-placement` keys are
+sanitized and migrated automatically; malformed data is not copied.
 
 ## Runtime variables
 
 The standalone image accepts these non-secret variables:
 
-| Variable                         | Default | Meaning                                     |
-| -------------------------------- | ------- | ------------------------------------------- |
-| `NEOTORRENT_MEDIA_MODE`          | `off`   | `off` or `assist`                           |
-| `NEOTORRENT_TV_ROOT`             | empty   | qBittorrent-visible, non-nested TV root     |
-| `NEOTORRENT_MOVIES_ROOT`         | empty   | qBittorrent-visible, non-nested Movies root |
-| `NEOTORRENT_MEDIA_BROWSE_ROOT`   | empty   | initial qBittorrent directory-browser root  |
-| `NEOTORRENT_MEDIA_CONFIG_LOCKED` | `false` | makes the runtime fields deployment-managed |
-| `NEOTORRENT_TV_CATEGORY`         | empty   | optional existing TV category suggestion    |
-| `NEOTORRENT_MOVIE_CATEGORY`      | empty   | optional existing Movie category suggestion |
+| Variable                      | Default | Meaning                                     |
+| ----------------------------- | ------- | ------------------------------------------- |
+| `BITWAKE_MEDIA_MODE`          | `off`   | `off` or `assist`                           |
+| `BITWAKE_TV_ROOT`             | empty   | qBittorrent-visible, non-nested TV root     |
+| `BITWAKE_MOVIES_ROOT`         | empty   | qBittorrent-visible, non-nested Movies root |
+| `BITWAKE_MEDIA_BROWSE_ROOT`   | empty   | initial qBittorrent directory-browser root  |
+| `BITWAKE_MEDIA_CONFIG_LOCKED` | `false` | makes the runtime fields deployment-managed |
+| `BITWAKE_TV_CATEGORY`         | empty   | optional existing TV category suggestion    |
+| `BITWAKE_MOVIE_CATEGORY`      | empty   | optional existing Movie category suggestion |
 
-The container generates `/_neotorrent/runtime-config.json` at startup. It contains only the fields
+The equivalent `NEOTORRENT_*` variables remain deprecated aliases. Canonical
+`BITWAKE_*` values take precedence when both forms are set, and warnings do not
+include configured path or category values.
+
+The container generates `/_bitwake/runtime-config.json` at startup. It contains only the fields
 above, is served with `Cache-Control: no-store`, and is excluded from PWA precaching. It never
 contains qBittorrent credentials or `QBITTORRENT_URL`. Media roots are not compiled into frontend
 JavaScript.
+The exact legacy URL `/_neotorrent/runtime-config.json` temporarily serves the
+same effective JSON with the same no-store and NetworkOnly behavior.
 
 TV and Movies roots may use POSIX, Windows-drive, or UNC path styles, but two non-empty roots must
 not be equal and neither may contain the other. Comparisons are segment-aware and Windows/UNC roots
@@ -84,7 +95,7 @@ Suggested Movie destinations always use an individual movie folder:
 ```
 
 Suggested folder segments retain useful Unicode while removing separators, control characters,
-Windows-invalid filename characters, trailing dots/spaces, and repeated whitespace. NeoTorrent
+Windows-invalid filename characters, trailing dots/spaces, and repeated whitespace. Bitwake
 shows the sanitized result before submission and refuses to silently produce an empty folder name.
 It does not rename downloaded media files.
 
@@ -107,7 +118,7 @@ Manual path accepts an absolute path visible to qBittorrent. It may be inside ei
 library, outside both libraries, or outside the configured browse root. It is not a path on the
 browser device, and qBittorrent remains authoritative for existence and permissions.
 
-NeoTorrent rejects empty and relative paths, control or NUL characters, newline injection,
+Bitwake rejects empty and relative paths, control or NUL characters, newline injection,
 ambiguous `.`/`..` destinations, and clearly malformed Windows or UNC forms. Manual values are not
 silently normalized or rewritten. Path comparisons are segment-aware, so `/data/movies-old` is not
 inside `/data/movies`.
@@ -122,11 +133,11 @@ An exact TV or Movies root produces a strong warning because loose files and rel
 library root can confuse Jellyfin. A TV item aimed inside Movies, or a Movie item aimed inside TV,
 also produces a strong warning. These cases require explicit acknowledgement but remain usable.
 
-A path outside both configured roots produces a notice only: NeoTorrent cannot evaluate its
+A path outside both configured roots produces a notice only: Bitwake cannot evaluate its
 Jellyfin structure. It is not labelled “Jellyfin safe.” Selecting Manual path by itself never
 requires acknowledgement.
 
-Automatic Torrent Management defaults off for planned destinations. When enabled, NeoTorrent warns
+Automatic Torrent Management defaults off for planned destinations. When enabled, Bitwake warns
 that category/default-path rules may override or later move the selected path and shows the current
 category path when qBittorrent provides it. Categories are optional and are never created silently.
 
@@ -145,7 +156,7 @@ about that uncertainty.
 Each source receives its own placement plan. Unrelated sources with different destinations are sent
 as separate qBittorrent Add requests with bounded concurrency and per-source results. A failed plan
 stays available for correction and retry. Related episodes may deliberately share title, season,
-destination, and options, but NeoTorrent does not merge unrelated items merely because the Add API
+destination, and options, but Bitwake does not merge unrelated items merely because the Add API
 accepts several sources in one request.
 
 ## Existing torrents
@@ -155,18 +166,18 @@ and preserves the existing ability to enter any valid absolute qBittorrent path.
 `torrents/setLocation`; browser code never moves files directly and does not stop a torrent unless
 qBittorrent requires it.
 
-An accepted request is reported as requested, not completed. NeoTorrent refreshes incremental state
+An accepted request is reported as requested, not completed. Bitwake refreshes incremental state
 and uses qBittorrent's moving/final state to distinguish moving, completed, and failed outcomes.
 Obvious existing root-placement problems are shown as small warnings in torrent rows and Overview;
 no existing torrent is moved automatically, and deeper file details are fetched only on demand.
 
 ## Directory access tests
 
-Browsing and root checks use qBittorrent's directory API. The NeoTorrent Nginx container does not
+Browsing and root checks use qBittorrent's directory API. The Bitwake Nginx container does not
 mount the media filesystem and cannot validate these paths itself. Results distinguish a non-empty
 listing, an ambiguous empty-or-unreadable result, a 404 as “not found or inaccessible,” a 403 as
 “request denied,” and an unavailable directory API. qBittorrent 5.2.3 does not reliably distinguish
-filesystem permission denial from these other outcomes, so NeoTorrent does not claim that it does
+filesystem permission denial from these other outcomes, so Bitwake does not claim that it does
 or that a directory is writable.
 
 Existing-folder discovery uses the same API boundary and uncertainty model. It ranks only returned
