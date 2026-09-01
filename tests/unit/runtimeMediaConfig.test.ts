@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   loadRuntimeMediaConfig,
   OFF_RUNTIME_MEDIA_CONFIG,
@@ -11,6 +11,8 @@ function jsonResponse(body: unknown, init: ResponseInit = {}): Response {
     ...init
   })
 }
+
+afterEach(() => vi.useRealTimers())
 
 describe('loadRuntimeMediaConfig', () => {
   it('loads a valid standalone runtime configuration without caching it', async () => {
@@ -302,5 +304,27 @@ describe('loadRuntimeMediaConfig', () => {
 
     expect(result).toMatchObject({ source: 'invalid', config: { mode: 'off' } })
     expect(result.warning).toContain('could not be loaded')
+  })
+
+  it('times out a runtime resource whose response never settles', async () => {
+    vi.useFakeTimers()
+    let requestSignal: AbortSignal | undefined
+    const fetcher = vi.fn<typeof fetch>().mockImplementation((_input, init) => {
+      requestSignal = init?.signal ?? undefined
+      return new Promise<Response>(() => undefined)
+    })
+
+    const result = loadRuntimeMediaConfig({
+      deploymentMode: 'standalone',
+      fetcher,
+      timeoutMs: 100
+    })
+    await vi.advanceTimersByTimeAsync(100)
+
+    await expect(result).resolves.toMatchObject({
+      source: 'invalid',
+      config: { mode: 'off' }
+    })
+    expect(requestSignal?.aborted).toBe(true)
   })
 })

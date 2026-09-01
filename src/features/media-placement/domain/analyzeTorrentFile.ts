@@ -133,7 +133,7 @@ class BencodeInspector {
       if (key === 'name') fields.name = this.readPathComponent(false)
       else if (key === 'name.utf-8') fields.utf8Name = this.readPathComponent(true)
       else if (key === 'length') {
-        this.readInteger()
+        this.readNonNegativeLength()
         fields.hasLength = true
       } else if (key === 'files') fields.files = this.readFiles(depth + 1)
       else if (key === 'file tree') {
@@ -168,14 +168,19 @@ class BencodeInspector {
     const keys = new Set<string>()
     let path: string[] | undefined
     let utf8Path: string[] | undefined
+    let hasLength = false
     while (!this.consumeIf(0x65)) {
       const key = this.readString(false)
       if (keys.has(key)) throw new InvalidBencodeError('Duplicate file dictionary key.')
       keys.add(key)
       if (key === 'path') path = this.readPathList(depth + 1, false)
       else if (key === 'path.utf-8') utf8Path = this.readPathList(depth + 1, true)
-      else this.skipValue(depth + 1)
+      else if (key === 'length') {
+        this.readNonNegativeLength()
+        hasLength = true
+      } else this.skipValue(depth + 1)
     }
+    if (!hasLength) throw new InvalidBencodeError('A torrent file has no length.')
     const selectedPath = utf8Path ?? path
     if (!selectedPath?.length) throw new InvalidBencodeError('A torrent file has no path.')
     return selectedPath.join('/')
@@ -245,7 +250,7 @@ class BencodeInspector {
       if (keys.has(key)) throw new InvalidBencodeError('Duplicate v2 file metadata key.')
       keys.add(key)
       if (key === 'length') {
-        this.readInteger()
+        this.readNonNegativeLength()
         hasLength = true
       } else this.skipValue(depth + 1)
     }
@@ -253,12 +258,12 @@ class BencodeInspector {
   }
 
   private readPathComponent(fatalUtf8 = true): string {
-    const start = this.index
-    const value = this.readString(true, fatalUtf8)
-    const byteLength = this.index - start
-    if (byteLength > this.limits.maxPathComponentBytes + 16) {
+    const range = this.readStringRange()
+    this.trackPathText(range.length)
+    if (range.length > this.limits.maxPathComponentBytes) {
       throw new BencodeLimitError('A torrent path component exceeds the inspection limit.')
     }
+    const value = this.decodeString(range, fatalUtf8)
     this.assertSafeComponent(value)
     return value
   }
@@ -277,12 +282,18 @@ class BencodeInspector {
 
   private readString(trackPathText: boolean, fatalUtf8 = true): string {
     const range = this.readStringRange()
-    if (trackPathText) {
-      this.pathTextBytes += range.length
-      if (this.pathTextBytes > this.limits.maxPathTextBytes) {
-        throw new BencodeLimitError('Extracted torrent path text exceeds the inspection limit.')
-      }
+    if (trackPathText) this.trackPathText(range.length)
+    return this.decodeString(range, fatalUtf8)
+  }
+
+  private trackPathText(length: number): void {
+    this.pathTextBytes += length
+    if (this.pathTextBytes > this.limits.maxPathTextBytes) {
+      throw new BencodeLimitError('Extracted torrent path text exceeds the inspection limit.')
     }
+  }
+
+  private decodeString(range: { start: number; end: number }, fatalUtf8: boolean): string {
     try {
       return (fatalUtf8 ? textDecoder : legacyTextDecoder).decode(
         this.bytes.subarray(range.start, range.end)
@@ -340,6 +351,12 @@ class BencodeInspector {
     }
     this.index += 1 // e
     return value
+  }
+
+  private readNonNegativeLength(): void {
+    if (this.readInteger().startsWith('-')) {
+      throw new InvalidBencodeError('A torrent file length cannot be negative.')
+    }
   }
 
   private skipValue(depth: number): void {

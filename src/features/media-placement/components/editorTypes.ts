@@ -182,7 +182,9 @@ export function evaluateMediaDestination(
   analysis: MediaSourceAnalysis,
   config: EffectiveMediaPlacementConfig,
   autoManagement = false,
-  categoryPath = ''
+  categoryPath = '',
+  autoManagementEffect:
+    'may-change-destination' | 'set-location-disables' = 'may-change-destination'
 ): MediaDestinationEvaluation {
   const suggestion = suggestedDestination(value, config, analysis)
   const tvShapeErrors =
@@ -230,10 +232,16 @@ export function evaluateMediaDestination(
           id: `auto-tmm:${analysis.id}`,
           code: 'auto-tmm-conflict',
           severity: 'warning',
-          title: 'Automatic Torrent Management may change this destination',
-          message: categoryPath
-            ? `Automatic Torrent Management may move this torrent to the selected category path, “${categoryPath}”, instead of keeping the selected destination.`
-            : 'Automatic Torrent Management may move this torrent according to its category path instead of keeping the selected destination.',
+          title:
+            autoManagementEffect === 'set-location-disables'
+              ? 'Set Location disables Automatic Torrent Management'
+              : 'Automatic Torrent Management may change this destination',
+          message:
+            autoManagementEffect === 'set-location-disables'
+              ? 'qBittorrent turns off Automatic Torrent Management when Set Location is applied. The selected destination will become this torrent’s manual save path.'
+              : categoryPath
+                ? `Automatic Torrent Management may move this torrent to the selected category path, “${categoryPath}”, instead of keeping the selected destination.`
+                : 'Automatic Torrent Management may move this torrent according to its category path instead of keeping the selected destination.',
           acknowledgementRequired: true
         }
       ]

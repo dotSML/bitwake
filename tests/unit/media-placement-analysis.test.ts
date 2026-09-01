@@ -110,6 +110,31 @@ describe('media source name analysis', () => {
     })
   })
 
+  it('keeps a numeric TV title instead of treating it as a release year', () => {
+    expect(analyzeSourceName('1883.S01E01')).toMatchObject({
+      kind: 'tv',
+      suggestedTitle: '1883',
+      suggestedSeason: 1
+    })
+    expect(analyzeSourceName('1883.S01E01').suggestedYear).toBeUndefined()
+  })
+
+  it('keeps a legitimate hyphenated movie title suffix', () => {
+    expect(analyzeSourceName('Spider-Man.2002.1080p.BluRay')).toMatchObject({
+      kind: 'movie',
+      suggestedTitle: 'Spider-Man',
+      suggestedYear: 2002
+    })
+  })
+
+  it('does not classify a non-terminal event year as a movie year', () => {
+    expect(analyzeSourceName('Formula.1.2026.Round.04')).toMatchObject({
+      kind: 'unknown',
+      suggestedTitle: 'Formula 1 2026 Round 04',
+      confidence: 'low'
+    })
+  })
+
   it('replaces unsafe source-name controls while preserving ordinary RTL text', () => {
     const unsafe = analyzeSourceName('Film\u202e.2024.1080p.mkv')
     expect(unsafe.displayName).not.toContain('\u202e')
@@ -289,6 +314,47 @@ describe('bounded torrent-file analysis', () => {
     expect(component).toMatchObject({ kind: 'unknown', inspectionError: 'limit-exceeded' })
   })
 
+  it('enforces the exact byte limit for v1 path components', async () => {
+    await expect(
+      analyzeTorrentFile(bencode({ info: { length: 1, name: 'Movie' } }), {
+        limits: { maxPathComponentBytes: 4 }
+      })
+    ).resolves.toMatchObject({ kind: 'unknown', inspectionError: 'limit-exceeded' })
+  })
+
+  it('fails closed for missing or negative v1 file lengths while allowing zero-length files', async () => {
+    for (const info of [
+      {
+        files: [{ path: ['Missing.Length.mkv'] }],
+        name: 'Missing Length',
+        pieces: ''
+      },
+      {
+        files: [{ length: -1, path: ['Negative.Length.mkv'] }],
+        name: 'Negative Length',
+        pieces: ''
+      },
+      { length: -1, name: 'Negative.Single.Movie.2024.mkv' }
+    ] satisfies BencodeValue[]) {
+      await expect(analyzeTorrentFile(bencode({ info }))).resolves.toMatchObject({
+        kind: 'unknown',
+        inspectionError: 'invalid-bencode'
+      })
+    }
+
+    await expect(
+      analyzeTorrentFile(
+        bencode({
+          info: {
+            files: [{ length: 0, path: ['Empty.mkv'] }],
+            name: 'Zero Length Pack',
+            pieces: ''
+          }
+        })
+      )
+    ).resolves.not.toHaveProperty('inspectionError')
+  })
+
   it.each([
     {
       boundary: 'nesting depth',
@@ -393,6 +459,11 @@ describe('bounded torrent-file analysis', () => {
       },
       {
         'file tree': { 'Movie.mkv': { '': { 'pieces root': 'hash' } } },
+        'meta version': 2,
+        name: 'Movie.mkv'
+      },
+      {
+        'file tree': { 'Movie.mkv': { '': { length: -1 } } },
         'meta version': 2,
         name: 'Movie.mkv'
       }

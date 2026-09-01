@@ -25,6 +25,7 @@ const props = withDefaults(
     categoryPaths?: Readonly<Record<string, string>>
     autoManagementCategoryPath?: string
     autoManagement?: boolean
+    autoManagementEffect?: 'may-change-destination' | 'set-location-disables'
     showTorrentOptions?: boolean
     idPrefix?: string
   }>(),
@@ -33,6 +34,7 @@ const props = withDefaults(
     categoryPaths: () => ({}),
     autoManagementCategoryPath: '',
     autoManagement: false,
+    autoManagementEffect: 'may-change-destination',
     showTorrentOptions: true,
     idPrefix: 'media-destination'
   }
@@ -148,7 +150,8 @@ const evaluation = computed(() =>
     props.analysis,
     props.config,
     props.autoManagement,
-    props.autoManagementCategoryPath ?? props.categoryPaths[props.modelValue.category] ?? ''
+    props.autoManagementCategoryPath ?? props.categoryPaths[props.modelValue.category] ?? '',
+    props.autoManagementEffect
   )
 )
 

@@ -26,6 +26,7 @@ export interface RuntimeMediaConfigLoadResult {
 export interface LoadRuntimeMediaConfigOptions {
   deploymentMode?: DeploymentMode
   fetcher?: typeof globalThis.fetch
+  timeoutMs?: number
 }
 
 export const RUNTIME_MEDIA_CONFIG_URL = '/_neotorrent/runtime-config.json'
@@ -41,6 +42,7 @@ export const OFF_RUNTIME_MEDIA_CONFIG: Readonly<RuntimeMediaPlacementConfig> = O
 })
 
 const MAX_RUNTIME_CONFIG_LENGTH = 64 * 1024
+const DEFAULT_RUNTIME_CONFIG_TIMEOUT_MS = 15_000
 
 const safeRuntimeString = z
   .string()
@@ -116,54 +118,71 @@ export async function loadRuntimeMediaConfig(
   if (mode !== 'standalone') return offResult('none')
 
   const fetcher = options.fetcher ?? globalThis.fetch
+  const controller = new AbortController()
+  let timeout: ReturnType<typeof setTimeout> | undefined
+  const timeoutResult = new Promise<RuntimeMediaConfigLoadResult>((resolve) => {
+    timeout = setTimeout(() => {
+      controller.abort()
+      resolve(offResult('invalid', unavailableConfigurationWarning))
+    }, options.timeoutMs ?? DEFAULT_RUNTIME_CONFIG_TIMEOUT_MS)
+  })
 
-  let response: Response
+  const request = (async (): Promise<RuntimeMediaConfigLoadResult> => {
+    let response: Response
+    try {
+      response = await fetcher(RUNTIME_MEDIA_CONFIG_URL, {
+        cache: 'no-store',
+        credentials: 'same-origin',
+        headers: { Accept: 'application/json' },
+        redirect: 'error',
+        signal: controller.signal
+      })
+    } catch {
+      return offResult('invalid', unavailableConfigurationWarning)
+    }
+
+    if (response.status === 404) return offResult('none')
+    if (!response.ok) return offResult('invalid', unavailableConfigurationWarning)
+
+    // Vite's development SPA fallback may answer an unknown path with index.html.
+    // Treat that as an absent runtime resource rather than alarming local users.
+    const contentType = response.headers.get('content-type')?.toLowerCase() ?? ''
+    if (contentType.includes('text/html')) return offResult('none')
+
+    let text: string
+    try {
+      text = await response.text()
+    } catch {
+      return offResult('invalid', unavailableConfigurationWarning)
+    }
+
+    if (text.length > MAX_RUNTIME_CONFIG_LENGTH) {
+      return offResult('invalid', invalidConfigurationWarning)
+    }
+
+    let value: unknown
+    try {
+      value = JSON.parse(text) as unknown
+    } catch {
+      return offResult('invalid', invalidConfigurationWarning)
+    }
+
+    if (invalidRuntimeConfigSentinelSchema.safeParse(value).success) {
+      return offResult('invalid', invalidConfigurationWarning)
+    }
+
+    const parsed = runtimeConfigSchema.safeParse(value)
+    if (!parsed.success) return offResult('invalid', invalidConfigurationWarning)
+
+    return {
+      config: parsed.data.mediaPlacement,
+      source: 'standalone'
+    }
+  })()
+
   try {
-    response = await fetcher(RUNTIME_MEDIA_CONFIG_URL, {
-      cache: 'no-store',
-      credentials: 'same-origin',
-      headers: { Accept: 'application/json' },
-      redirect: 'error'
-    })
-  } catch {
-    return offResult('invalid', unavailableConfigurationWarning)
-  }
-
-  if (response.status === 404) return offResult('none')
-  if (!response.ok) return offResult('invalid', unavailableConfigurationWarning)
-
-  // Vite's development SPA fallback may answer an unknown path with index.html.
-  // Treat that as an absent runtime resource rather than alarming local users.
-  const contentType = response.headers.get('content-type')?.toLowerCase() ?? ''
-  if (contentType.includes('text/html')) return offResult('none')
-
-  let text: string
-  try {
-    text = await response.text()
-  } catch {
-    return offResult('invalid', unavailableConfigurationWarning)
-  }
-
-  if (text.length > MAX_RUNTIME_CONFIG_LENGTH) {
-    return offResult('invalid', invalidConfigurationWarning)
-  }
-
-  let value: unknown
-  try {
-    value = JSON.parse(text) as unknown
-  } catch {
-    return offResult('invalid', invalidConfigurationWarning)
-  }
-
-  if (invalidRuntimeConfigSentinelSchema.safeParse(value).success) {
-    return offResult('invalid', invalidConfigurationWarning)
-  }
-
-  const parsed = runtimeConfigSchema.safeParse(value)
-  if (!parsed.success) return offResult('invalid', invalidConfigurationWarning)
-
-  return {
-    config: parsed.data.mediaPlacement,
-    source: 'standalone'
+    return await Promise.race([request, timeoutResult])
+  } finally {
+    if (timeout) clearTimeout(timeout)
   }
 }

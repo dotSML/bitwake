@@ -101,6 +101,32 @@ describe('Media Placement configuration precedence', () => {
     expect(store.config).toMatchObject({ ...runtimeAssist, source: 'runtime' })
   })
 
+  it('retries a transiently unavailable runtime resource on the next load request', async () => {
+    const loadRuntime = vi
+      .spyOn(runtimeConfig, 'loadRuntimeMediaConfig')
+      .mockResolvedValueOnce({
+        source: 'invalid',
+        config: { ...runtimeConfig.OFF_RUNTIME_MEDIA_CONFIG },
+        warning: 'The runtime configuration could not be loaded.'
+      })
+      .mockResolvedValueOnce({
+        source: 'standalone',
+        config: runtimeAssist
+      })
+    const { store } = createStore(false)
+
+    await store.load()
+    expect(store.config).toMatchObject({ source: 'default', mode: 'off' })
+    expect(store.warning).toContain('could not be loaded')
+
+    // App startup and each later Add/Settings entry request the configuration.
+    // A recovered resource must not stay latched Off for the browser session.
+    await store.load()
+    expect(loadRuntime).toHaveBeenCalledTimes(2)
+    expect(store.config).toMatchObject({ source: 'runtime', ...runtimeAssist })
+    expect(store.warning).toBeNull()
+  })
+
   it('falls back to local settings and prevents writes while runtime is locked', async () => {
     localStorage.setItem('neotorrent:media-placement', JSON.stringify(savedAssist))
     vi.spyOn(runtimeConfig, 'loadRuntimeMediaConfig').mockResolvedValue({
@@ -161,6 +187,62 @@ describe('Media Placement configuration precedence', () => {
       savedAssist
     )
     expect(persist).toHaveBeenCalledWith({ 'neotorrent.media-placement.v1': savedAssist })
+  })
+
+  it('keeps the prior destination active when client-data persistence fails', async () => {
+    localStorage.setItem('neotorrent:media-placement', JSON.stringify(savedAssist))
+    vi.spyOn(runtimeConfig, 'loadRuntimeMediaConfig').mockResolvedValue({
+      source: 'none',
+      config: { ...runtimeConfig.OFF_RUNTIME_MEDIA_CONFIG }
+    })
+    const { context, store } = createStore()
+    vi.spyOn(context.api.clientData, 'load').mockResolvedValue({
+      'neotorrent.media-placement.v1': savedAssist
+    })
+    const next = { ...savedAssist, tvRoot: '/new/tv' }
+    const persist = vi
+      .spyOn(context.api.clientData, 'store')
+      .mockRejectedValueOnce(new Error('Client data write failed.'))
+      .mockResolvedValueOnce()
+    await store.load()
+
+    await expect(store.save(next)).rejects.toThrow('Client data write failed.')
+    expect(store.config.tvRoot).toBe('/saved/tv')
+    expect(JSON.parse(localStorage.getItem('neotorrent:media-placement') ?? '{}')).toEqual(
+      savedAssist
+    )
+
+    await expect(store.save(next)).resolves.toBeUndefined()
+    expect(persist).toHaveBeenCalledTimes(2)
+    expect(store.config.tvRoot).toBe('/new/tv')
+    expect(JSON.parse(localStorage.getItem('neotorrent:media-placement') ?? '{}')).toEqual(next)
+  })
+
+  it('does not restore an old-session path after a deferred save crosses logout', async () => {
+    vi.spyOn(runtimeConfig, 'loadRuntimeMediaConfig').mockResolvedValue({
+      source: 'none',
+      config: { ...runtimeConfig.OFF_RUNTIME_MEDIA_CONFIG }
+    })
+    const { context, store } = createStore()
+    vi.spyOn(context.api.clientData, 'load').mockResolvedValue({})
+    let finishSave!: () => void
+    vi.spyOn(context.api.clientData, 'store').mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          finishSave = resolve
+        })
+    )
+    await store.load()
+    const oldSessionSave = store.save({ ...savedAssist, tvRoot: '/old-session/private-tv' })
+    await vi.waitFor(() => expect(context.api.clientData.store).toHaveBeenCalledOnce())
+
+    store.resetPrivateState()
+    store.setConfigForSession({ ...savedAssist, tvRoot: '/new-session/tv' })
+    finishSave()
+    await oldSessionSave
+
+    expect(store.config.tvRoot).toBe('/new-session/tv')
+    expect(localStorage.getItem('neotorrent:media-placement')).toBeNull()
   })
 
   it('reloads client data after an in-place logout instead of exposing the prior session', async () => {

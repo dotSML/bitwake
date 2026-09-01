@@ -141,7 +141,8 @@ const locationEvaluation = computed(() => {
     locationAnalysis.value,
     mediaPlacement.config,
     selectedUsesAutoManagement.value,
-    selectedCategoryPath.value
+    selectedCategoryPath.value,
+    'set-location-disables'
   )
 })
 const effectiveLocation = computed(() =>
@@ -806,6 +807,7 @@ async function submit(): Promise<void> {
             "
             :auto-management="selectedUsesAutoManagement"
             :auto-management-category-path="selectedCategoryPath"
+            auto-management-effect="set-location-disables"
             :show-torrent-options="false"
             id-prefix="set-location-media"
             @update:model-value="updateLocationDestination"
@@ -981,8 +983,8 @@ async function submit(): Promise<void> {
           <input v-model="acknowledgeRemoval" type="checkbox" />
           <span v-if="shareLimitAction === 'Default'"
             ><strong
-              >I understand the inherited category or global action can remove the torrent and
-              permanently delete its content.</strong
+              >I understand the inherited global action can remove the torrent and permanently
+              delete its content.</strong
             ><small
               >The inherited action runs later when a configured share limit is reached.</small
             ></span

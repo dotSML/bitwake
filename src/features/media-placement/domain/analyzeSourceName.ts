@@ -10,7 +10,6 @@ const mediaExtensionPattern = /\.(?:mkv|mp4|m4v|avi|mov|wmv|webm|mpg|mpeg|ts|m2t
 const torrentExtensionPattern = /\.torrent$/iu
 const releaseTokenPattern =
   /\b(?:480p|576p|720p|1080[pi]|1440p|2160p|4320p|4k|uhd|web[ .-]?dl|webrip|bluray|blu[ .-]?ray|b[dr]rip|dvdrip|hdrip|hdtv|remux|x26[45]|h[ .-]?26[45]|hevc|av1|aac(?:2\.0|5\.1)?|dts(?:[ .-]?hd)?|truehd|atmos|hdr10\+?|dolby[ .-]?vision|proper|repack|internal|limited|extended)\b/iu
-const groupSuffixPattern = /(?:\s*[-–]\s*[A-Z0-9][A-Z0-9._-]{1,30}|\s*\[[^\]]{1,40}\])$/iu
 
 export interface AnalyzeSourceNameOptions {
   id?: string
@@ -53,7 +52,6 @@ function releaseWords(value: string): string {
 function cleanTitle(value: string): string {
   return value
     .replace(/^\[[^\]]{1,40}\]\s*/u, '')
-    .replace(groupSuffixPattern, '')
     .replace(/^[\s()[\]{}._-]+|[\s()[\]{}._-]+$/gu, '')
     .replace(/\s+/gu, ' ')
     .trim()
@@ -140,11 +138,9 @@ function findTvHints(value: string): TvHints | null {
 }
 
 function extractTerminalYear(value: string): { title: string; year?: number } {
-  let candidate: { index: number; value: number } | undefined
-  for (const match of value.matchAll(/(?:^|\s|\()(\d{4})(?=$|\s|\))/gu)) {
-    const year = plausibleYear(match[1] ?? '')
-    if (year !== undefined) candidate = { index: match.index, value: year }
-  }
+  const match = /(?:^|\s|\()(\d{4})\)?$/u.exec(value)
+  const year = plausibleYear(match?.[1] ?? '')
+  const candidate = match && year !== undefined ? { index: match.index, value: year } : undefined
   if (!candidate) return { title: cleanTitle(value) }
   return {
     title: cleanTitle(value.slice(0, candidate.index)),

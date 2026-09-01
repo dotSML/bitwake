@@ -70,7 +70,13 @@ export const useLocationMoveTrackingStore = defineStore('location-move-tracking'
   }
 
   function processMoves(): void {
-    if (torrents.responseId === 0 && torrents.byHash.size === 0) {
+    if (torrents.responseId === 0) {
+      if (pendingMoves.value.length && torrents.byHash.size) {
+        notifications.push(
+          'Move tracking stopped because torrent synchronization was reset. Review the current save path before retrying.',
+          'warning'
+        )
+      }
       pendingMoves.value = []
       return
     }

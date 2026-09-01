@@ -154,7 +154,10 @@ export const useMediaPlacementStore = defineStore('media-placement', () => {
   })
 
   async function load(): Promise<void> {
-    if (loaded.value) return
+    // A failed standalone resource is safe to keep Off, but it must not be
+    // latched for the full browser session. Add and Settings call load again,
+    // which provides a deterministic recovery path after a transient outage.
+    if (loaded.value && runtimeSource.value !== 'invalid') return
     if (activeLoad) return activeLoad
     const generation = loadGeneration
     const task = (async () => {
@@ -213,6 +216,11 @@ export const useMediaPlacementStore = defineStore('media-placement', () => {
   async function save(next: MediaPlacementSettings): Promise<void> {
     const sanitized = sanitizeMediaPlacementSettings(next)
     if (config.value.locked) return
+    const generation = loadGeneration
+    if (session.capabilities?.has('clientData')) {
+      await api.clientData.store({ [clientDataKey]: sanitized })
+    }
+    if (generation !== loadGeneration) return
     saved.value = sanitized
     hasSavedSettings.value = true
     savedFromLocalFallback.value = false
@@ -222,9 +230,6 @@ export const useMediaPlacementStore = defineStore('media-placement', () => {
       } catch {
         // Server-side client data remains available when browser storage is blocked.
       }
-    }
-    if (session.capabilities?.has('clientData')) {
-      await api.clientData.store({ [clientDataKey]: sanitized })
     }
   }
 

@@ -76,6 +76,7 @@ function testLabel(state: TestState): string {
 }
 
 async function testRoot(key: RootKey): Promise<void> {
+  if (saving.value) return
   const path = draft[key].trim()
   if (!path || errors.value[key]) return
   cancelRootTest(key, false)
@@ -158,7 +159,7 @@ onBeforeUnmount(() => {
           >Off keeps the generic Add Torrent form. Assist adds media-aware destinations.</small
         ></span
       >
-      <select v-model="draft.mode" :disabled="placement.config.locked">
+      <select v-model="draft.mode" :disabled="placement.config.locked || saving">
         <option value="off">Off</option>
         <option value="assist">Assist</option>
       </select>
@@ -194,7 +195,7 @@ onBeforeUnmount(() => {
           :id="`media-${root.key}`"
           v-model="draft[root.key]"
           class="field"
-          :readonly="placement.config.locked"
+          :readonly="placement.config.locked || saving"
           spellcheck="false"
           autocomplete="off"
           :aria-invalid="Boolean(errors[root.key])"
@@ -205,7 +206,10 @@ onBeforeUnmount(() => {
           class="btn test-button"
           type="button"
           :disabled="
-            !draft[root.key].trim() || Boolean(errors[root.key]) || tests[root.key] === 'testing'
+            saving ||
+            !draft[root.key].trim() ||
+            Boolean(errors[root.key]) ||
+            tests[root.key] === 'testing'
           "
           @click="testRoot(root.key)"
         >
@@ -232,7 +236,7 @@ onBeforeUnmount(() => {
           id="media-tvCategory"
           v-model="draft.tvCategory"
           class="field"
-          :readonly="placement.config.locked"
+          :readonly="placement.config.locked || saving"
           :aria-invalid="Boolean(errors.tvCategory)"
           :aria-describedby="errors.tvCategory ? 'media-tvCategory-error' : undefined"
         />
@@ -251,7 +255,7 @@ onBeforeUnmount(() => {
           id="media-movieCategory"
           v-model="draft.movieCategory"
           class="field"
-          :readonly="placement.config.locked"
+          :readonly="placement.config.locked || saving"
           :aria-invalid="Boolean(errors.movieCategory)"
           :aria-describedby="errors.movieCategory ? 'media-movieCategory-error' : undefined"
         />

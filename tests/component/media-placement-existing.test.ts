@@ -321,6 +321,50 @@ describe('existing torrent Media Placement', () => {
     expect(messages.some((message) => message.includes(secondTarget))).toBe(true)
   })
 
+  it('releases an accepted move reservation when synchronization is reset', async () => {
+    const context = createTestContext()
+    configureAssist(context)
+    const torrent = {
+      ...createTorrent(23),
+      name: 'Reset.Movie.2026.mkv',
+      category: 'Movies',
+      save_path: '/downloads',
+      content_path: '/downloads/Reset.Movie.2026.mkv',
+      state: 'stoppedDL' as const,
+      auto_tmm: false
+    }
+    const torrents = context.run(() => useTorrentsStore(context.pinia))
+    torrents.applyMainData({
+      rid: 8,
+      full_update: true,
+      torrents: { [torrent.hash]: torrent }
+    })
+    const setLocation = vi.spyOn(context.api.torrents, 'setLocation').mockResolvedValue()
+    vi.spyOn(torrents, 'refreshNow').mockImplementation(() => undefined)
+    const wrapper = await mountWithContext(TorrentOperationDialog, context, {
+      props: { open: true, operation: 'location', hashes: [torrent.hash] },
+      attachTo: document.body
+    })
+    await flushPromises()
+
+    await new DOMWrapper(document.querySelector('#torrent-location-form')).trigger('submit')
+    await flushPromises()
+    expect(setLocation).toHaveBeenCalledOnce()
+
+    torrents.forceFullResync()
+    await nextTick()
+    await wrapper.setProps({ open: false })
+    await wrapper.setProps({ open: true })
+    await flushPromises()
+    await new DOMWrapper(document.querySelector('#torrent-location-form')).trigger('submit')
+    await flushPromises()
+
+    expect(setLocation).toHaveBeenCalledTimes(2)
+    expect(notificationMessages(context)).toContain(
+      'Move tracking stopped because torrent synchronization was reset. Review the current save path before retrying.'
+    )
+  })
+
   it('keeps Manual Path usable when locked and gates an exact Movies root until acknowledged', async () => {
     const context = createTestContext()
     configureAssist(context)
@@ -552,7 +596,7 @@ describe('existing torrent Media Placement', () => {
     expect(document.body.textContent).not.toContain('/data/tv-shows/Planner Choice/Season 01')
   })
 
-  it('names the current category path in an Automatic Torrent Management warning', async () => {
+  it('warns that Set Location disables Automatic Torrent Management', async () => {
     const context = createTestContext()
     configureAssist(context)
     const torrent = {
@@ -578,9 +622,12 @@ describe('existing torrent Media Placement', () => {
     await nextTick()
 
     expect(document.body.textContent).toContain(
-      'Automatic Torrent Management may move this torrent to the selected category path'
+      'Set Location disables Automatic Torrent Management'
     )
-    expect(document.body.textContent).toContain('/category-managed/movies')
+    expect(document.body.textContent).toContain(
+      'The selected destination will become this torrent’s manual save path.'
+    )
+    expect(document.body.textContent).not.toContain('/category-managed/movies')
     expect(document.body.textContent).not.toContain('‮')
   })
 
@@ -607,7 +654,7 @@ describe('existing torrent Media Placement', () => {
     expect(document.querySelector('.current-location-summary')?.textContent).not.toContain('‮')
   })
 
-  it('keeps the actual Auto TMM category path after hidden Set Location reclassification', async () => {
+  it('does not imply a category path can override Set Location after reclassification', async () => {
     const context = createTestContext()
     configureAssist(context)
     const torrent = {
@@ -639,7 +686,11 @@ describe('existing torrent Media Placement', () => {
       document.querySelector<HTMLInputElement>('.media-kind-options input[value="tv"]')
     ).setValue(true)
     await nextTick()
-    expect(document.body.textContent).toContain('/actual/current-category')
+    expect(document.body.textContent).toContain(
+      'Set Location disables Automatic Torrent Management'
+    )
+    expect(document.body.textContent).toContain('/data/tv-shows/Opaque Release/Season 01')
+    expect(document.body.textContent).not.toContain('/actual/current-category')
     expect(document.body.textContent).not.toContain('/suggested/hidden-tv-category')
   })
 

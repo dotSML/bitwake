@@ -85,6 +85,7 @@ const error = ref<string | null>(null)
 const result = ref<AddSummary | null>(null)
 const plans = ref<AddSourcePlan[]>([])
 let analysisGeneration = 0
+let submissionGeneration = 0
 let openGeneration = 0
 let disposed = false
 const fileObjectIds = new WeakMap<File, number>()
@@ -188,6 +189,7 @@ onBeforeUnmount(() => {
 
 function reset(): void {
   analysisGeneration += 1
+  submissionGeneration += 1
   cancelQueuedFileInspections()
   sourceText.value = ''
   files.value = []
@@ -356,7 +358,10 @@ async function reconcilePlans(): Promise<void> {
   const newFilePlans = next.filter(
     (plan) => plan.sourceType === 'file' && plan.file && !plan.inspectionComplete
   )
-  if (!newFilePlans.length) return
+  if (!newFilePlans.length) {
+    analyzingFiles.value = false
+    return
+  }
   analyzingFiles.value = true
 
   try {
@@ -483,6 +488,8 @@ function responseSummary(response: AddTorrentResult, count: number): AddSummary 
 
 async function addLegacy(): Promise<void> {
   if (!hasInput.value || submitting.value || !validateSources()) return
+  const generation = ++submissionGeneration
+  const submittedSourceCount = files.value.length + sources.value.length
   submitting.value = true
   error.value = null
   result.value = null
@@ -505,14 +512,16 @@ async function addLegacy(): Promise<void> {
       sequentialDownload: sequential.value,
       firstLastPiecePrio: firstLast.value
     })
-    const summary = responseSummary(response, files.value.length + sources.value.length)
+    if (generation !== submissionGeneration || disposed || !props.open) return
+    const summary = responseSummary(response, submittedSourceCount)
     result.value = summary
     finishSubmission(summary)
   } catch (cause) {
+    if (generation !== submissionGeneration || disposed || !props.open) return
     error.value =
       cause instanceof Error ? cause.message : 'qBittorrent could not add these sources.'
   } finally {
-    submitting.value = false
+    if (generation === submissionGeneration) submitting.value = false
   }
 }
 
@@ -544,6 +553,7 @@ async function addPlanned(): Promise<void> {
     .map((plan, index) => ({ plan, evaluation: currentEvaluations[index]! }))
     .filter(({ plan }) => plan.status !== 'success' && plan.status !== 'pending')
   if (!candidates.length) return
+  const generation = ++submissionGeneration
   const submissionOptions = {
     stopped: !startImmediately.value,
     autoTMM: autoManagement.value,
@@ -555,7 +565,12 @@ async function addPlanned(): Promise<void> {
   let cursor = 0
 
   async function worker(): Promise<void> {
-    while (cursor < candidates.length) {
+    while (
+      generation === submissionGeneration &&
+      !disposed &&
+      props.open &&
+      cursor < candidates.length
+    ) {
       const candidate = candidates[cursor++]
       if (!candidate) return
       const currentIndex = plans.value.findIndex((plan) => plan.key === candidate.plan.key)
@@ -579,6 +594,7 @@ async function addPlanned(): Promise<void> {
           contentLayout: candidate.plan.destination.contentLayout,
           ...submissionOptions
         })
+        if (generation !== submissionGeneration || disposed || !props.open) return
         const itemSummary = responseSummary(response, 1)
         summary.success += itemSummary.success
         summary.pending += itemSummary.pending
@@ -595,6 +611,7 @@ async function addPlanned(): Promise<void> {
           }
         }
       } catch (cause) {
+        if (generation !== submissionGeneration || disposed || !props.open) return
         summary.failed += 1
         const latestIndex = plans.value.findIndex((plan) => plan.key === candidate.plan.key)
         if (latestIndex >= 0) {
@@ -610,10 +627,11 @@ async function addPlanned(): Promise<void> {
 
   try {
     await Promise.all(Array.from({ length: Math.min(2, candidates.length) }, () => worker()))
+    if (generation !== submissionGeneration || disposed || !props.open) return
     result.value = summary
     finishSubmission(summary)
   } finally {
-    submitting.value = false
+    if (generation === submissionGeneration) submitting.value = false
   }
 }
 

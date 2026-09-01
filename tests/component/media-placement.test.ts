@@ -7,6 +7,7 @@ import MediaDirectoryPicker from '@/features/media-placement/components/MediaDir
 import MediaPathPreview from '@/features/media-placement/components/MediaPathPreview.vue'
 import { useMediaPlacementStore } from '@/features/media-placement/stores/mediaPlacement'
 import SettingsView from '@/features/settings/SettingsView.vue'
+import { useNotificationsStore } from '@/stores/notifications'
 import { createTestContext, mountWithContext } from './support/mount'
 
 function button(label: string): DOMWrapper<HTMLButtonElement> {
@@ -696,6 +697,113 @@ describe('Media Placement UI', () => {
     await vi.waitFor(() => expect(document.body.textContent).not.toContain('Inspecting local'))
   })
 
+  it('stops showing analysis as pending when the final file is removed', async () => {
+    const context = assistContext()
+    let release!: (value: ArrayBuffer) => void
+    const file = new File(['x'], 'Removed-While-Pending.torrent', {
+      type: 'application/x-bittorrent'
+    })
+    Object.defineProperty(file, 'arrayBuffer', {
+      configurable: true,
+      value: vi.fn(
+        () =>
+          new Promise<ArrayBuffer>((resolve) => {
+            release = resolve
+          })
+      )
+    })
+    await mountWithContext(AddTorrentDialog, context, {
+      props: { open: true },
+      attachTo: document.body
+    })
+    await flushPromises()
+    await new DOMWrapper(document.querySelector('#torrent-sources')).setValue(
+      'magnet:?xt=urn:btih:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&dn=Usable.Movie.2026.1080p'
+    )
+    const input = document.querySelector<HTMLInputElement>('#torrent-files')!
+    Object.defineProperty(input, 'files', { configurable: true, value: [file] })
+    await new DOMWrapper(input).trigger('change')
+    await vi.waitFor(() => expect(document.body.textContent).toContain('Inspecting local'))
+
+    await new DOMWrapper(document.querySelector('.file-list button')).trigger('click')
+    await nextTick()
+
+    expect(document.body.textContent).not.toContain('Inspecting local')
+    expect(button('Continue').element.disabled).toBe(false)
+    release(new Uint8Array([0x64, 0x65]).buffer)
+  })
+
+  it('does not start queued per-source submissions after the dialog unmounts', async () => {
+    const context = assistContext()
+    const releases: Array<() => void> = []
+    const add = vi.spyOn(context.api.torrents, 'add').mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          releases.push(() => resolve({ legacySuccess: true }))
+        })
+    )
+    const wrapper = await mountWithContext(AddTorrentDialog, context, {
+      props: { open: true },
+      attachTo: document.body
+    })
+    await flushPromises()
+    await new DOMWrapper(document.querySelector('#torrent-sources')).setValue(
+      [2023, 2024, 2025, 2026]
+        .map(
+          (year, index) =>
+            `magnet:?xt=urn:btih:${String(index + 1).repeat(40)}&dn=Unmounted.Movie.${year}.1080p`
+        )
+        .join('\n')
+    )
+    await nextTick()
+    await button('Continue').trigger('click')
+    await nextTick()
+    await button('Continue').trigger('click')
+    await nextTick()
+    await button('Add torrents').trigger('click')
+    await vi.waitFor(() => expect(add).toHaveBeenCalledTimes(2))
+
+    wrapper.unmount()
+    releases.splice(0).forEach((releaseRequest) => releaseRequest())
+    await flushPromises()
+
+    expect(add).toHaveBeenCalledTimes(2)
+    expect(context.run(() => useNotificationsStore(context.pinia)).items).toHaveLength(0)
+  })
+
+  it('reports the submitted legacy source count when inputs change during the request', async () => {
+    const context = createTestContext()
+    let finishAdd!: () => void
+    vi.spyOn(context.api.torrents, 'add').mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finishAdd = () => resolve({ legacySuccess: true })
+        })
+    )
+    await mountWithContext(AddTorrentDialog, context, {
+      props: { open: true },
+      attachTo: document.body
+    })
+    await flushPromises()
+    const sourceInput = new DOMWrapper(
+      document.querySelector<HTMLTextAreaElement>('#torrent-sources')
+    )
+    await sourceInput.setValue(
+      [
+        'magnet:?xt=urn:btih:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        'magnet:?xt=urn:btih:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+      ].join('\n')
+    )
+    await new DOMWrapper(document.querySelector('#add-torrent-form')).trigger('submit')
+    await sourceInput.setValue('magnet:?xt=urn:btih:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')
+    finishAdd()
+    await flushPromises()
+
+    expect(
+      context.run(() => useNotificationsStore(context.pinia)).items.map((item) => item.message)
+    ).toContain('2 torrents added.')
+  })
+
   it('drops queued torrent files immediately when the dialog closes during inspection', async () => {
     const context = assistContext()
     const releases: Array<() => void> = []
@@ -943,6 +1051,44 @@ describe('Media Placement UI', () => {
       tvRoot: '/data/tv-shows',
       moviesRoot: ''
     })
+  })
+
+  it('locks Media Placement controls while a save is in flight', async () => {
+    const context = assistContext(false)
+    const placement = context.run(() => useMediaPlacementStore(context.pinia))
+    let finishSave!: () => void
+    const saveSettings = vi.spyOn(placement, 'save').mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          finishSave = resolve
+        })
+    )
+    vi.spyOn(context.api.app, 'preferences').mockResolvedValue({})
+    const wrapper = await mountWithContext(SettingsView, context, { attachTo: document.body })
+    await flushPromises()
+    await wrapper
+      .findAll<HTMLButtonElement>('.settings-nav > button')
+      .find((candidate) => candidate.text() === 'Media Placement')!
+      .trigger('click')
+    await nextTick()
+    const root = wrapper.get<HTMLInputElement>('#media-tvRoot')
+    await root.setValue('/data/pending-tv')
+
+    await wrapper.get<HTMLButtonElement>('.placement-settings footer button').trigger('click')
+    await vi.waitFor(() => expect(saveSettings).toHaveBeenCalledOnce())
+
+    expect(wrapper.get<HTMLSelectElement>('.placement-settings select').element.disabled).toBe(true)
+    expect(root.element.readOnly).toBe(true)
+    expect(wrapper.get<HTMLInputElement>('#media-tvCategory').element.readOnly).toBe(true)
+    expect(wrapper.findAll<HTMLButtonElement>('.test-button')[0]!.element.disabled).toBe(true)
+    expect(saveSettings).toHaveBeenCalledWith(
+      expect.objectContaining({ tvRoot: '/data/pending-tv' })
+    )
+
+    finishSave()
+    await flushPromises()
+    expect(wrapper.get<HTMLInputElement>('#media-tvRoot').element.value).toBe('/data/pending-tv')
+    expect(wrapper.get<HTMLInputElement>('#media-tvRoot').element.readOnly).toBe(false)
   })
 
   it('blocks unsafe root and category settings without silently saving them', async () => {
