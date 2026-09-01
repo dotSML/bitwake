@@ -15,7 +15,10 @@ const version = packageMetadata.version
 if (!isReleaseVersion(version)) {
   throw new Error('package.json must contain a release-compatible semantic version')
 }
-const archive = join(dist, `neotorrent-alt-webui-v${version}.zip`)
+const archive = join(dist, `bitwake-alt-webui-v${version}.zip`)
+// Remove a stale pre-rename local build so scripts cannot accidentally select
+// it as the current distributable. Published historical artifacts are untouched.
+const legacyNeoTorrentArchive = join(dist, `neotorrent-alt-webui-v${version}.zip`)
 const legacyArchive = join(dist, 'qbittorrent-modern-webui.zip')
 const distributionMetadataFiles = [
   'LICENSE',
@@ -68,6 +71,7 @@ async function moveMatching(fromDirectory, toDirectory, predicate) {
 await rm(stage, { recursive: true, force: true })
 await rm(output, { recursive: true, force: true })
 await rm(archive, { force: true })
+await rm(legacyNeoTorrentArchive, { force: true })
 await rm(legacyArchive, { force: true })
 
 run('corepack', ['pnpm', 'exec', 'vite', 'build', '--mode', 'alt-public'])

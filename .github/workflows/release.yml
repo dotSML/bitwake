@@ -27,7 +27,7 @@ jobs:
       packages: read
     env:
       RELEASE_TAG: ${{ inputs.tag }}
-      REGISTRY_IMAGE: ghcr.io/dotsml/neotorrent
+      REGISTRY_IMAGE: ghcr.io/dotsml/bitwake
       TZ: UTC
     steps:
       - name: Validate requested tag syntax
@@ -80,16 +80,16 @@ jobs:
           version=${RELEASE_TAG#v}
           {
             echo "SOURCE_DATE_EPOCH=$(git show -s --format=%ct HEAD)"
-            echo "NEOTORRENT_BUILD_REVISION=${revision}"
-            echo "NEOTORRENT_BUILD_DATE=${build_date}"
-            echo "NEOTORRENT_BUILD_VERSION=${version}"
+            echo "BITWAKE_BUILD_REVISION=${revision}"
+            echo "BITWAKE_BUILD_DATE=${build_date}"
+            echo "BITWAKE_BUILD_VERSION=${version}"
           } >> "$GITHUB_ENV"
           echo "revision=${revision}" >> "$GITHUB_OUTPUT"
       - name: Build Alternative WebUI twice and require identical archives
         shell: bash
         run: |
           version=${RELEASE_TAG#v}
-          archive="dist/neotorrent-alt-webui-v${version}.zip"
+          archive="dist/bitwake-alt-webui-v${version}.zip"
           pnpm build:alt-webui
           first=$(sha256sum "$archive" | awk '{print $1}')
           pnpm build:alt-webui
@@ -129,7 +129,7 @@ jobs:
                   process.exit(1)
                 }
               }
-            ' "$image" "{\"org.opencontainers.image.revision\":\"$revision\",\"org.opencontainers.image.version\":\"$version\",\"org.opencontainers.image.licenses\":\"$license\"}" "$platform"
+            ' "$image" "{\"org.opencontainers.image.title\":\"Bitwake\",\"org.opencontainers.image.description\":\"Bitwake standalone qBittorrent WebUI reverse proxy\",\"org.opencontainers.image.source\":\"https://github.com/dotSML/bitwake\",\"org.opencontainers.image.url\":\"https://github.com/dotSML/bitwake\",\"org.opencontainers.image.documentation\":\"https://github.com/dotSML/bitwake/blob/main/docs/deployment.md\",\"org.opencontainers.image.revision\":\"$revision\",\"org.opencontainers.image.version\":\"$version\",\"org.opencontainers.image.licenses\":\"$license\"}" "$platform"
           done
           echo "reference=$image_reference" >> "$GITHUB_OUTPUT"
       - name: Verify image provenance attestation
@@ -152,14 +152,15 @@ jobs:
             --require-license \
             --require-image \
             --image-reference "${{ steps.image.outputs.reference }}" \
-            --artifact "dist/neotorrent-alt-webui-v${version}.zip"
+            --artifact "dist/bitwake-alt-webui-v${version}.zip"
           mkdir -p dist/publish
-          cp "dist/neotorrent-alt-webui-v${version}.zip" dist/publish/
-          cp dist/release/SHA256SUMS dist/release/release-metadata.json dist/release/release-notes.md dist/publish/
+          cp "dist/bitwake-alt-webui-v${version}.zip" dist/publish/
+          cp "dist/release/bitwake-v${version}-checksums.txt" \
+            dist/release/release-metadata.json dist/release/release-notes.md dist/publish/
       - name: Upload verified release bundle
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: neotorrent-${{ inputs.tag }}-release
+          name: bitwake-${{ inputs.tag }}-release
           path: dist/publish
           if-no-files-found: error
           retention-days: 1
@@ -182,28 +183,29 @@ jobs:
       - name: Download verified release bundle
         uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8.0.0
         with:
-          name: neotorrent-${{ inputs.tag }}-release
+          name: bitwake-${{ inputs.tag }}-release
           path: release-bundle
       - name: Revalidate bundle identity and checksums without executing it
         shell: bash
         run: |
           version=${RELEASE_TAG#v}
-          archive="neotorrent-alt-webui-v${version}.zip"
+          archive="bitwake-alt-webui-v${version}.zip"
+          checksums="bitwake-v${version}-checksums.txt"
           cd release-bundle
-          expected_files=$(printf '%s\n' "$archive" SHA256SUMS release-metadata.json release-notes.md | sort)
+          expected_files=$(printf '%s\n' "$archive" "$checksums" release-metadata.json release-notes.md | sort)
           actual_files=$(find . -maxdepth 1 -type f -printf '%f\n' | sort)
           if [[ "$actual_files" != "$expected_files" ]]; then
             echo "Release bundle contains missing or unexpected files." >&2
             diff <(printf '%s\n' "$expected_files") <(printf '%s\n' "$actual_files") || true
             exit 1
           fi
-          checksum_files=$(awk '{print $2}' SHA256SUMS | sort)
+          checksum_files=$(awk '{print $2}' "$checksums" | sort)
           expected_checksums=$(printf '%s\n' "$archive" release-metadata.json release-notes.md | sort)
           if [[ "$checksum_files" != "$expected_checksums" ]]; then
-            echo "SHA256SUMS does not cover exactly the expected release files." >&2
+            echo "$checksums does not cover exactly the expected release files." >&2
             exit 1
           fi
-          sha256sum --check --strict SHA256SUMS
+          sha256sum --check --strict "$checksums"
           artifact_sha=$(sha256sum "$archive" | awk '{print $1}')
           artifact_size=$(stat --format=%s "$archive")
           jq --exit-status \
@@ -219,7 +221,7 @@ jobs:
              (.licenseExpression | type == "string" and . != "UNLICENSED" and . != "NOASSERTION") and
              (.licenseFiles | type == "array" and length > 0) and
              (.thirdPartyNotices == "THIRD_PARTY_NOTICES.txt") and
-             (.image | test("^ghcr\\.io/dotsml/neotorrent@sha256:[0-9a-f]{64}$"))' \
+             (.image | test("^ghcr\\.io/dotsml/bitwake@sha256:[0-9a-f]{64}$"))' \
             release-metadata.json >/dev/null
       - name: Reverify image provenance from release metadata
         env:
@@ -252,10 +254,10 @@ jobs:
           gh release create "$RELEASE_TAG" \
             --repo "$GITHUB_REPOSITORY" \
             --verify-tag \
-            --title "NeoTorrent $RELEASE_TAG" \
+            --title "Bitwake $RELEASE_TAG" \
             --notes-file release-bundle/release-notes.md \
             "${prerelease[@]}" \
-            "release-bundle/neotorrent-alt-webui-v${version}.zip" \
-            release-bundle/SHA256SUMS \
+            "release-bundle/bitwake-alt-webui-v${version}.zip" \
+            "release-bundle/bitwake-v${version}-checksums.txt" \
             release-bundle/release-metadata.json \
             release-bundle/release-notes.md

@@ -52,11 +52,11 @@ jobs:
         run: pnpm exec playwright install --with-deps chromium
       - name: Build standalone test image
         env:
-          NEOTORRENT_IMAGE: neotorrent:compat
+          BITWAKE_IMAGE: bitwake:compat
         run: pnpm container:build
       - name: Exercise real qBittorrent compatibility contract
         env:
-          NEOTORRENT_IMAGE: neotorrent:compat
+          BITWAKE_IMAGE: bitwake:compat
           QBITTORRENT_IMAGE: ${{ matrix.image }}
           QBITTORRENT_EXPECTED_VERSION: ${{ matrix.app }}
           QBITTORRENT_EXPECTED_WEBAPI_VERSION: ${{ matrix.api }}

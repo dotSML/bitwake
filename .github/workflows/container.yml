@@ -9,7 +9,8 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: dotsml/neotorrent
+  CANONICAL_IMAGE_NAME: dotsml/bitwake
+  LEGACY_IMAGE_NAME: dotsml/neotorrent
 
 concurrency:
   group: container-${{ github.workflow }}-${{ github.ref }}
@@ -66,7 +67,7 @@ jobs:
         shell: bash
         run: |
           created=$(git show -s --format=%cI "$GITHUB_SHA")
-          license=$(node -p "require('./package.json').license || 'NOASSERTION'")
+          license=$(node -e 'const value=require("./package.json").license; process.stdout.write(!value || value === "UNLICENSED" || value === "NOASSERTION" ? "NOASSERTION" : value)')
           {
             echo "created=${created}"
             echo "revision=${GITHUB_SHA}"
@@ -79,7 +80,7 @@ jobs:
           context: .
           platforms: linux/amd64
           load: true
-          tags: neotorrent:ci-amd64
+          tags: bitwake:ci-amd64
           build-args: |
             BUILD_CREATED=${{ steps.build.outputs.created }}
             BUILD_REVISION=${{ steps.build.outputs.revision }}
@@ -89,21 +90,25 @@ jobs:
           cache-to: type=gha,mode=max
       - name: Deterministic proxy and real qBittorrent 5.2.3 tests
         env:
-          NEOTORRENT_IMAGE: neotorrent:ci-amd64
+          BITWAKE_IMAGE: bitwake:ci-amd64
         run: pnpm container:test
       - name: Verify local image identity labels
         shell: bash
         run: |
-          for label in created revision version licenses; do
+          for label in title description source url documentation created revision version licenses; do
             expected=$(
               case "$label" in
+                title) echo 'Bitwake' ;;
+                description) echo 'Bitwake standalone qBittorrent WebUI reverse proxy' ;;
+                source|url) echo 'https://github.com/dotSML/bitwake' ;;
+                documentation) echo 'https://github.com/dotSML/bitwake/blob/main/docs/deployment.md' ;;
                 created) echo '${{ steps.build.outputs.created }}' ;;
                 revision) echo '${{ steps.build.outputs.revision }}' ;;
                 version) echo '${{ steps.build.outputs.version }}' ;;
                 licenses) echo '${{ steps.build.outputs.license }}' ;;
               esac
             )
-            actual=$(docker image inspect neotorrent:ci-amd64 --format "{{ index .Config.Labels \"org.opencontainers.image.${label}\" }}")
+            actual=$(docker image inspect bitwake:ci-amd64 --format "{{ index .Config.Labels \"org.opencontainers.image.${label}\" }}")
             if [[ "$actual" != "$expected" ]]; then
               echo "Image label $label: expected $expected, received $actual" >&2
               exit 1
@@ -112,7 +117,7 @@ jobs:
       - name: Scan linux/amd64 HIGH and CRITICAL vulnerabilities
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          image-ref: neotorrent:ci-amd64
+          image-ref: bitwake:ci-amd64
           version: v0.74.0
           format: table
           exit-code: '1'
@@ -124,7 +129,7 @@ jobs:
           context: .
           platforms: linux/arm64
           load: true
-          tags: neotorrent:ci-arm64
+          tags: bitwake:ci-arm64
           build-args: |
             BUILD_CREATED=${{ steps.build.outputs.created }}
             BUILD_REVISION=${{ steps.build.outputs.revision }}
@@ -135,7 +140,7 @@ jobs:
       - name: Scan linux/arm64 HIGH and CRITICAL vulnerabilities
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          image-ref: neotorrent:ci-arm64
+          image-ref: bitwake:ci-arm64
           version: v0.74.0
           format: table
           exit-code: '1'
@@ -143,11 +148,11 @@ jobs:
           severity: HIGH,CRITICAL
 
   publish:
-    name: Publish provenance and multi-architecture image
+    name: Publish dual-name provenance and multi-architecture image
     needs: verify
     if: >-
       github.event_name == 'push' &&
-      startsWith(github.ref, 'refs/tags/v') &&
+      (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) &&
       needs.verify.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -167,61 +172,85 @@ jobs:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Reject an existing immutable image tag
-        env:
-          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: bash
-        run: |
-          version=${GITHUB_REF_NAME#v}
-          image_name=${IMAGE_NAME,,}
-          token=$(
-            curl --fail --silent --show-error \
-              --user "${GITHUB_ACTOR}:${GHCR_TOKEN}" \
-              "https://${REGISTRY}/token?service=${REGISTRY}&scope=repository:${image_name}:pull" \
-              | jq --exit-status --raw-output '.token // .access_token'
-          )
-          status=$(
-            curl --silent --show-error \
-              --output /dev/null \
-              --write-out '%{http_code}' \
-              --header "Authorization: Bearer ${token}" \
-              --header 'Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json' \
-              "https://${REGISTRY}/v2/${image_name}/manifests/${version}"
-          )
-          case "$status" in
-            200)
-              echo "Immutable image tag ${REGISTRY}/${image_name}:${version} already exists; refusing to replace it." >&2
-              exit 1
-              ;;
-            404)
-              echo "Image tag ${REGISTRY}/${image_name}:${version} is available."
-              ;;
-            *)
-              echo "Could not safely determine whether ${REGISTRY}/${image_name}:${version} exists (HTTP ${status}); refusing to publish." >&2
-              exit 1
-              ;;
-          esac
-      - name: Generate image tags
-        id: meta
-        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          flavor: latest=false
-          tags: |
-            type=semver,pattern={{version}}
       - name: Derive deterministic image metadata
         id: build
         shell: bash
         run: |
           created=$(git show -s --format=%cI "$GITHUB_SHA")
-          version=${GITHUB_REF_NAME#v}
-          license=$(node -p "require('./package.json').license || 'NOASSERTION'")
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            version=${GITHUB_REF_NAME#v}
+            release=true
+            if [[ "$version" == *-* ]]; then stable=false; else stable=true; fi
+          else
+            version="ci-${GITHUB_SHA:0:12}"
+            release=false
+            stable=false
+          fi
+          license=$(node -e 'const value=require("./package.json").license; process.stdout.write(!value || value === "UNLICENSED" || value === "NOASSERTION" ? "NOASSERTION" : value)')
           {
             echo "created=${created}"
             echo "revision=${GITHUB_SHA}"
             echo "version=${version}"
             echo "license=${license}"
+            echo "release=${release}"
+            echo "stable=${stable}"
           } >> "$GITHUB_OUTPUT"
+      - name: Reject existing immutable image tags in both packages
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            immutable_tags=("$GITHUB_REF_NAME" "${GITHUB_REF_NAME#v}")
+          else
+            immutable_tags=("sha-${GITHUB_SHA}")
+          fi
+          for configured_image in "$CANONICAL_IMAGE_NAME" "$LEGACY_IMAGE_NAME"; do
+            image_name=${configured_image,,}
+            token=$(
+              curl --fail --silent --show-error \
+                --user "${GITHUB_ACTOR}:${GHCR_TOKEN}" \
+                "https://${REGISTRY}/token?service=${REGISTRY}&scope=repository:${image_name}:pull" \
+                | jq --exit-status --raw-output '.token // .access_token'
+            )
+            for image_tag in "${immutable_tags[@]}"; do
+              status=$(
+                curl --silent --show-error \
+                  --output /dev/null \
+                  --write-out '%{http_code}' \
+                  --header "Authorization: Bearer ${token}" \
+                  --header 'Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json' \
+                  "https://${REGISTRY}/v2/${image_name}/manifests/${image_tag}"
+              )
+              case "$status" in
+                200)
+                  echo "Immutable image tag ${REGISTRY}/${image_name}:${image_tag} already exists; refusing to replace it." >&2
+                  exit 1
+                  ;;
+                404)
+                  echo "Image tag ${REGISTRY}/${image_name}:${image_tag} is available."
+                  ;;
+                *)
+                  echo "Could not safely determine whether ${REGISTRY}/${image_name}:${image_tag} exists (HTTP ${status}); refusing to publish." >&2
+                  exit 1
+                  ;;
+              esac
+            done
+          done
+      - name: Generate image tags
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: |
+            ${{ env.REGISTRY }}/${{ env.CANONICAL_IMAGE_NAME }}
+            ${{ env.REGISTRY }}/${{ env.LEGACY_IMAGE_NAME }}
+          flavor: latest=false
+          tags: |
+            type=raw,value=edge,enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=sha-${{ github.sha }},enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=${{ github.ref_name }},enable=${{ steps.build.outputs.release == 'true' }}
+            type=semver,pattern={{version}},value=${{ github.ref_name }},enable=${{ steps.build.outputs.release == 'true' }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ github.ref_name }},enable=${{ steps.build.outputs.stable == 'true' }}
       - name: Build and publish linux/amd64 and linux/arm64
         id: push
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
@@ -239,19 +268,71 @@ jobs:
           cache-to: type=gha,mode=max
           sbom: true
           provenance: mode=max
-      - name: Generate GitHub artifact attestation
+      - name: Verify both published manifests
+        id: manifests
+        shell: bash
+        run: |
+          if [[ '${{ steps.build.outputs.release }}' == true ]]; then
+            version=${GITHUB_REF_NAME#v}
+            verification_tags=("$GITHUB_REF_NAME" "$version")
+            if [[ '${{ steps.build.outputs.stable }}' == true ]]; then
+              verification_tags+=("${version%.*}")
+            fi
+          else
+            verification_tags=(edge "sha-${GITHUB_SHA}")
+          fi
+          for identity in canonical legacy; do
+            if [[ "$identity" == canonical ]]; then
+              image_name=$CANONICAL_IMAGE_NAME
+            else
+              image_name=$LEGACY_IMAGE_NAME
+            fi
+            published_digest=
+            for image_tag in "${verification_tags[@]}"; do
+              tag_reference="${REGISTRY}/${image_name}:${image_tag}"
+              manifest=$(docker buildx imagetools inspect "$tag_reference" --format '{{json .Manifest}}')
+              digest=$(node -e 'const value=JSON.parse(process.argv[1]); const digest=value.digest; if (!/^sha256:[0-9a-f]{64}$/.test(digest ?? "")) process.exit(1); process.stdout.write(digest)' "$manifest")
+              if [[ -n "$published_digest" && "$digest" != "$published_digest" ]]; then
+                echo "Published aliases for ${REGISTRY}/${image_name} resolve to different manifests." >&2
+                exit 1
+              fi
+              published_digest=$digest
+              immutable_reference="${REGISTRY}/${image_name}@${digest}"
+              docker buildx imagetools inspect "$immutable_reference"
+              for platform in linux/amd64 linux/arm64; do
+                image=$(docker buildx imagetools inspect "$immutable_reference" --format "{{json (index .Image \"$platform\")}}")
+                node -e '
+                  const value = JSON.parse(process.argv[1])
+                  const labels = value.config?.Labels ?? {}
+                  if (labels["org.opencontainers.image.title"] !== "Bitwake" || labels["org.opencontainers.image.revision"] !== process.argv[2] || labels["org.opencontainers.image.version"] !== process.argv[3]) process.exit(1)
+                ' "$image" '${{ steps.build.outputs.revision }}' '${{ steps.build.outputs.version }}'
+              done
+            done
+            echo "${identity}_digest=${published_digest}" >> "$GITHUB_OUTPUT"
+            echo "${identity}_reference=${immutable_reference}" >> "$GITHUB_OUTPUT"
+          done
+      - name: Attest canonical Bitwake image
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
         with:
-          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          subject-digest: ${{ steps.push.outputs.digest }}
+          subject-name: ${{ env.REGISTRY }}/${{ env.CANONICAL_IMAGE_NAME }}
+          subject-digest: ${{ steps.manifests.outputs.canonical_digest }}
           push-to-registry: true
-      - name: Verify the published manifest
-        run: docker buildx imagetools inspect "${REGISTRY}/${IMAGE_NAME}@${{ steps.push.outputs.digest }}"
-      - name: Report immutable reference
+      - name: Attest deprecated compatibility image
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ env.LEGACY_IMAGE_NAME }}
+          subject-digest: ${{ steps.manifests.outputs.legacy_digest }}
+          push-to-registry: true
+      - name: Report immutable references
         run: |
           {
-            echo "### Published NeoTorrent image"
+            echo "### Published Bitwake image"
             echo '```text'
-            echo "${REGISTRY}/${IMAGE_NAME}@${{ steps.push.outputs.digest }}"
+            echo '${{ steps.manifests.outputs.canonical_reference }}'
+            echo '```'
+            echo
+            echo 'Deprecated compatibility publication:'
+            echo '```text'
+            echo '${{ steps.manifests.outputs.legacy_reference }}'
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"

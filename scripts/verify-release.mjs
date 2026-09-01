@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { basename, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { isReleaseVersion } from './release-version.mjs'
@@ -124,8 +124,8 @@ function verifyImageReference(options) {
     if (options.requireImage) fail('an immutable container image reference is required')
     return null
   }
-  if (!/^ghcr\.io\/dotsml\/neotorrent@sha256:[0-9a-f]{64}$/u.test(options.imageReference)) {
-    fail('container image reference must be the NeoTorrent GHCR image pinned by a sha256 digest')
+  if (!/^ghcr\.io\/dotsml\/bitwake@sha256:[0-9a-f]{64}$/u.test(options.imageReference)) {
+    fail('container image reference must be the Bitwake GHCR image pinned by a sha256 digest')
   }
   return options.imageReference
 }
@@ -210,7 +210,7 @@ async function verifyAndDescribeArtifact(
   imageReference
 ) {
   const artifact = resolve(repositoryRoot, options.artifact)
-  const expectedName = `neotorrent-alt-webui-v${version}.zip`
+  const expectedName = `bitwake-alt-webui-v${version}.zip`
   if (basename(artifact) !== expectedName) {
     fail(`release archive must be named ${expectedName}, received ${basename(artifact)}`)
   }
@@ -266,7 +266,7 @@ async function verifyAndDescribeArtifact(
   const revision = git('rev-parse', 'HEAD')
   const metadata = {
     schemaVersion: 2,
-    name: 'NeoTorrent Alternative WebUI',
+    name: 'Bitwake Alternative WebUI',
     version,
     tag,
     revision,
@@ -281,11 +281,14 @@ async function verifyAndDescribeArtifact(
   await mkdir(options.outputDirectory, { recursive: true })
   const metadataPath = join(options.outputDirectory, 'release-metadata.json')
   const notesPath = join(options.outputDirectory, 'release-notes.md')
-  const checksumsPath = join(options.outputDirectory, 'SHA256SUMS')
+  const checksumsPath = join(options.outputDirectory, `bitwake-v${version}-checksums.txt`)
+  // Remove the pre-rename generated checksum filename so a local release bundle
+  // cannot accidentally contain both canonical and stale manifests.
+  await rm(join(options.outputDirectory, 'SHA256SUMS'), { force: true })
   await writeFile(metadataPath, `${JSON.stringify(metadata, null, 2)}\n`)
   await writeFile(
     notesPath,
-    `# NeoTorrent ${tag}\n\n${changelog.body}\n\nContainer: ${imageReference ?? 'not included in this verification'}\n`
+    `# Bitwake ${tag}\n\n${changelog.body}\n\nContainer: ${imageReference ?? 'not included in this verification'}\n`
   )
   const metadataDigest = await sha256(metadataPath)
   const notesDigest = await sha256(notesPath)

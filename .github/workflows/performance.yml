@@ -32,13 +32,13 @@ jobs:
         run: pnpm exec playwright install --with-deps chromium
       - name: Run calibrated browser benchmark
         env:
-          NEOTORRENT_PERF_ITERATIONS: '3'
+          BITWAKE_PERF_ITERATIONS: '3'
         run: pnpm test:performance
       - name: Upload measurements and failure evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: neotorrent-performance-${{ github.sha }}
+          name: bitwake-performance-${{ github.sha }}
           path: |
             test-results/performance/metrics.json
             test-results/performance/playwright

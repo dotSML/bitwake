@@ -176,10 +176,10 @@ export async function generateThirdPartyNotices(outputPath) {
   }
 
   const contents = [
-    'NeoTorrent third-party notices',
+    'Bitwake third-party notices',
     '',
     'This deterministic inventory covers the complete pnpm production dependency graph.',
-    'NeoTorrent itself is governed by the repository license, when one is present.',
+    'Bitwake itself is governed by the repository license, when one is present.',
     '',
     ...sections,
     ''
