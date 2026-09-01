@@ -5,9 +5,20 @@ updates:
     schedule:
       interval: weekly
     groups:
+      # Routine updates share CI coverage; majors remain isolated migrations.
       frontend-dependencies:
+        applies-to: version-updates
         patterns:
           - '*'
+        update-types:
+          - minor
+          - patch
+    # typescript-eslint 8.x does not support TypeScript 7, so do not open a
+    # known-incompatible compiler update until the lint stack supports it.
+    ignore:
+      - dependency-name: typescript
+        versions:
+          - '>=7.0.0'
   - package-ecosystem: docker
     directory: /
     schedule:
@@ -18,5 +29,9 @@ updates:
       interval: weekly
     groups:
       github-actions:
+        applies-to: version-updates
         patterns:
           - '*'
+        update-types:
+          - minor
+          - patch
