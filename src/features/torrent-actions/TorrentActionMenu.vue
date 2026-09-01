@@ -201,7 +201,7 @@ function onKeydown(event: KeyboardEvent): void {
   ]
   if (!items.length) return
   const current = items.indexOf(document.activeElement as HTMLButtonElement)
-  let next = current
+  let next: number
   if (event.key === 'ArrowDown') next = (current + 1) % items.length
   else if (event.key === 'ArrowUp') next = (current - 1 + items.length) % items.length
   else if (event.key === 'Home') next = 0

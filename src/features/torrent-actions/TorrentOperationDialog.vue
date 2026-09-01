@@ -604,8 +604,6 @@ async function submit(): Promise<void> {
   if (working.value || !props.hashes.length) return
   error.value = null
   const operations: Array<Promise<void>> = []
-  let requestedMoveTarget: string | null = null
-  let requestedMoveBaselineResponseId = torrents.responseId
   let moveReservationId: number | null = null
 
   if (props.operation === 'location') {
@@ -634,8 +632,8 @@ async function submit(): Promise<void> {
           : 'All selected torrents already use that save path. Enter a different path or cancel; reapplying it would only turn off automatic torrent management.'
       return
     }
-    requestedMoveTarget = nextLocation
-    requestedMoveBaselineResponseId = torrents.responseId
+    const requestedMoveTarget = nextLocation
+    const requestedMoveBaselineResponseId = torrents.responseId
     moveReservationId = moveTracking.reserveMove(
       props.hashes,
       requestedMoveTarget,
