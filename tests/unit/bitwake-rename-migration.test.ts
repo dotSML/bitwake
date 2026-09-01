@@ -44,6 +44,10 @@ describe('Bitwake rename migration from NeoTorrent', () => {
         clientData: 'bitwake.saved-filters.v1',
         legacyBrowser: 'neotorrent:saved-filters',
         legacyClientData: 'neotorrent.saved-filters.v1'
+      },
+      mockClientData: {
+        browser: 'bitwake:mock-client-data',
+        legacyBrowser: 'neotorrent:mock-client-data'
       }
     })
   })

@@ -1,22 +1,31 @@
 import { delay, http, HttpResponse } from 'msw'
 import { createFiles, createTorrents } from './fixtures'
 import { appStorageKeys } from '@/config/appIdentity'
+import { readMigratedBrowserStorage } from '@/utils/migrateBrowserStorage'
 
 const api = (path: string) => new RegExp(`/api/v2/${path.replace('/', '\\/')}(?:\\?.*)?$`)
 const torrents = createTorrents(24)
 const files = createFiles()
 let rid = 0
 let searchId = 1
-const clientDataStorageKey = appStorageKeys.mockClientData
+const clientDataStorageKeys = appStorageKeys.mockClientData
+
+function parseMockClientData(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null
+}
 
 function readClientData(): Record<string, unknown> {
   try {
-    const value: unknown = JSON.parse(
-      globalThis.sessionStorage.getItem(clientDataStorageKey) ?? '{}'
+    return (
+      readMigratedBrowserStorage(
+        globalThis.sessionStorage,
+        clientDataStorageKeys.browser,
+        clientDataStorageKeys.legacyBrowser,
+        parseMockClientData
+      ).value ?? {}
     )
-    return value && typeof value === 'object' && !Array.isArray(value)
-      ? (value as Record<string, unknown>)
-      : {}
   } catch {
     return {}
   }
@@ -24,7 +33,7 @@ function readClientData(): Record<string, unknown> {
 
 function persistClientData(value: Record<string, unknown>): void {
   try {
-    globalThis.sessionStorage.setItem(clientDataStorageKey, JSON.stringify(value))
+    globalThis.sessionStorage.setItem(clientDataStorageKeys.browser, JSON.stringify(value))
   } catch {
     // Browser mocks remain usable in memory when session storage is unavailable.
   }

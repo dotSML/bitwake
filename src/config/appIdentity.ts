@@ -34,7 +34,10 @@ export const appStorageKeys = Object.freeze({
     legacyBrowser: `${legacyAppIdentity.slug}:saved-filters`,
     legacyClientData: `${legacyAppIdentity.slug}.saved-filters.v1`
   }),
-  mockClientData: `${appIdentity.slug}:mock-client-data`
+  mockClientData: Object.freeze({
+    browser: `${appIdentity.slug}:mock-client-data`,
+    legacyBrowser: `${legacyAppIdentity.slug}:mock-client-data`
+  })
 })
 
 export const appRuntimeUrls = Object.freeze({

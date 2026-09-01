@@ -37,6 +37,7 @@ present for the compatibility period.
 | Media Placement in qBittorrent client data       | `neotorrent.media-placement.v1` | `bitwake.media-placement.v1` |
 | Saved-filter session fallback                    | `neotorrent:saved-filters`      | `bitwake:saved-filters`      |
 | Saved filters in qBittorrent client data         | `neotorrent.saved-filters.v1`   | `bitwake.saved-filters.v1`   |
+| Development mock client data in `sessionStorage` | `neotorrent:mock-client-data`   | `bitwake:mock-client-data`   |
 
 Interface preferences include theme, locale, desktop and mobile density,
 sidebar and inspector state, visible columns, column order and widths, sorting,
