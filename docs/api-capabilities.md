@@ -136,7 +136,7 @@ Multi-torrent hash lists are pipe-separated. The literal `all` is preserved only
 | `renameFile`, `renameFolder`                            | Yes    | No  | Wrapper only                                                 |
 | `torrents/export`                                       | Yes    | Yes | Single-torrent metadata download; not content download       |
 
-#### Exact round-2 torrent-operation contracts
+#### Target torrent-operation contracts
 
 All mutating requests below are UTF-8 URL-encoded forms. `hashes` is one hash, a pipe-separated list, or the literal `all` only where the scope column permits it; `URLSearchParams` percent-encodes the separators on the wire. Missing required parameters return 400. Generic 401/403 responses remain authentication or proxy-policy failures rather than endpoint-specific operation results. Unless a row says otherwise, invalid or nonexistent hashes are ignored by qBittorrent's multi-torrent iterator.
 

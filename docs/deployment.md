@@ -27,15 +27,7 @@ The Kubernetes examples contain this deliberate placeholder:
 ghcr.io/dotsml/neotorrent@sha256:REPLACE_WITH_PUBLISHED_DIGEST
 ```
 
-The placeholder itself is not deployable. Baseline `a266f0f` passed [CI run #3](https://github.com/dotSML/neotorrent/actions/runs/33469038666) and [Container run #1](https://github.com/dotSML/neotorrent/actions/runs/33469038662), which published this public amd64/arm64 index with attestation manifests:
-
-```text
-ghcr.io/dotsml/neotorrent@sha256:07d92efa9f2ff26afccc475ffaab3dccfa98cc34db824ed9743c06142e9bafed
-```
-
-That immutable reference is deployable baseline evidence, but it does not include the current uncommitted round-2 changes. Keep the placeholder until you deliberately select the baseline or publish and inspect a new round-2 digest.
-
-Build and push your own reviewed image to a registry you control, use the verified baseline digest intentionally, or let the hosted workflow publish the reviewed round-2 commit. In every case, replace the entire placeholder with an inspected immutable digest before deploying it.
+The placeholder itself is not deployable. Obtain an image from a successful container workflow for the exact revision you reviewed, or build and publish that revision to a registry you control. Before deployment, verify the reported source revision, supported platforms, vulnerability-scan results, SBOM, provenance, and artifact attestation. Then replace the entire placeholder with the inspected immutable registry digest; never substitute a mutable tag.
 
 ## Standalone container
 
@@ -108,7 +100,7 @@ Use this when NeoTorrent should have an independent rollout/resource lifecycle. 
 
 Both examples run non-root as 101, drop all capabilities, disable privilege escalation, request `RuntimeDefault` seccomp, make the root filesystem read-only, mount a size-limited memory-backed `/tmp`, disable service-account token mounting, and disable service-link environment injection. Their liveness/readiness semantics are the process-only semantics described above.
 
-Official Kustomize v5.8.1 was downloaded and its release asset verified with SHA-256 `029a7f0f4e1932c52a0476cf02a0fd855c0bb85694b82c338fc648dcb53a819d`. `kustomize build` passed for both bases and confirmed the 8081 container port, Service `targetPort: webui`, no Ingress rewrite, security context, and `/tmp` `emptyDir`. This is render validation, not admission, rollout, NetworkPolicy, TLS, or live-cluster verification.
+Run `kustomize build` for both bases with a trusted Kustomize release. Review the rendered 8081 container port, Service `targetPort: webui`, absence of an Ingress rewrite, security context, and `/tmp` `emptyDir`. This is render validation, not admission, rollout, NetworkPolicy, TLS, or live-cluster verification.
 
 Before applying either base:
 
@@ -153,11 +145,11 @@ The packaging command performs two Vite builds, assembles qBittorrent's public/p
 Outputs:
 
 ```text
-dist/alt-webui/                       1,076,344 bytes
-dist/qbittorrent-modern-webui.zip       384,605 bytes
+dist/alt-webui/
+dist/qbittorrent-modern-webui.zip
 ```
 
-The current zip SHA-256 is `8a833b0af9c4a6f00eeb2f323e302ecbce879375766d7c23a6b72b643c00d862`. The standalone build in `dist/standalone` is 780,965 bytes. Final artifact checks found no production source maps, MSW worker, or embedded upstream string.
+Artifact sizes and checksums vary by revision. Record a checksum for the exact archive you promote, and inspect the generated package rather than relying on values from another build. The packaging checks reject production source maps, the MSW worker, and an embedded upstream string.
 
 The ordinary `corepack pnpm build` output in `dist/standalone` is the standalone SPA and is not the directory configured as an Alternative WebUI.
 
@@ -196,14 +188,14 @@ The archive contains `public/` and `private/` at its top level. Extract it into 
 
 For headless qBittorrent, set the equivalent Alternative WebUI options using your normal administrative method. Exact configuration-file locations and ownership depend on the image or OS package; this project does not rewrite the qBittorrent configuration.
 
-## Verification performed for the pinned target
+## Pinned-target verification
 
 `corepack pnpm container:test` runs two local suites:
 
 1. `container/test-container.sh` uses a deterministic upstream to verify the hardened runtime and byte/status/header fidelity of the proxy.
 2. `container/test-qbittorrent.sh` starts the pinned official qBittorrent container in a shared localhost Pod-style network namespace and drives `container/tests/qbittorrent-integration.mjs` through the NeoTorrent origin.
 
-Both suites passed locally. The real suite observed qBittorrent **v5.2.3** and Web API **2.15.1** and verified:
+A passing real suite must observe qBittorrent **v5.2.3** and Web API **2.15.1** and verify:
 
 - Anonymous startup, invalid login, valid login, deep-link restoration, authenticated refresh, logout, and expiry without standalone document reload loops.
 - Legal local multipart torrent adds, start, stop, an active-download save-location change, rename, category/tag assignment, recheck, reannounce, and file-priority changes.
@@ -213,11 +205,9 @@ Both suites passed locally. The real suite observed qBittorrent **v5.2.3** and W
 
 Web Seed encoding deserves special care. The UI/API boundary accepts canonical URLs. qBittorrent 5.2.3 form-decodes the request and its Web Seed controller then calls `QUrl::fromPercentEncoding()`. NeoTorrent therefore protects only existing `%HH` octets as `%25HH` before the shared `URLSearchParams` form encoder runs. It does not `encodeURIComponent` the complete URL, because that would also obscure semantic `:`, `/`, `?`, `&`, and `=` delimiters. The real suite compares the added/edited URLs after qBittorrent returns them.
 
-These tests do not establish Kubernetes behavior, outer-Ingress TLS, subpath serving, PWA install/update, every Vue mutation surface, large-library performance, or compatibility beyond the pinned version. Their round-2 rerun passed against local linux/amd64 `neotorrent:test`, whose content ID is `sha256:d3b017b11147cc2c32377b7a09aa7b96fa63295961b997984e21a2bfa0f4004e`, revision label is `a266f0f339087547edaacace316a322a348f0a7c-dirty`, created label is `unspecified`, and runtime UID/GID is 101:101.
+These tests do not establish Kubernetes behavior, outer-Ingress TLS, subpath serving, PWA install/update, every Vue mutation surface, large-library performance, or compatibility beyond the pinned version. Container CI must build and scan every published architecture under the repository's severity policy before it publishes an image. A local image ID or scan applies only to that local image and is not an immutable registry reference or a substitute for hosted multi-architecture verification.
 
-The previous runtime base failed a Trivy v0.74.0/current-database scan with 25 HIGH and 2 CRITICAL findings. The current round-2 local amd64 image reported 0 HIGH/CRITICAL on Alpine 3.24.1. At baseline `a266f0f`, the hosted container run also built and scanned complete linux/amd64 and linux/arm64 images under the same severity policy before publishing the verified multi-architecture digest above. The hosted baseline scan does not substitute for a round-2 arm64 build and scan.
-
-An earlier native Alternative WebUI authentication/resource smoke exists via `scripts/verify-real-instance.mjs`, but it predates current working-tree changes. The current package build and full browser matrix passed and the current zip identity is recorded above; the older smoke still must not be represented as live-daemon verification of this new zip.
+The native Alternative WebUI authentication/resource smoke in `scripts/verify-real-instance.mjs` is supplemental. Record the tested source revision and archive checksum when using it, and do not represent a smoke result from one package as live-daemon verification of another.
 
 ## Development modes
 
@@ -257,11 +247,11 @@ This previews `dist/standalone`; it does not run the bundled Nginx proxy or repr
 
 ### Continuous integration
 
-`.github/workflows/ci.yml` runs on pushes to `main` and pull requests. It installs from the frozen lockfile, checks formatting, lint and types, runs all Vitest projects, builds the Alternative WebUI, installs Chromium and WebKit, runs the six Playwright projects, and uploads `dist/alt-webui` plus `dist/qbittorrent-modern-webui.zip`.
+`.github/workflows/ci.yml` runs on pushes to `main` and pull requests. It installs from the frozen lockfile, checks formatting, lint and types, runs all Vitest projects, builds the Alternative WebUI, installs Chromium and WebKit, runs the configured Playwright projects, and uploads `dist/alt-webui` plus `dist/qbittorrent-modern-webui.zip`.
 
-GitHub Actions CI run #3 and Container run #1 were green for exact baseline `a266f0f339087547edaacace316a322a348f0a7c`. They are baseline evidence only. Locally, the round-2 working tree passed the frozen install, format/lint/typecheck, 24-file/229-test Vitest run, all production builds, and full Playwright suite. Playwright ran in official `mcr.microsoft.com/playwright:v1.62.1-noble@sha256:dcc5531e97840b9b5e794f2814476b21571c5124a3fca2267d73041f56e7580e` with 63 passed and 81 intentional project skips across Chromium, WebKit, and 320/375/430 phones.
+`.github/workflows/container.yml` applies the source, browser, package, proxy, and real-qBittorrent gates before publication. It builds and scans the supported architectures, then produces the multi-architecture index, SBOM, provenance, artifact attestation, and immutable-reference report for eligible revisions.
 
-The committed `.github/workflows/container.yml` completed successfully for baseline `a266f0f`. Its verify job passed the source/browser/package gates, both container suites, and amd64/arm64 HIGH/CRITICAL scans; its publish job produced the public multi-architecture index, SBOM/provenance, a GitHub artifact attestation, and an immutable-reference report. The round-2 working tree has not run in hosted CI and has no published round-2 digest.
+CI evidence is revision-specific. Confirm that both workflows succeeded for the exact commit being released, and use the immutable reference emitted by that run. Do not carry a passing result, checksum, scan, or attestation forward from another commit.
 
 ## Reverse proxy and subpath behavior
 
@@ -343,7 +333,7 @@ NEOTORRENT_SCREENSHOT_URL=http://127.0.0.1:4173/ \
 node scripts/capture-screenshots.mjs
 ```
 
-The checked-in screenshots are mock-mode snapshots. The script defaults to `/usr/bin/google-chrome`; set `PLAYWRIGHT_CHROME_PATH` when needed. Screenshots contain deterministic mock data, not private torrents, and are not real-qBittorrent or live-deployment evidence; the separate current full browser result is recorded above.
+The checked-in screenshots are mock-mode snapshots. The script defaults to `/usr/bin/google-chrome`; set `PLAYWRIGHT_CHROME_PATH` when needed. Screenshots contain deterministic mock data, not private torrents, and are not real-qBittorrent or live-deployment evidence.
 
 ## Upgrade procedure
 

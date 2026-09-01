@@ -1,0 +1,117 @@
+name: Bug report
+description: Report reproducible incorrect behavior using sanitized information
+title: '[Bug]: '
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Search existing issues first. For a suspected vulnerability, do not continue here; use the private process in [SECURITY.md](https://github.com/dotSML/neotorrent/blob/main/SECURITY.md).
+
+  - type: input
+    id: neotorrent-version
+    attributes:
+      label: NeoTorrent version
+      description: Provide a release, image digest, or full commit SHA.
+      placeholder: 'Release, digest, or commit SHA'
+    validations:
+      required: true
+
+  - type: input
+    id: qbittorrent-version
+    attributes:
+      label: qBittorrent version
+      description: Provide the exact application version, or state that mock mode was used.
+      placeholder: 'For example: 5.2.3'
+    validations:
+      required: true
+
+  - type: input
+    id: web-api-version
+    attributes:
+      label: qBittorrent Web API version
+      description: Provide the reported Web API version, or state that it is unknown or not applicable.
+      placeholder: 'For example: 2.15.1'
+    validations:
+      required: true
+
+  - type: dropdown
+    id: deployment-mode
+    attributes:
+      label: Deployment mode
+      options:
+        - Standalone container
+        - qBittorrent Alternative WebUI
+        - Local development proxy with qBittorrent
+        - Local mock development mode
+        - Other (describe below)
+    validations:
+      required: true
+
+  - type: input
+    id: browser
+    attributes:
+      label: Browser and operating system
+      description: Include exact browser and OS versions when available.
+      placeholder: 'For example: Firefox 142 on Ubuntu 24.04'
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Describe the problem, its frequency, and any visible error.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: Provide the smallest deterministic sequence that reproduces the issue.
+      placeholder: |
+        1. Open ...
+        2. Select ...
+        3. Observe ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: Explain what you expected to happen instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Sanitized diagnostics
+      description: Add relevant logs, screenshots, console output, or proxy details only after redacting them. Use synthetic torrent data.
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional context
+      description: Include deployment details or other context that is safe to publish.
+
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Public-report safety check
+      options:
+        - label: I removed credentials, cookies, session IDs, tokens, private URLs, and private network details.
+          required: true
+        - label: I removed torrent names, hashes, magnets, file data, tracker passkeys, RSS data, and peer addresses.
+          required: true
+        - label: This is not a vulnerability report and is safe to discuss publicly.
+          required: true
+
+  - type: checkboxes
+    id: duplicates
+    attributes:
+      label: Duplicate check
+      options:
+        - label: I searched existing issues and did not find this bug already reported.
+          required: true

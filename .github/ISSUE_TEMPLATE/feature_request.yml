@@ -1,0 +1,67 @@
+name: Feature request
+description: Propose a focused improvement or new capability
+title: '[Feature]: '
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe the user problem before prescribing an implementation. Please search existing issues and review the documented compatibility and feature-parity scope first.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem to solve
+      description: Who encounters the problem, in which workflow, and what is difficult today?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed-outcome
+    attributes:
+      label: Desired outcome
+      description: Describe the behavior or result you would like, without relying on private data.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Note current workarounds or other approaches you considered.
+
+  - type: dropdown
+    id: deployment-scope
+    attributes:
+      label: Relevant deployment mode
+      multiple: true
+      options:
+        - Standalone container
+        - qBittorrent Alternative WebUI
+        - Local development and mock mode
+        - All modes
+        - Unsure
+    validations:
+      required: true
+
+  - type: input
+    id: qbittorrent-context
+    attributes:
+      label: qBittorrent or Web API context
+      description: If the request depends on a qBittorrent capability, provide the relevant application/API version or documentation reference.
+      placeholder: 'Version, endpoint, or not applicable'
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional context
+      description: Add sanitized mockups, examples, or links. Do not attach real torrent or account data.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I searched existing issues and did not find this request already proposed.
+          required: true
+        - label: I removed credentials, private URLs, torrent data, tracker passkeys, and other private information.
+          required: true

@@ -239,13 +239,13 @@ Vite uses `base: './'`, separate `login-assets/` and `app-assets/`, hashed chunk
 
 ### Standalone build and proxy
 
-`vite build --mode standalone` emits one SPA to `dist/standalone`. The Dockerfile builds that output in a Node stage and copies it into the pinned `nginxinc/nginx-unprivileged:1.30.4-alpine@sha256:45ce1e2e699234253d1def7baa96218a5d00b498d1ba0cbb1a17b6bdf73d1351` runtime. The current local amd64 image and hosted baseline amd64/arm64 images run as `101:101` and intentionally contain neither Node nor the source/test tree.
+`vite build --mode standalone` emits one SPA to `dist/standalone`. The Dockerfile builds that output in a Node stage and copies it into the pinned `nginxinc/nginx-unprivileged:1.30.4-alpine@sha256:45ce1e2e699234253d1def7baa96218a5d00b498d1ba0cbb1a17b6bdf73d1351` runtime. The runtime runs as `101:101` and intentionally contains neither Node nor the source/test tree.
 
 The POSIX entrypoint validates `QBITTORRENT_URL` or the `QB_HOST`/`QB_PORT` fallback, listen port, upload size, and proxy timeouts. It rejects embedded credentials, query/fragment text, unsafe characters, and an upstream ending in `/api/v2`, then renders Nginx configuration into writable `/tmp` and runs `nginx -t`.
 
 Nginx serves the hash-routed SPA, proxies root `/api/` to the configured upstream `/api/`, forwards cookies and validation-relevant headers, disables API buffering/caching, and returns proxy statuses without substituting the SPA. `/healthz` and `/readyz` describe only the NeoTorrent process and deliberately do not probe qBittorrent.
 
-Kubernetes has sidecar and separate-Deployment examples. The sidecar shares loopback with an operator's unchanged qBittorrent container; the separate form reaches a private qBittorrent Service. Both render with an unprivileged/read-only/capability-drop security context and a small `/tmp` `emptyDir`. Kustomize v5.8.1 render validation passed for both. A live deployment exposed the initial qBittorrent-startup 502 sequence that motivated round-2 recovery, but the repository has not recorded full admission/topology/NetworkPolicy/TLS/rollback verification. Both examples retain a non-runnable immutable-image placeholder so an operator must deliberately choose the published baseline digest or a newly published round-2 digest.
+Kubernetes has sidecar and separate-Deployment examples. The sidecar shares loopback with an operator's unchanged qBittorrent container; the separate form reaches a private qBittorrent Service. Both render with an unprivileged/read-only/capability-drop security context and a small `/tmp` `emptyDir`. Kustomize render validation covers both examples, but the repository does not claim full admission, topology, NetworkPolicy, TLS, or rollback verification for an operator's cluster. Both examples retain a non-runnable image placeholder so an operator must deliberately supply an immutable digest for a reviewed and verified revision.
 
 ## PWA and cache boundary
 
@@ -262,12 +262,11 @@ The service-worker update callback presents a confirmation and activates/reloads
 - MSW provides browser development fixtures and can support deterministic component/E2E flows.
 - Playwright is configured for 1440×900 desktop, 320×700, 375×812, and 430×932 phone projects, plus 768×1024 and 1024×768 tablet projects. It starts standalone-E2E and Alternative-private-E2E Vite servers so session-boundary behavior can be tested separately.
 - Build scripts produce standalone and Alternative WebUI artifacts independently of test fixtures.
-- Frozen pnpm 10.15.0 installation, formatting, lint, typecheck, `build`, `build:standalone`, and `build:alt-webui` passed on the current working tree. The final full Vitest run passed 24 files / 229 tests.
-- A focused store test (8/8, 286 ms file total) applies a changed delta to 5,000 torrents, preserves all 4,999 untouched object references under a generous `<1,000 ms` local regression budget, then applies a separate removal delta and verifies selection cleanup/RID 43. This is not a formal benchmark.
-- The full Playwright suite passed in the official 1.62.1 Noble image at digest `sha256:dcc5531e97840b9b5e794f2814476b21571c5124a3fca2267d73041f56e7580e`: 63 passed and 81 intentional project skips across Chromium, WebKit, and 320/375/430 phone projects.
-- Deterministic proxy and real qBittorrent 5.2.3 suites passed on current local linux/amd64 image content ID `sha256:d3b017b11147cc2c32377b7a09aa7b96fa63295961b997984e21a2bfa0f4004e`; Trivy 0.74.0/current DB reported 0 HIGH/CRITICAL on Alpine 3.24.1. This is a local round-2 identity, not a registry reference.
-- CI run #3 and Container run #1 were green for exact baseline `a266f0f339087547edaacace316a322a348f0a7c`. The latter passed amd64/arm64 scans and published public index `sha256:07d92efa9f2ff26afccc475ffaab3dccfa98cc34db824ed9743c06142e9bafed` plus attestation manifests.
-- Hosted baseline evidence predates the round-2 working-tree changes. Round 2 needs a new hosted run, per-architecture scan, and digest.
+- CI installs the frozen pnpm dependency graph and runs formatting, lint, typecheck, unit/component tests, production builds, and the configured Playwright browser matrix.
+- A focused store regression applies a changed delta to a large torrent fixture, verifies that untouched object references remain stable, then applies a removal delta and verifies selection and response-ID cleanup. Its coarse time guard is not a formal benchmark.
+- Playwright covers Chromium and WebKit across the configured desktop, tablet, and phone projects. Viewport-specific skips are intentional and should remain explicit in the test configuration.
+- The deterministic proxy and real qBittorrent 5.2.3 suites exercise the standalone runtime boundary. Container CI builds and scans every supported architecture before it publishes a multi-architecture image, SBOM, provenance, and attestations.
+- Test, scan, and publication evidence applies only to the exact revision and artifact produced by that run. A local content ID is not an immutable registry reference.
 
 Executed results and missing suites are recorded in [../IMPLEMENTATION_STATUS.md](../IMPLEMENTATION_STATUS.md); configuration files alone are not counted as passing tests.
 
@@ -287,6 +286,6 @@ Executed results and missing suites are recorded in [../IMPLEMENTATION_STATUS.md
 - Several lower-priority stock actions remain wrapper-only or absent, including peer addition and file/folder rename.
 - Component fixtures demonstrate bounded DOM counts for 5,000 desktop/mobile torrents, a searched 10,000-file tree, a 10,000-index priority/reapply flow, and 2,000 RSS articles. Coarse local time guards are not timing, memory, or sustained-poll benchmarks; comparable large peer and Search-result fixture evidence is also absent.
 - Several user-facing strings bypass Vue I18n.
-- Current builds are recorded: standalone tree 780,965 bytes; Alternative WebUI tree 1,076,344 bytes; zip 384,605 bytes with SHA-256 `8a833b0af9c4a6f00eeb2f323e302ecbce879375766d7c23a6b72b643c00d862`. Final checks found no maps, MSW worker, or embedded upstream string.
-- A deployable public baseline digest exists, but there is no hosted run or immutable registry reference for the current round-2 working tree.
+- Packaging checks reject production source maps, the MSW worker, and an embedded upstream string. Record sizes and checksums for each release artifact instead of treating local build metadata as a publication record.
+- The Kubernetes examples intentionally contain a non-runnable image placeholder. A deployment claim requires an immutable registry reference from a successful workflow for the reviewed source revision.
 - Real qBittorrent coverage includes safe local mutations and outage recovery, but not Search/RSS/Creator/settings/peer workflows, large libraries, full Kubernetes topology validation, outer proxy TLS, subpaths, or PWA lifecycle.

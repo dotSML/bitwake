@@ -92,7 +92,7 @@ The standalone image additionally:
 - Rejects embedded upstream credentials, unsafe characters, query/fragment text, and a URL ending in `/api/v2`.
 - Supports a read-only root filesystem with only a small `/tmp` writable, all Linux capabilities dropped, no privilege escalation, and `RuntimeDefault` seccomp in the Kubernetes examples.
 - Serves process-only health/readiness endpoints; these do not make a false claim that qBittorrent is reachable.
-- Pins the runtime to `nginxinc/nginx-unprivileged:1.30.4-alpine@sha256:45ce1e2e699234253d1def7baa96218a5d00b498d1ba0cbb1a17b6bdf73d1351` and labels the project license `NOASSERTION` because this repository contains no `LICENSE` or `COPYING` file.
+- Pins the runtime to `nginxinc/nginx-unprivileged:1.30.4-alpine@sha256:45ce1e2e699234253d1def7baa96218a5d00b498d1ba0cbb1a17b6bdf73d1351`. The OCI license label remains `NOASSERTION` until the project owner selects a license; update it to match the repository `LICENSE` when one is added.
 
 ## qBittorrent settings that should remain enabled
 
@@ -131,14 +131,13 @@ Native Alternative WebUI deployments are served by qBittorrent and do not inheri
 ## Dependency and artifact considerations
 
 - Dependencies are pinned through `pnpm-lock.yaml` but still require routine vulnerability and provenance review.
-- `corepack pnpm audit --prod --audit-level high` completed with “No known vulnerabilities found” for this snapshot. Registry advisories are a useful scoped check, not a formal review or guarantee.
-- `corepack pnpm run licenses` completed for the production graph. Reported dependency categories were MIT, ISC, and MPL-2.0-or-Apache-2.0; the `UNLICENSED` entry is this private root package.
+- Run `corepack pnpm audit --prod --audit-level high` for each release and review the result. Registry advisories are a useful scoped check, not a formal review or guarantee.
+- Run `corepack pnpm run licenses` for each release and review the production dependency graph. Dependency licenses and the root package license must remain compatible with the repository's selected license and distribution policy.
 - Production source maps are disabled in the current Vite configuration and are not intended to ship in either build output. Keep this invariant in the artifact checks if build tooling changes.
 - The generated 192 px/512 px PNG icons, source SVG icon, and all runtime code are local.
 - Search-plugin installation delegates code acquisition/execution to qBittorrent's search subsystem. Install only trusted plugins and sources.
-- The previous runtime base failed a Trivy v0.74.0 scan with 25 HIGH and 2 CRITICAL findings. The current round-2 local amd64 image passed a current-database scan with 0 HIGH/CRITICAL on Alpine 3.24.1. Its local content ID is `sha256:d3b017b11147cc2c32377b7a09aa7b96fa63295961b997984e21a2bfa0f4004e`; it runs as UID/GID 101:101 with revision `a266f0f339087547edaacace316a322a348f0a7c-dirty`. A local content ID is not a registry reference.
-- The hosted baseline container run passed amd64 and arm64 HIGH/CRITICAL scans, published SBOM/provenance and a GitHub artifact attestation, and produced public index `ghcr.io/dotsml/neotorrent@sha256:07d92efa9f2ff26afccc475ffaab3dccfa98cc34db824ed9743c06142e9bafed` with both platform and attestation manifests.
-- The public image is exact baseline `a266f0f`, not the current round-2 tree. Round 2 still needs hosted per-architecture verification and a new immutable digest before publication claims transfer to it.
+- Scan every architecture of each release image with a current vulnerability database and enforce the repository's severity policy before publication. A local scan or content ID applies only to that local image and is not a registry reference.
+- Publish and verify an SBOM, provenance, and artifact attestation alongside the immutable multi-architecture registry digest. Verification evidence is revision-specific and must not be carried forward from another commit or image.
 
 ## Known security gaps and caveats
 
@@ -164,7 +163,7 @@ API caching rules are explicit, and the service-worker update callback presents 
 
 ### No formal security audit
 
-The real qBittorrent 5.2.3 integration verified the standalone login/session lifecycle, same-origin mutations, outage/recovery behavior, and the absence of unexpected browser errors in that suite. The deterministic container contract, current local amd64 scan, and hosted baseline amd64/arm64 scans also passed. None is a penetration test, formal source/provenance review, complete CSRF/CSP deployment test, hostile-content fuzzing campaign, hosted attestation, or live-deployment review.
+The real qBittorrent 5.2.3 integration suite exercises the standalone login/session lifecycle, same-origin mutations, outage/recovery behavior, and unexpected browser errors. The deterministic proxy suite and per-architecture image scans cover separate runtime concerns. A passing result from any of these is not a penetration test, formal source/provenance review, complete CSRF/CSP deployment test, hostile-content fuzzing campaign, or review of a particular live deployment.
 
 ## Private-data handling
 
@@ -182,7 +181,7 @@ The real qBittorrent 5.2.3 integration verified the standalone login/session lif
 
 ## Reporting a vulnerability
 
-This repository does not currently declare a dedicated security contact or private advisory process. Do not put credentials, private magnet links, hostnames, session cookies, or a real qBittorrent database in a public issue. Use the repository owner's private reporting channel when one is available and include the affected revision, qBittorrent/API version, deployment shape, and a minimal sanitized reproduction.
+Follow the repository's [Security Policy](../SECURITY.md) for supported versions and private reporting instructions. Do not put credentials, private magnet links, hostnames, session cookies, or a real qBittorrent database in a public issue. Include the affected revision, qBittorrent/API version, deployment shape, and a minimal sanitized reproduction.
 
 ## Pre-deployment checklist
 
@@ -196,4 +195,4 @@ This repository does not currently declare a dedicated security contact or priva
 8. Confirm no proxy or service worker caches `/api/` or login responses.
 9. Confirm the final artifact contains no production source maps.
 10. Keep a tested rollback path.
-11. Before using a published container, verify its immutable digest, expected architecture, vulnerability result, SBOM, and provenance. No public image containing this round-2 snapshot is verified or published.
+11. Before using a published container, verify its immutable digest, expected architecture, vulnerability result, SBOM, provenance, and source revision.
