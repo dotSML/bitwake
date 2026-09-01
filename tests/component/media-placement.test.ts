@@ -697,6 +697,31 @@ describe('Media Placement UI', () => {
     await vi.waitFor(() => expect(document.body.textContent).not.toContain('Inspecting local'))
   })
 
+  it('keeps 100 independent magnet source plans associated with their inputs', async () => {
+    const context = assistContext()
+    const wrapper = await mountWithContext(AddTorrentDialog, context, {
+      props: { open: true },
+      attachTo: document.body
+    })
+    await flushPromises()
+    const sources = Array.from({ length: 100 }, (_, index) => {
+      const ordinal = String(index + 1).padStart(3, '0')
+      const hash = (index + 1).toString(16).padStart(40, '0')
+      return `magnet:?xt=urn:btih:${hash}&dn=Scale.Movie.${ordinal}.2026`
+    })
+
+    await new DOMWrapper(document.querySelector('#torrent-sources')).setValue(sources.join('\n'))
+    await nextTick()
+    await button('Continue').trigger('click')
+    await vi.waitFor(() => expect(document.querySelectorAll('.source-plan')).toHaveLength(100))
+
+    const plans = [...document.querySelectorAll<HTMLElement>('.source-plan')]
+    expect(new Set(plans.map((plan) => plan.dataset.sourceId))).toHaveLength(100)
+    expect(plans[0]?.textContent).toContain('Scale Movie 001')
+    expect(plans[99]?.textContent).toContain('Scale Movie 100')
+    wrapper.unmount()
+  }, 15_000)
+
   it('stops showing analysis as pending when the final file is removed', async () => {
     const context = assistContext()
     let release!: (value: ArrayBuffer) => void

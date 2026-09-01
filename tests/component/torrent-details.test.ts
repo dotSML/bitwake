@@ -24,6 +24,48 @@ afterEach(() => {
 })
 
 describe('torrent details', () => {
+  it('virtualizes a 500-peer synchronized snapshot', async () => {
+    const context = createTestContext()
+    const torrent = createTorrents(1)[0]!
+    context
+      .run(() => useTorrentsStore(context.pinia))
+      .applyMainData({ rid: 1, full_update: true, torrents: { [torrent.hash]: torrent } })
+    vi.spyOn(context.api.torrents, 'properties').mockResolvedValue({})
+    vi.spyOn(context.api.sync, 'torrentPeers').mockResolvedValue({
+      rid: 1,
+      full_update: true,
+      peers: Object.fromEntries(
+        Array.from({ length: 500 }, (_, index) => [
+          `192.0.2.${index % 255}:${50_000 + index}`,
+          {
+            ip: `192.0.2.${index % 255}`,
+            port: 50_000 + index,
+            client: `Fixture ${index}`,
+            country: '',
+            flags: '',
+            progress: index / 500,
+            dl_speed: index,
+            up_speed: index,
+            downloaded: index,
+            uploaded: index
+          }
+        ])
+      )
+    })
+    const wrapper = await mountWithContext(TorrentDetailPanel, context, {
+      props: { hash: torrent.hash },
+      attachTo: document.body
+    })
+    await flushPromises()
+
+    await wrapper.get('[role="tab"]:nth-child(4)').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[data-total-count="500"]')).toBeDefined()
+    expect(wrapper.findAll('.virtual-peer-row').length).toBeLessThan(100)
+    wrapper.unmount()
+  })
+
   it('reports repeated live-peer failures once and keeps the last good snapshot', async () => {
     vi.useFakeTimers()
     const context = createTestContext()

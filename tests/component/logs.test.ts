@@ -7,6 +7,26 @@ import { createTestContext, mountWithContext } from './support/mount'
 afterEach(() => vi.useRealTimers())
 
 describe('logs', () => {
+  it('retains and virtualizes the newest 10,000 entries from a larger log snapshot', async () => {
+    const context = createTestContext()
+    vi.spyOn(context.api.logs, 'main').mockResolvedValue(
+      Array.from({ length: 12_000 }, (_, index) => ({
+        id: index,
+        timestamp: 1_700_000_000 + index,
+        type: 1,
+        message: `Scale log ${index}`
+      }))
+    )
+    vi.spyOn(context.api.logs, 'peers').mockResolvedValue([])
+    const wrapper = await mountWithContext(LogsView, context, { attachTo: document.body })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('10,000 visible')
+    expect(wrapper.findAll('.log-row').length).toBeLessThan(100)
+    expect(wrapper.text()).not.toContain('Scale log 0')
+    wrapper.unmount()
+  })
+
   it('reports clipboard denial instead of leaving an unhandled copy rejection', async () => {
     const context = createTestContext()
     vi.spyOn(context.api.logs, 'main').mockResolvedValue([
