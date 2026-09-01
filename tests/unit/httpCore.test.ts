@@ -236,6 +236,69 @@ describe('HttpClient', () => {
       cause: transportError
     })
   })
+
+  it('classifies request deadlines as timeout errors', async () => {
+    vi.useFakeTimers()
+    try {
+      const fetchMock = vi.fn<typeof fetch>().mockImplementation(
+        (_input, init) =>
+          new Promise((_resolve, reject) => {
+            const signal = init?.signal
+            signal?.addEventListener(
+              'abort',
+              () =>
+                reject(
+                  signal.reason instanceof Error
+                    ? signal.reason
+                    : new Error(String(signal.reason ?? 'aborted'))
+                ),
+              { once: true }
+            )
+          })
+      )
+      const client = new HttpClient({
+        fetch: fetchMock,
+        baseUrl: 'https://example.test/api/v2/',
+        defaultTimeoutMs: 50
+      })
+
+      const request = client.request('test')
+      const result = expect(request).rejects.toMatchObject({ kind: 'timeout' })
+      await vi.advanceTimersByTimeAsync(50)
+      await result
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('classifies an externally aborted request as cancelled regardless of its reason', async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(
+      (_input, init) =>
+        new Promise((_resolve, reject) => {
+          const signal = init?.signal
+          signal?.addEventListener(
+            'abort',
+            () =>
+              reject(
+                signal.reason instanceof Error
+                  ? signal.reason
+                  : new Error(String(signal.reason ?? 'aborted'))
+              ),
+            { once: true }
+          )
+        })
+    )
+    const client = new HttpClient({
+      fetch: fetchMock,
+      baseUrl: 'https://example.test/api/v2/'
+    })
+    const controller = new AbortController()
+
+    const request = client.request('test', { signal: controller.signal })
+    controller.abort('superseded')
+
+    await expect(request).rejects.toMatchObject({ kind: 'cancelled' })
+  })
 })
 
 describe('response parsing and status errors', () => {

@@ -5,6 +5,11 @@ import {
   resetToSuggestedPath
 } from '@/features/media-placement/domain/buildSuggestedPath'
 import {
+  directoryNames,
+  hostJoinPath,
+  hostParentPath
+} from '@/features/media-placement/domain/hostDirectory'
+import {
   isPathInsideRoot,
   isPathWithinRoot,
   isAbsoluteMediaPath,
@@ -63,6 +68,38 @@ describe('media path utilities', () => {
   it('normalizes traversal before doing containment checks', () => {
     expect(isPathWithinRoot('/data/movies/../tv-shows/Show', '/data/movies')).toBe(false)
     expect(isPathWithinRoot('/data/movies/../tv-shows/Show', '/data/tv-shows')).toBe(true)
+  })
+
+  it('navigates POSIX, drive, and UNC host directories without crossing their roots', () => {
+    expect(hostJoinPath('/data', 'Movies')).toBe('/data/Movies')
+    expect(hostJoinPath('C:\\Media', 'Movies')).toBe('C:\\Media\\Movies')
+    expect(hostJoinPath('\\\\server\\share', 'Movies')).toBe('\\\\server\\share\\Movies')
+    expect(hostParentPath('/data/Movies')).toBe('/data')
+    expect(hostParentPath('C:\\Media')).toBe('C:\\')
+    expect(hostParentPath('\\\\server\\share')).toBeNull()
+    expect(hostParentPath('//server/share')).toBeNull()
+  })
+
+  it('normalizes safe directory names from legacy strings and metadata', () => {
+    const directory = (name: string, type: string = 'dir') => ({
+      name,
+      type,
+      creation_date: 0,
+      last_access_date: 0,
+      last_modification_date: 0
+    })
+    expect(
+      directoryNames([
+        '/data/Safe',
+        '/other/Safe',
+        '/data/Hidden\u202eSpoof',
+        '.',
+        '..',
+        directory('Also Safe'),
+        directory('nested/escape'),
+        directory('Ignored', 'file')
+      ])
+    ).toEqual(['Also Safe', 'Safe'])
   })
 })
 

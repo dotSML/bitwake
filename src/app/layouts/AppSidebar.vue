@@ -29,7 +29,7 @@ import { usePreferencesStore } from '@/stores/preferences'
 import { useTorrentsStore } from '@/stores/torrents'
 import { useTransferStore } from '@/stores/transfer'
 import { useSessionLifecycle } from '@/app/session/sessionLifecycle'
-import type { TorrentFilterState } from '@/domains/torrents/state'
+import { countTorrentSidebarStates, type TorrentFilterState } from '@/domains/torrents/state'
 
 const emit = defineEmits<{ add: [] }>()
 const { t } = useI18n()
@@ -48,21 +48,7 @@ const stateItems: Array<{ id: TorrentFilterState; label: string; icon: typeof Ci
   { id: 'stopped', label: 'Stopped', icon: Circle }
 ]
 
-const stateCounts = computed(() => {
-  const all = torrents.torrents
-  return {
-    all: all.length,
-    downloading: all.filter((item) =>
-      ['downloading', 'forcedDL', 'stalledDL', 'metaDL'].includes(item.state)
-    ).length,
-    seeding: all.filter((item) => ['uploading', 'forcedUP', 'stalledUP'].includes(item.state))
-      .length,
-    active: all.filter((item) => item.dlspeed > 0 || item.upspeed > 0).length,
-    stopped: all.filter((item) =>
-      ['stoppedDL', 'stoppedUP', 'pausedDL', 'pausedUP'].includes(item.state)
-    ).length
-  }
-})
+const stateCounts = computed(() => countTorrentSidebarStates(torrents.torrents))
 
 function filterState(id: TorrentFilterState): void {
   torrents.updateFilters({ state: id })

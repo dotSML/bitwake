@@ -21,10 +21,14 @@ import {
 import { analyzeSourceName } from '@/features/media-placement/domain/analyzeSourceName'
 import { enrichMediaSourceAnalysisWithFilePaths } from '@/features/media-placement/domain/enrichMediaSourceAnalysis'
 import {
+  directoryNames,
+  hostJoinPath,
+  hostParentPath
+} from '@/features/media-placement/domain/hostDirectory'
+import {
   isAbsoluteMediaPath,
   isPathWithinRoot,
   isSameMediaPath,
-  mediaPathDirname,
   mediaPathBasename,
   tryParseMediaPath
 } from '@/features/media-placement/domain/pathUtils'
@@ -471,46 +475,8 @@ onBeforeUnmount(() => {
   cancelLocationAnalysis()
 })
 
-function hostJoinPath(base: string, child: string): string {
-  const separator = base.includes('\\') && !base.includes('/') ? '\\' : '/'
-  if (base === '/' || /^[A-Za-z]:[\\/]$/.test(base)) return `${base}${child}`
-  return `${base.replace(/[\\/]+$/, '')}${separator}${child}`
-}
-
 function safeUntrustedText(value: string | undefined): string {
   return replaceControlCharacters(value ?? '')
-}
-
-function safeDirectoryName(value: string, extractBasename: boolean): string | null {
-  const name = extractBasename
-    ? (value
-        .replace(/[\\/]+$/u, '')
-        .split(/[\\/]/u)
-        .at(-1) ?? '')
-    : value
-  if (
-    !name ||
-    name === '.' ||
-    name === '..' ||
-    name.length > 4096 ||
-    containsControlCharacters(name) ||
-    /[\\/]/u.test(name)
-  ) {
-    return null
-  }
-  return name
-}
-
-function hostParentPath(path: string): string | null {
-  const trimmed = path.trim().replace(/[\\/]+$/, '')
-  const parsed = tryParseMediaPath(trimmed)
-  if (parsed) return parsed.segments.length ? mediaPathDirname(trimmed) : null
-  if (!trimmed || trimmed === '/' || /^[A-Za-z]:$/.test(trimmed)) return null
-  const separatorIndex = Math.max(trimmed.lastIndexOf('/'), trimmed.lastIndexOf('\\'))
-  if (separatorIndex < 0) return null
-  if (separatorIndex === 0) return '/'
-  const parent = trimmed.slice(0, separatorIndex)
-  return /^[A-Za-z]:$/.test(parent) ? `${parent}${trimmed[separatorIndex]}` : parent
 }
 
 function cancelDirectoryLoad(): void {
@@ -542,17 +508,7 @@ async function loadDirectory(path: string): Promise<void> {
   try {
     const entries = await api.app.directoryContent(candidatePath, 'dirs', true, controller.signal)
     if (request !== directoryRequest) return
-    directories.value = entries
-      .flatMap((entry) => {
-        if (typeof entry === 'string') {
-          const name = safeDirectoryName(entry, true)
-          return name ? [name] : []
-        }
-        if (entry.type !== 'dir') return []
-        const name = safeDirectoryName(entry.name, false)
-        return name ? [name] : []
-      })
-      .sort((left, right) => left.localeCompare(right, undefined, { sensitivity: 'base' }))
+    directories.value = directoryNames(entries)
     browserPath.value = candidatePath
   } catch (cause) {
     if (request !== directoryRequest) return
@@ -621,10 +577,6 @@ function markUploadLimitDirty(): void {
   error.value = null
 }
 
-function isAbsoluteHostPath(path: string): boolean {
-  return path.startsWith('/') || /^[A-Za-z]:[\\/]/.test(path) || /^\\\\[^\\]+\\[^\\]+/.test(path)
-}
-
 function shareLimit(
   mode: ShareLimitMode,
   value: string,
@@ -670,7 +622,7 @@ async function submit(): Promise<void> {
       error.value = 'Enter an absolute save path on the qBittorrent host.'
       return
     }
-    if (!isAbsoluteHostPath(nextLocation)) {
+    if (!isAbsoluteMediaPath(nextLocation)) {
       error.value = 'Enter an absolute save path, such as /downloads or D:\\downloads.'
       return
     }

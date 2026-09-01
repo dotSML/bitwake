@@ -26,7 +26,11 @@ export function createTestContext(): TestContext {
       { path: '/torrents', component: EmptyRoute },
       { path: '/torrents/:hash/:tab?', component: EmptyRoute },
       { path: '/rss', component: EmptyRoute },
-      { path: '/settings', component: EmptyRoute }
+      { path: '/settings', component: EmptyRoute },
+      { path: '/search', component: EmptyRoute },
+      { path: '/creator', component: EmptyRoute },
+      { path: '/statistics', component: EmptyRoute },
+      { path: '/logs', component: EmptyRoute }
     ]
   })
   const provider = createApp(EmptyRoute)

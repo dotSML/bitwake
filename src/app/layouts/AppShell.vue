@@ -1,18 +1,26 @@
 <script setup lang="ts">
 import { Plus } from 'lucide-vue-next'
-import { computed, ref } from 'vue'
+import { computed, defineAsyncComponent, ref, type Component } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 import AppSidebar from './AppSidebar.vue'
 import ConnectionBanner from './ConnectionBanner.vue'
 import MobileBottomNav from './MobileBottomNav.vue'
-import AddTorrentDialog from '@/features/add-torrent/AddTorrentDialog.vue'
 import { usePreferencesStore } from '@/stores/preferences'
 import ToastRegion from '@/ui/components/ToastRegion.vue'
+import { MOBILE_MEDIA_QUERY, useMediaQuery } from '@/ui/composables/useMediaQuery'
+import { useWindowPointerDrag } from '@/ui/composables/useWindowPointerDrag'
+
+const AddTorrentDialog = defineAsyncComponent(async () => {
+  const module: unknown = await import('@/features/add-torrent/AddTorrentDialog.vue')
+  return (module as { default: Component }).default
+})
 
 const preferences = usePreferencesStore()
 const route = useRoute()
 const { t } = useI18n()
+const isMobile = useMediaQuery(MOBILE_MEDIA_QUERY)
+const sidebarDrag = useWindowPointerDrag()
 const addOpen = ref(false)
 const pendingFiles = ref<File[]>([])
 const routeTitle = computed(() => String(route.meta.title ?? t('app.name')))
@@ -35,13 +43,7 @@ function resizeSidebar(event: PointerEvent): void {
   event.preventDefault()
   const startX = event.clientX
   const startWidth = preferences.value.sidebarWidth
-  const move = (moveEvent: PointerEvent) => setSidebarWidth(startWidth + moveEvent.clientX - startX)
-  const stop = () => {
-    window.removeEventListener('pointermove', move)
-    window.removeEventListener('pointerup', stop)
-  }
-  window.addEventListener('pointermove', move)
-  window.addEventListener('pointerup', stop, { once: true })
+  sidebarDrag.start((moveEvent) => setSidebarWidth(startWidth + moveEvent.clientX - startX))
 }
 
 function resizeSidebarWithKeyboard(event: KeyboardEvent): void {
@@ -60,8 +62,9 @@ function resizeSidebarWithKeyboard(event: KeyboardEvent): void {
     :style="{ '--sidebar-width': `${preferences.value.sidebarWidth}px` }"
     data-private-shell
   >
-    <AppSidebar @add="openAddTorrent()" />
+    <AppSidebar v-if="!isMobile" @add="openAddTorrent()" />
     <div
+      v-if="!isMobile"
       class="sidebar-resizer"
       role="separator"
       tabindex="0"
@@ -92,8 +95,13 @@ function resizeSidebarWithKeyboard(event: KeyboardEvent): void {
       <ConnectionBanner />
       <main class="route-content"><RouterView @add-torrent="openAddTorrent" /></main>
     </div>
-    <MobileBottomNav />
-    <AddTorrentDialog :open="addOpen" :initial-files="pendingFiles" @update:open="updateAddOpen" />
+    <MobileBottomNav v-if="isMobile" />
+    <AddTorrentDialog
+      v-if="addOpen"
+      :open="addOpen"
+      :initial-files="pendingFiles"
+      @update:open="updateAddOpen"
+    />
     <ToastRegion />
   </div>
 </template>

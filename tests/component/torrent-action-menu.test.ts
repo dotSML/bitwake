@@ -7,6 +7,7 @@ import TorrentActionMenu from '@/features/torrent-actions/TorrentActionMenu.vue'
 import TorrentWorkspace from '@/features/torrent-list/TorrentWorkspace.vue'
 import { useNotificationsStore } from '@/stores/notifications'
 import { useTorrentsStore } from '@/stores/torrents'
+import { mockMobileViewport } from './support/mediaQuery'
 import { createTestContext, mountWithContext } from './support/mount'
 
 function deferred<T>() {
@@ -247,6 +248,7 @@ describe('torrent row action surfaces', () => {
   })
 
   it('connects desktop context-click and mobile overflow to actions and delete confirmation', async () => {
+    const viewport = mockMobileViewport(false)
     const context = createTestContext()
     const torrent = createTorrents(1)[0]!
     const torrents = context.run(() => useTorrentsStore(context.pinia))
@@ -283,6 +285,8 @@ describe('torrent row action surfaces', () => {
     await nextTick()
     expect(document.body.querySelector('.desktop-context-menu')).toBeNull()
 
+    viewport.setMobile(true)
+    await nextTick()
     const mobileMenu = wrapper.get<HTMLElement>('.row-menu')
     expect(mobileMenu.attributes('aria-label')).toBe(`Actions for ${torrent.name}`)
     await mobileMenu.trigger('click')
@@ -295,6 +299,7 @@ describe('torrent row action surfaces', () => {
   })
 
   it('keeps multi-selection for shared toolbar and mobile-row operations', async () => {
+    const viewport = mockMobileViewport(false)
     const context = createTestContext()
     const items = createTorrents(2)
     const torrents = context.run(() => useTorrentsStore(context.pinia))
@@ -320,6 +325,8 @@ describe('torrent row action surfaces', () => {
 
     const closeDialog = document.body.querySelector<HTMLButtonElement>('.dialog-close')
     await new DOMWrapper(closeDialog).trigger('click')
+    await nextTick()
+    viewport.setMobile(true)
     await nextTick()
     const mobileMenus = wrapper.findAll<HTMLElement>('.row-menu')
     expect(mobileMenus.length).toBeGreaterThan(0)

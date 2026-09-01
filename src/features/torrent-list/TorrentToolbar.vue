@@ -16,8 +16,12 @@ import {
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useApi } from '@/app/providers/api'
+import {
+  getOrderedTorrentTableColumns,
+  type TorrentTableColumnId
+} from '@/domains/torrents/tableColumns'
 import { useNotificationsStore } from '@/stores/notifications'
-import { torrentTableColumnIds, usePreferencesStore } from '@/stores/preferences'
+import { usePreferencesStore } from '@/stores/preferences'
 import { useTorrentsStore } from '@/stores/torrents'
 
 const emit = defineEmits<{ delete: []; add: []; actions: [event: MouseEvent] }>()
@@ -28,39 +32,8 @@ const notifications = useNotificationsStore()
 const { t } = useI18n()
 const working = ref(false)
 
-const allColumns = [
-  ['name', 'Name'],
-  ['size', 'Size'],
-  ['progress', 'Progress'],
-  ['state', 'Status'],
-  ['seeds', 'Seeds'],
-  ['peers', 'Peers'],
-  ['dlspeed', 'Download speed'],
-  ['upspeed', 'Upload speed'],
-  ['eta', 'ETA'],
-  ['ratio', 'Ratio'],
-  ['amount_left', 'Remaining'],
-  ['downloaded', 'Downloaded'],
-  ['uploaded', 'Uploaded'],
-  ['availability', 'Availability'],
-  ['category', 'Category'],
-  ['tags', 'Tags'],
-  ['save_path', 'Save path']
-] as const
 const selectedHashes = computed(() => [...torrents.selectedHashes])
-const orderedColumns = computed(() => {
-  const byId = new Map<string, (typeof allColumns)[number]>(
-    allColumns.map((column) => [column[0], column])
-  )
-  const orderedIds = [
-    ...preferences.value.columnOrder,
-    ...torrentTableColumnIds.filter((id) => !preferences.value.columnOrder.includes(id))
-  ]
-  return orderedIds.flatMap((id) => {
-    const column = byId.get(id)
-    return column ? [column] : []
-  })
-})
+const orderedColumns = computed(() => getOrderedTorrentTableColumns(preferences.value.columnOrder))
 
 async function run(label: string, operation: () => Promise<void>): Promise<void> {
   if (working.value) return
@@ -76,7 +49,7 @@ async function run(label: string, operation: () => Promise<void>): Promise<void>
   }
 }
 
-function toggleColumn(id: string): void {
+function toggleColumn(id: TorrentTableColumnId): void {
   const current = new Set(preferences.value.visibleColumns)
   if (current.has(id)) current.delete(id)
   else current.add(id)
@@ -84,9 +57,9 @@ function toggleColumn(id: string): void {
   preferences.patch({ visibleColumns: [...current] })
 }
 
-function moveColumn(id: string, direction: -1 | 1): void {
-  const order = orderedColumns.value.map(([columnId]) => columnId)
-  const from = order.indexOf(id as (typeof order)[number])
+function moveColumn(id: TorrentTableColumnId, direction: -1 | 1): void {
+  const order = orderedColumns.value.map((column) => column.id)
+  const from = order.indexOf(id)
   const to = from + direction
   if (from < 0 || to < 0 || to >= order.length) return
   ;[order[from], order[to]] = [order[to]!, order[from]!]
@@ -189,33 +162,33 @@ function setDensity(): void {
           ><ChevronDown :size="13" />
         </summary>
         <div class="menu-popover columns-popover">
-          <div v-for="([id, label], index) in orderedColumns" :key="id" class="column-option">
+          <div v-for="(column, index) in orderedColumns" :key="column.id" class="column-option">
             <button
               class="column-toggle"
               type="button"
-              :aria-pressed="preferences.value.visibleColumns.includes(id)"
-              @click="toggleColumn(id)"
+              :aria-pressed="preferences.value.visibleColumns.includes(column.id)"
+              @click="toggleColumn(column.id)"
             >
               <Check
                 :size="15"
-                :class="{ invisible: !preferences.value.visibleColumns.includes(id) }"
-              />{{ label }}
+                :class="{ invisible: !preferences.value.visibleColumns.includes(column.id) }"
+              />{{ column.label }}
             </button>
             <button
               class="column-move"
               type="button"
-              :aria-label="`Move ${label} column earlier`"
+              :aria-label="`Move ${column.label} column earlier`"
               :disabled="index === 0"
-              @click="moveColumn(id, -1)"
+              @click="moveColumn(column.id, -1)"
             >
               <ArrowUp :size="14" />
             </button>
             <button
               class="column-move"
               type="button"
-              :aria-label="`Move ${label} column later`"
+              :aria-label="`Move ${column.label} column later`"
               :disabled="index === orderedColumns.length - 1"
-              @click="moveColumn(id, 1)"
+              @click="moveColumn(column.id, 1)"
             >
               <ArrowDown :size="14" />
             </button>

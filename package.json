@@ -20,7 +20,7 @@
   "type": "module",
   "packageManager": "pnpm@10.15.0+sha512.486ebc259d3e999a4e8691ce03b5cac4a71cbeca39372a9b762cb500cfdf0873e2cb16abe3d951b1ee2cf012503f027b98b6584e4df22524e0c7450d9ec7aa7b",
   "engines": {
-    "node": ">=22.0.0"
+    "node": ">=22.22.2"
   },
   "scripts": {
     "dev": "vite --mode standalone",
@@ -60,8 +60,6 @@
   "devDependencies": {
     "@eslint/js": "^9.34.0",
     "@playwright/test": "^1.55.0",
-    "@tailwindcss/forms": "^0.5.10",
-    "@types/dompurify": "^3.0.5",
     "@types/node": "^24.3.0",
     "@vitejs/plugin-vue": "^6.0.1",
     "@vue/test-utils": "^2.4.6",

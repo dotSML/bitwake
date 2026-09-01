@@ -2,6 +2,11 @@
 import { ArrowLeft } from 'lucide-vue-next'
 import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import {
+  defaultTorrentDetailTab,
+  isTorrentDetailTab,
+  type TorrentDetailTab
+} from '@/domains/torrents/detailTabs'
 import TorrentOperationDialog from '@/features/torrent-actions/TorrentOperationDialog.vue'
 import { useTorrentsStore } from '@/stores/torrents'
 import TorrentDetailPanel from './TorrentDetailPanel.vue'
@@ -10,16 +15,14 @@ const route = useRoute()
 const router = useRouter()
 const torrents = useTorrentsStore()
 const hash = computed(() => String(route.params.hash ?? ''))
-const validTabs = ['overview', 'files', 'trackers', 'peers', 'webseeds', 'pieces'] as const
-type DetailTab = (typeof validTabs)[number]
-const tab = computed<DetailTab>(() => {
-  const value = String(route.params.tab ?? 'overview') as DetailTab
-  return validTabs.includes(value) ? value : 'overview'
+const tab = computed<TorrentDetailTab>(() => {
+  const value = String(route.params.tab ?? defaultTorrentDetailTab)
+  return isTorrentDetailTab(value) ? value : defaultTorrentDetailTab
 })
 const torrent = computed(() => torrents.byHash.get(hash.value))
 const placementDialogOpen = ref(false)
 
-function updateTab(value: DetailTab): void {
+function updateTab(value: TorrentDetailTab): void {
   void router.replace({ name: 'torrent-detail', params: { hash: hash.value, tab: value } })
 }
 </script>

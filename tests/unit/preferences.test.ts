@@ -138,6 +138,17 @@ describe('UI preference migrations', () => {
     })
   })
 
+  it.each(['overview', 'files', 'trackers', 'peers', 'webseeds', 'pieces'] as const)(
+    'preserves the stored %s torrent detail tab',
+    (detailTab) => {
+      expect(migrateUiPreferences({ detailTab }).detailTab).toBe(detailTab)
+    }
+  )
+
+  it('falls back to the default torrent detail tab for an unknown stored value', () => {
+    expect(migrateUiPreferences({ detailTab: 'future-tab' }).detailTab).toBe('overview')
+  })
+
   it('drops unknown keys and rejects malformed enum, boolean, sort, and interval values', () => {
     const migrated = migrateUiPreferences({
       schemaVersion: 999,

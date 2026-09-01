@@ -19,6 +19,14 @@ export type TorrentFilterState =
   | 'missingFiles'
   | 'error'
 
+export interface TorrentSidebarStateCounts {
+  all: number
+  downloading: number
+  seeding: number
+  active: number
+  stopped: number
+}
+
 const downloadingStates = new Set(['downloading', 'forcedDL', 'stalledDL', 'queuedDL', 'metaDL'])
 const seedingStates = new Set(['uploading', 'forcedUP', 'stalledUP', 'queuedUP'])
 const stoppedStates = new Set(['pausedDL', 'pausedUP', 'stoppedDL', 'stoppedUP'])
@@ -58,6 +66,26 @@ export function matchesTorrentState(torrent: TorrentInfo, filter: TorrentFilterS
     case 'stalledUP':
       return state === filter
   }
+}
+
+export function countTorrentSidebarStates(
+  torrents: readonly TorrentInfo[]
+): TorrentSidebarStateCounts {
+  const counts: TorrentSidebarStateCounts = {
+    all: 0,
+    downloading: 0,
+    seeding: 0,
+    active: 0,
+    stopped: 0
+  }
+  for (const torrent of torrents) {
+    if (matchesTorrentState(torrent, 'all')) counts.all += 1
+    if (matchesTorrentState(torrent, 'downloading')) counts.downloading += 1
+    if (matchesTorrentState(torrent, 'seeding')) counts.seeding += 1
+    if (matchesTorrentState(torrent, 'active')) counts.active += 1
+    if (matchesTorrentState(torrent, 'stopped')) counts.stopped += 1
+  }
+  return counts
 }
 
 export function torrentStateLabel(state: string): string {

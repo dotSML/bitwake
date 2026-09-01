@@ -734,6 +734,79 @@ describe('Media Placement UI', () => {
     expect(inspections[2]).not.toHaveBeenCalled()
   })
 
+  it('drops queued torrent files when the dialog unmounts during inspection', async () => {
+    const context = assistContext()
+    const releases: Array<() => void> = []
+    const inspections: ReturnType<typeof vi.fn>[] = []
+    const files = Array.from({ length: 3 }, (_, index) => {
+      const file = new File(['x'], `Unmounted-${index}.torrent`, {
+        type: 'application/x-bittorrent',
+        lastModified: index
+      })
+      const inspection = vi.fn(
+        () =>
+          new Promise<ArrayBuffer>((resolve) => {
+            releases.push(() => resolve(new Uint8Array([0x64, 0x65]).buffer))
+          })
+      )
+      inspections.push(inspection)
+      Object.defineProperty(file, 'arrayBuffer', { configurable: true, value: inspection })
+      return file
+    })
+    const wrapper = await mountWithContext(AddTorrentDialog, context, {
+      props: { open: true },
+      attachTo: document.body
+    })
+    await flushPromises()
+    const input = document.querySelector<HTMLInputElement>('#torrent-files')!
+    Object.defineProperty(input, 'files', { configurable: true, value: files })
+    await new DOMWrapper(input).trigger('change')
+    await vi.waitFor(() =>
+      expect(inspections.reduce((count, inspect) => count + inspect.mock.calls.length, 0)).toBe(2)
+    )
+
+    wrapper.unmount()
+    releases.splice(0).forEach((release) => release())
+    await flushPromises()
+
+    expect(inspections[2]).not.toHaveBeenCalled()
+  })
+
+  it('does not resume placement setup after its awaited load resolves post-unmount', async () => {
+    const context = createTestContext()
+    const placement = context.run(() => useMediaPlacementStore(context.pinia))
+    let releaseLoad!: () => void
+    const loadPending = new Promise<void>((resolve) => {
+      releaseLoad = resolve
+    })
+    const load = vi.spyOn(placement, 'load').mockImplementation(async () => {
+      await loadPending
+      placement.setConfigForSession({
+        mode: 'assist',
+        locked: true,
+        tvRoot: '/data/tv-shows',
+        moviesRoot: '/data/movies',
+        browseRoot: '/data'
+      })
+    })
+    const file = new File(['x'], 'Post-Unmount.torrent', {
+      type: 'application/x-bittorrent'
+    })
+    const inspection = vi.fn().mockResolvedValue(new Uint8Array([0x64, 0x65]).buffer)
+    Object.defineProperty(file, 'arrayBuffer', { configurable: true, value: inspection })
+    const wrapper = await mountWithContext(AddTorrentDialog, context, {
+      props: { open: true, initialFiles: [file] },
+      attachTo: document.body
+    })
+    await vi.waitFor(() => expect(load).toHaveBeenCalledOnce())
+
+    wrapper.unmount()
+    releaseLoad()
+    await flushPromises()
+
+    expect(inspection).not.toHaveBeenCalled()
+  })
+
   it('keeps file analysis attached to the File object when identical metadata is reordered', async () => {
     const context = assistContext()
     const torrentFile = (internalName: string): File => {

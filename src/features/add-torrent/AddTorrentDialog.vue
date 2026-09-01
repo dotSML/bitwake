@@ -10,7 +10,7 @@ import {
   Plus,
   XCircle
 } from 'lucide-vue-next'
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import type { AddTorrentResult } from '@/api/types/models'
 import { useApi } from '@/app/providers/api'
 import {
@@ -85,6 +85,8 @@ const error = ref<string | null>(null)
 const result = ref<AddSummary | null>(null)
 const plans = ref<AddSourcePlan[]>([])
 let analysisGeneration = 0
+let openGeneration = 0
+let disposed = false
 const fileObjectIds = new WeakMap<File, number>()
 let nextFileObjectId = 1
 interface FileInspectionTask {
@@ -143,9 +145,11 @@ const retrying = computed(() => plans.value.some((plan) => plan.status === 'fail
 watch(
   () => props.open,
   async (open) => {
+    const generation = ++openGeneration
     if (open) {
       files.value = [...(props.initialFiles ?? [])]
       await placement.load()
+      if (disposed || generation !== openGeneration || !props.open) return
       void reconcilePlans()
     } else reset()
   },
@@ -174,6 +178,12 @@ watch(autoManagement, () => {
       )
     }
   }))
+})
+
+onBeforeUnmount(() => {
+  disposed = true
+  openGeneration += 1
+  reset()
 })
 
 function reset(): void {
@@ -240,6 +250,10 @@ function cancelQueuedFileInspections(): void {
 }
 
 function drainFileInspectionQueue(): void {
+  if (disposed) {
+    cancelQueuedFileInspections()
+    return
+  }
   while (activeFileInspections < 2 && fileInspectionQueue.length) {
     const task = fileInspectionQueue.shift()
     if (!task) return
@@ -287,6 +301,7 @@ function inspectTorrentFileOnce(
 }
 
 async function reconcilePlans(): Promise<void> {
+  if (disposed || !props.open) return
   if (!assistMode.value) {
     clearPlacementAnalysis()
     return

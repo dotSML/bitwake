@@ -22,6 +22,11 @@ const scroller = ref<HTMLElement | null>(null)
 let timer: ReturnType<typeof setTimeout> | null = null
 let pollController: AbortController | null = null
 let disposed = false
+const maximumRetainedEntries = 10_000
+const logTimestampFormatter = new Intl.DateTimeFormat(undefined, {
+  dateStyle: 'short',
+  timeStyle: 'medium'
+})
 
 function mainLevel(type: number): string {
   return type === 1
@@ -65,11 +70,17 @@ const virtualizer = useVirtualizer({
   overscan: 20
 })
 
+function appendEntries<T extends { id: number }>(current: T[], incoming: readonly T[]): T[] {
+  if (!incoming.length) return current
+  const lastKnownId = current.at(-1)?.id ?? -1
+  const next = [...current, ...incoming.filter((entry) => entry.id > lastKnownId)]
+  return next.length > maximumRetainedEntries ? next.slice(-maximumRetainedEntries) : next
+}
+
 async function poll(): Promise<void> {
-  if (disposed) return
+  if (disposed || pollController) return
   if (!paused.value) {
     const controller = new AbortController()
-    pollController?.abort()
     pollController = controller
     try {
       const [main, peers] = await Promise.all([
@@ -77,10 +88,8 @@ async function poll(): Promise<void> {
         api.logs.peers(peerEntries.value.at(-1)?.id ?? -1, controller.signal)
       ])
       if (disposed || controller.signal.aborted) return
-      const knownMain = new Set(mainEntries.value.map((entry) => entry.id))
-      mainEntries.value.push(...main.filter((entry) => !knownMain.has(entry.id)))
-      const knownPeers = new Set(peerEntries.value.map((entry) => entry.id))
-      peerEntries.value.push(...peers.filter((entry) => !knownPeers.has(entry.id)))
+      mainEntries.value = appendEntries(mainEntries.value, main)
+      peerEntries.value = appendEntries(peerEntries.value, peers)
       if (follow.value)
         await nextTick(() =>
           virtualizer.value.scrollToIndex(Math.max(0, displayEntries.value.length - 1), {
@@ -93,7 +102,14 @@ async function poll(): Promise<void> {
       if (pollController === controller) pollController = null
     }
   }
-  if (!disposed) timer = setTimeout(() => void poll(), 2000)
+  if (!disposed) timer = setTimeout(() => void poll(), document.hidden ? 15_000 : 2_000)
+}
+
+function onVisibilityChange(): void {
+  if (document.hidden || disposed) return
+  if (timer) clearTimeout(timer)
+  timer = null
+  void poll()
 }
 
 function toggleLevel(level: string): void {
@@ -119,17 +135,17 @@ async function copyEntry(message: string): Promise<void> {
   await navigator.clipboard.writeText(message)
 }
 function formatTime(timestamp: number): string {
-  return new Intl.DateTimeFormat(undefined, { dateStyle: 'short', timeStyle: 'medium' }).format(
-    new Date(timestamp * 1000)
-  )
+  return logTimestampFormatter.format(new Date(timestamp * 1000))
 }
 
 onMounted(() => {
   disposed = false
+  document.addEventListener('visibilitychange', onVisibilityChange)
   void poll()
 })
 onBeforeUnmount(() => {
   disposed = true
+  document.removeEventListener('visibilitychange', onVisibilityChange)
   if (timer) clearTimeout(timer)
   pollController?.abort()
   pollController = null

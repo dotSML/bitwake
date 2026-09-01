@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { FilterX, Inbox, Plus, RefreshCw } from 'lucide-vue-next'
+import { Inbox, Plus, RefreshCw } from 'lucide-vue-next'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import TransferGraph from '@/features/statistics/TransferGraph.vue'
@@ -14,11 +14,15 @@ import MobileTorrentList from './MobileTorrentList.vue'
 import TorrentTable from './TorrentTable.vue'
 import TorrentToolbar from './TorrentToolbar.vue'
 import type { TorrentFilterState } from '@/domains/torrents/state'
+import { MOBILE_MEDIA_QUERY, useMediaQuery } from '@/ui/composables/useMediaQuery'
+import { useWindowPointerDrag } from '@/ui/composables/useWindowPointerDrag'
 
 const emit = defineEmits<{ addTorrent: [files?: File[]] }>()
 const router = useRouter()
 const torrents = useTorrentsStore()
 const preferences = usePreferencesStore()
+const isMobile = useMediaQuery(MOBILE_MEDIA_QUERY)
+const inspectorDrag = useWindowPointerDrag()
 const deleteOpen = ref(false)
 const deleteHashes = ref<string[]>([])
 const operationDialog = ref<{
@@ -47,11 +51,11 @@ const stateChips: Array<{ id: TorrentFilterState; label: string }> = [
 ]
 const inspectorHash = computed(() => torrents.selected[0]?.hash ?? null)
 const showInspector = computed(() =>
-  Boolean(inspectorHash.value && preferences.value.inspectorOpen)
+  Boolean(!isMobile.value && inspectorHash.value && preferences.value.inspectorOpen)
 )
 
 function activate(hash: string): void {
-  if (matchMedia('(max-width: 767px)').matches) void router.push(`/torrents/${hash}/overview`)
+  if (isMobile.value) void router.push(`/torrents/${hash}/overview`)
   else {
     torrents.setSelection([hash])
     preferences.patch({ inspectorOpen: true })
@@ -131,7 +135,7 @@ function onSelectionMenu(event: MouseEvent): void {
   const hashes = [...torrents.selectedHashes]
   if (!hashes.length) return
   const element = event.currentTarget as HTMLElement
-  const mobile = matchMedia('(max-width: 767px)').matches
+  const mobile = isMobile.value
   const rect = element.getBoundingClientRect()
   actionReturnFocus.value = element
   actionMenu.value = {
@@ -168,16 +172,10 @@ function onKeydown(event: KeyboardEvent): void {
 function resizeInspector(event: PointerEvent): void {
   const startX = event.clientX
   const startWidth = preferences.value.inspectorWidth
-  const move = (moveEvent: PointerEvent) => {
+  inspectorDrag.start((moveEvent) => {
     const width = Math.min(720, Math.max(320, startWidth + startX - moveEvent.clientX))
     preferences.patch({ inspectorWidth: width })
-  }
-  const stop = () => {
-    window.removeEventListener('pointermove', move)
-    window.removeEventListener('pointerup', stop)
-  }
-  window.addEventListener('pointermove', move)
-  window.addEventListener('pointerup', stop, { once: true })
+  })
 }
 
 function onDragOver(event: DragEvent): void {
@@ -208,8 +206,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
     @drop="onDrop"
   >
     <div class="workspace-main">
-      <section class="mobile-transfer"><TransferGraph compact /></section>
-      <div class="mobile-state-chips" aria-label="Torrent state filter">
+      <section v-if="isMobile" class="mobile-transfer"><TransferGraph compact /></section>
+      <div v-if="isMobile" class="mobile-state-chips" aria-label="Torrent state filter">
         <button
           v-for="chip in stateChips"
           :key="chip.id"
@@ -237,13 +235,12 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
         </button>
       </div>
       <div v-else-if="!torrents.visibleTorrents.length" class="workspace-state">
-        <FilterX :size="30" />
         <h2>No matching torrents</h2>
         <p>Change or clear the active filters.</p>
         <button class="btn" type="button" @click="torrents.clearFilters">Clear all filters</button>
       </div>
       <template v-else>
-        <div class="desktop-table">
+        <div v-if="!isMobile" class="desktop-table">
           <TorrentTable
             @activate="activate"
             @context="onContext"
@@ -251,6 +248,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
           />
         </div>
         <MobileTorrentList
+          v-else
           @activate="activate"
           @select="torrents.toggleSelection"
           @menu="onMobileMenu"

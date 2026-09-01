@@ -20,6 +20,12 @@ import type {
   Tracker
 } from '@/api/types/models'
 import { useApi } from '@/app/providers/api'
+import {
+  defaultTorrentDetailTab,
+  isTorrentDetailTab,
+  torrentDetailTabs,
+  type TorrentDetailTab
+} from '@/domains/torrents/detailTabs'
 import { torrentStateLabel } from '@/domains/torrents/state'
 import { detectExistingPlacementWarnings } from '@/features/media-placement/domain/detectExistingPlacementWarnings'
 import { isPathWithinRoot } from '@/features/media-placement/domain/pathUtils'
@@ -41,22 +47,24 @@ import AppDialog from '@/ui/primitives/AppDialog.vue'
 import FileTreeView from './FileTreeView.vue'
 import PiecesCanvas from './PiecesCanvas.vue'
 
-const tabs = ['overview', 'files', 'trackers', 'peers', 'webseeds', 'pieces'] as const
-type Tab = (typeof tabs)[number]
-const props = defineProps<{ hash: string; mobile?: boolean; initialTab?: Tab }>()
-const emit = defineEmits<{ close: []; tabChange: [tab: Tab]; reviewPlacement: [] }>()
+const props = defineProps<{ hash: string; mobile?: boolean; initialTab?: TorrentDetailTab }>()
+const emit = defineEmits<{
+  close: []
+  tabChange: [tab: TorrentDetailTab]
+  reviewPlacement: []
+}>()
 const api = useApi()
 const torrents = useTorrentsStore()
 const preferences = usePreferencesStore()
 const session = useSessionStore()
 const notifications = useNotificationsStore()
 const mediaPlacement = useMediaPlacementStore()
-const activeTab = ref<Tab>(
-  props.initialTab && tabs.includes(props.initialTab)
+const activeTab = ref<TorrentDetailTab>(
+  isTorrentDetailTab(props.initialTab)
     ? props.initialTab
-    : tabs.includes(preferences.value.detailTab as Tab)
-      ? (preferences.value.detailTab as Tab)
-      : 'overview'
+    : isTorrentDetailTab(preferences.value.detailTab)
+      ? preferences.value.detailTab
+      : defaultTorrentDetailTab
 )
 const loading = ref(false)
 const error = ref<string | null>(null)
@@ -319,7 +327,7 @@ function clearDetails(): void {
   pieceAvailability.value = []
 }
 
-function selectTab(tab: Tab): void {
+function selectTab(tab: TorrentDetailTab): void {
   activeTab.value = tab
   preferences.patch({ detailTab: tab })
   emit('tabChange', tab)
@@ -458,7 +466,7 @@ watch(activeTab, () => {
 watch(
   () => props.initialTab,
   (tab) => {
-    if (tab && tabs.includes(tab) && tab !== activeTab.value) activeTab.value = tab
+    if (isTorrentDetailTab(tab) && tab !== activeTab.value) activeTab.value = tab
   }
 )
 function measurePeerRows(): void {
@@ -489,15 +497,15 @@ onBeforeUnmount(() => {
     </header>
     <div class="detail-tabs" role="tablist" aria-label="Torrent detail sections">
       <button
-        v-for="tab in tabs"
-        :key="tab"
+        v-for="tab in torrentDetailTabs"
+        :key="tab.id"
         role="tab"
         type="button"
-        :aria-selected="activeTab === tab"
-        :tabindex="activeTab === tab ? 0 : -1"
-        @click="selectTab(tab)"
+        :aria-selected="activeTab === tab.id"
+        :tabindex="activeTab === tab.id ? 0 : -1"
+        @click="selectTab(tab.id)"
       >
-        {{ tab === 'webseeds' ? 'Web Seeds' : `${tab[0]?.toUpperCase()}${tab.slice(1)}` }}
+        {{ tab.label }}
       </button>
     </div>
     <div class="detail-body">

@@ -84,15 +84,16 @@ export const useTorrentsStore = defineStore('torrents', () => {
 
   function applyMainData(update: MainDataResponse): void {
     const full = update.full_update === true || responseId.value === 0
-    const torrentUpdates = update.torrents ?? {}
-    const nextTorrents = full ? new Map<string, TorrentInfo>() : new Map(byHash.value)
+    const torrentUpdates = Object.entries(update.torrents ?? {})
+    const removedTorrents = update.torrents_removed ?? []
+    let nextTorrents = full ? new Map<string, TorrentInfo>() : byHash.value
     let nextCategories = full ? new Map<string, Category>() : categories.value
     let nextTags = full ? new Set<string>() : tags.value
     let nextTrackers = full ? new Map<string, string[]>() : trackers.value
-    const nextSelection = new Set(selectedHashes.value)
+    let nextSelection = selectedHashes.value
 
     if (full) {
-      for (const [hash, delta] of Object.entries(torrentUpdates)) {
+      for (const [hash, delta] of torrentUpdates) {
         const torrent = completeTorrent(hash, delta)
         if (!torrent) throw new Error(`Full update contained incomplete torrent ${hash}`)
         nextTorrents.set(hash, torrent)
@@ -104,8 +105,9 @@ export const useTorrentsStore = defineStore('torrents', () => {
       for (const [tracker, hashes] of Object.entries(update.trackers ?? {})) {
         nextTrackers.set(tracker, [...hashes])
       }
-    } else {
-      for (const [hash, delta] of Object.entries(torrentUpdates)) {
+    } else if (torrentUpdates.length || removedTorrents.length) {
+      nextTorrents = new Map(byHash.value)
+      for (const [hash, delta] of torrentUpdates) {
         const current = nextTorrents.get(hash)
         if (current) nextTorrents.set(hash, { ...current, ...delta })
         else {
@@ -114,10 +116,12 @@ export const useTorrentsStore = defineStore('torrents', () => {
           nextTorrents.set(hash, torrent)
         }
       }
-      for (const hash of update.torrents_removed ?? []) {
+      for (const hash of removedTorrents) {
         nextTorrents.delete(hash)
-        nextSelection.delete(hash)
       }
+    }
+
+    if (!full) {
       if (update.categories || update.categories_removed) {
         nextCategories = new Map(categories.value)
         for (const [name, category] of Object.entries(update.categories ?? {})) {
@@ -140,7 +144,11 @@ export const useTorrentsStore = defineStore('torrents', () => {
     }
 
     if (update.server_state) transfer.applyServerState(update.server_state)
-    for (const hash of nextSelection) if (!nextTorrents.has(hash)) nextSelection.delete(hash)
+    for (const hash of selectedHashes.value) {
+      if (nextTorrents.has(hash)) continue
+      if (nextSelection === selectedHashes.value) nextSelection = new Set(selectedHashes.value)
+      nextSelection.delete(hash)
+    }
     byHash.value = nextTorrents
     categories.value = nextCategories
     tags.value = nextTags

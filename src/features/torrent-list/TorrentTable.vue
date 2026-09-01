@@ -14,10 +14,17 @@ import {
 import { useVirtualizer } from '@tanstack/vue-virtual'
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import type { TorrentInfo } from '@/api/types/models'
+import {
+  getOrderedTorrentTableColumns,
+  getTorrentTableColumn,
+  isTorrentTableColumnId,
+  torrentTableColumnIds,
+  type TorrentTableColumnId
+} from '@/domains/torrents/tableColumns'
 import { torrentStateLabel } from '@/domains/torrents/state'
 import { detectExistingPlacementWarnings } from '@/features/media-placement/domain/detectExistingPlacementWarnings'
 import { useMediaPlacementStore } from '@/features/media-placement/stores/mediaPlacement'
-import { torrentTableColumnIds, usePreferencesStore } from '@/stores/preferences'
+import { usePreferencesStore } from '@/stores/preferences'
 import { useTorrentsStore } from '@/stores/torrents'
 import { formatBytes, formatEta, formatPercent, formatRatio, formatSpeed } from '@/utils/format'
 
@@ -35,100 +42,90 @@ const columnSizing = ref<ColumnSizingState>({ ...preferences.value.columnWidths 
 const focusedIndex = ref(0)
 let selectionAnchor: number | null = null
 let sizingPersistTimer: ReturnType<typeof setTimeout> | undefined
+const placementWarningCache = new WeakMap<TorrentInfo, { configuration: string; count: number }>()
 
 const helper = createColumnHelper<TorrentInfo>()
+
+function tableColumnMeta<const Id extends TorrentTableColumnId>(id: Id) {
+  return { id, header: getTorrentTableColumn(id).tableHeader }
+}
+
 const columns = [
   helper.accessor('name', {
-    id: 'name',
-    header: 'Name',
+    ...tableColumnMeta('name'),
     size: 310,
     minSize: 150,
     cell: (info) => info.getValue()
   }),
   helper.accessor('size', {
-    id: 'size',
-    header: 'Size',
+    ...tableColumnMeta('size'),
     size: 95,
     cell: (info) => formatBytes(info.getValue())
   }),
   helper.accessor('progress', {
-    id: 'progress',
-    header: 'Progress',
+    ...tableColumnMeta('progress'),
     size: 130,
     cell: (info) => formatPercent(info.getValue())
   }),
   helper.accessor('state', {
-    id: 'state',
-    header: 'Status',
+    ...tableColumnMeta('state'),
     size: 130,
     cell: (info) => torrentStateLabel(info.getValue())
   }),
-  helper.accessor('num_seeds', { id: 'seeds', header: 'Seeds', size: 74 }),
-  helper.accessor('num_leechs', { id: 'peers', header: 'Peers', size: 74 }),
+  helper.accessor('num_seeds', { ...tableColumnMeta('seeds'), size: 74 }),
+  helper.accessor('num_leechs', { ...tableColumnMeta('peers'), size: 74 }),
   helper.accessor('dlspeed', {
-    id: 'dlspeed',
-    header: 'Down',
+    ...tableColumnMeta('dlspeed'),
     size: 106,
     cell: (info) => formatSpeed(info.getValue(), preferences.value.speedUnit)
   }),
   helper.accessor('upspeed', {
-    id: 'upspeed',
-    header: 'Up',
+    ...tableColumnMeta('upspeed'),
     size: 106,
     cell: (info) => formatSpeed(info.getValue(), preferences.value.speedUnit)
   }),
   helper.accessor('eta', {
-    id: 'eta',
-    header: 'ETA',
+    ...tableColumnMeta('eta'),
     size: 85,
     cell: (info) => formatEta(info.getValue())
   }),
   helper.accessor('ratio', {
-    id: 'ratio',
-    header: 'Ratio',
+    ...tableColumnMeta('ratio'),
     size: 76,
     cell: (info) => formatRatio(info.getValue())
   }),
   helper.accessor('amount_left', {
-    id: 'amount_left',
-    header: 'Remaining',
+    ...tableColumnMeta('amount_left'),
     size: 105,
     cell: (info) => formatBytes(info.getValue())
   }),
   helper.accessor('downloaded', {
-    id: 'downloaded',
-    header: 'Downloaded',
+    ...tableColumnMeta('downloaded'),
     size: 110,
     cell: (info) => formatBytes(info.getValue())
   }),
   helper.accessor('uploaded', {
-    id: 'uploaded',
-    header: 'Uploaded',
+    ...tableColumnMeta('uploaded'),
     size: 110,
     cell: (info) => formatBytes(info.getValue())
   }),
   helper.accessor('availability', {
-    id: 'availability',
-    header: 'Availability',
+    ...tableColumnMeta('availability'),
     size: 100,
     cell: (info) => (info.getValue() < 0 ? 'Unknown' : info.getValue().toFixed(2))
   }),
-  helper.accessor('category', { id: 'category', header: 'Category', size: 120 }),
-  helper.accessor('tags', { id: 'tags', header: 'Tags', size: 140 }),
-  helper.accessor('save_path', { id: 'save_path', header: 'Save path', size: 210 })
+  helper.accessor('category', { ...tableColumnMeta('category'), size: 120 }),
+  helper.accessor('tags', { ...tableColumnMeta('tags'), size: 140 }),
+  helper.accessor('save_path', { ...tableColumnMeta('save_path'), size: 210 })
 ]
 
 const visibility = computed<VisibilityState>(() => {
   const visible = new Set(preferences.value.visibleColumns)
-  return Object.fromEntries(
-    columns.map((column) => [column.id as string, visible.has(column.id as string)])
-  )
+  return Object.fromEntries(torrentTableColumnIds.map((id) => [id, visible.has(id)]))
 })
 
 const columnOrder = computed<ColumnOrderState>(() => {
-  const known = new Set<string>(torrentTableColumnIds)
-  const persisted = preferences.value.columnOrder.filter((id) => known.delete(id))
-  return [...persisted, ...torrentTableColumnIds.filter((id) => known.has(id))]
+  return getOrderedTorrentTableColumns(preferences.value.columnOrder).map(({ id }) => id)
 })
 
 function persistColumnSizing(): void {
@@ -178,12 +175,22 @@ function resetColumnWidth(id: string): void {
 function placementWarningCount(torrent: TorrentInfo): number {
   const config = mediaPlacement.config
   if (config.mode !== 'assist') return 0
-  return detectExistingPlacementWarnings(torrent, {
+  const configuration = [
+    config.tvRoot,
+    config.moviesRoot,
+    config.tvCategory,
+    config.movieCategory
+  ].join('\u0000')
+  const cached = placementWarningCache.get(torrent)
+  if (cached?.configuration === configuration) return cached.count
+  const count = detectExistingPlacementWarnings(torrent, {
     tvRoot: config.tvRoot,
     moviesRoot: config.moviesRoot,
     tvCategory: config.tvCategory,
     movieCategory: config.movieCategory
   }).length
+  placementWarningCache.set(torrent, { configuration, count })
+  return count
 }
 
 const table = useVueTable({
@@ -239,7 +246,14 @@ const virtualizer = useVirtualizer({
   overscan: 12
 })
 
-watch(sorting, (value) => preferences.patch({ sort: value }), { deep: true })
+watch(
+  sorting,
+  (value) =>
+    preferences.patch({
+      sort: value.flatMap(({ id, desc }) => (isTorrentTableColumnId(id) ? [{ id, desc }] : []))
+    }),
+  { deep: true }
+)
 watch(rows, (items) => {
   focusedIndex.value = Math.max(0, Math.min(focusedIndex.value, Math.max(0, items.length - 1)))
   if (selectionAnchor !== null && selectionAnchor >= items.length) selectionAnchor = null

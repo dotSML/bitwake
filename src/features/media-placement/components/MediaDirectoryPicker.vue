@@ -2,7 +2,8 @@
 import { ChevronRight, Folder, FolderOpen, LoaderCircle, MoveUp, Search, X } from 'lucide-vue-next'
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { useApi } from '@/app/providers/api'
-import { isAbsoluteMediaPath, mediaPathDirname, tryParseMediaPath } from '../domain/pathUtils'
+import { directoryNames, hostJoinPath, hostParentPath } from '../domain/hostDirectory'
+import { isAbsoluteMediaPath } from '../domain/pathUtils'
 import { containsControlCharacters, replaceControlCharacters } from '../domain/textSafety'
 
 const props = withDefaults(
@@ -33,44 +34,6 @@ const filteredDirectories = computed(() => {
     ? directories.value.filter((directory) => directory.toLocaleLowerCase().includes(needle))
     : directories.value
 })
-
-function hostJoinPath(base: string, child: string): string {
-  const separator = base.includes('\\') && !base.includes('/') ? '\\' : '/'
-  if (base === '/' || /^[A-Za-z]:[\\/]$/.test(base)) return `${base}${child}`
-  return `${base.replace(/[\\/]+$/, '')}${separator}${child}`
-}
-
-function safeDirectoryName(value: string, extractBasename: boolean): string | null {
-  const name = extractBasename
-    ? (value
-        .replace(/[\\/]+$/u, '')
-        .split(/[\\/]/u)
-        .at(-1) ?? '')
-    : value
-  if (
-    !name ||
-    name === '.' ||
-    name === '..' ||
-    name.length > 4096 ||
-    containsControlCharacters(name) ||
-    /[\\/]/u.test(name)
-  ) {
-    return null
-  }
-  return name
-}
-
-function hostParentPath(value: string): string | null {
-  const trimmed = value.trim().replace(/[\\/]+$/, '')
-  const parsed = tryParseMediaPath(trimmed)
-  if (parsed) return parsed.segments.length ? mediaPathDirname(trimmed) : null
-  if (!trimmed || trimmed === '/' || /^[A-Za-z]:$/.test(trimmed)) return null
-  const separatorIndex = Math.max(trimmed.lastIndexOf('/'), trimmed.lastIndexOf('\\'))
-  if (separatorIndex < 0) return null
-  if (separatorIndex === 0) return '/'
-  const parent = trimmed.slice(0, separatorIndex)
-  return /^[A-Za-z]:$/.test(parent) ? `${parent}${trimmed[separatorIndex]}` : parent
-}
 
 function cancelLoad(): void {
   requestNumber += 1
@@ -120,19 +83,7 @@ async function loadDirectory(nextPath: string): Promise<void> {
       nextController.signal
     )
     if (request !== requestNumber) return
-    directories.value = [
-      ...new Set(
-        entries.flatMap((entry) => {
-          if (typeof entry === 'string') {
-            const name = safeDirectoryName(entry, true)
-            return name ? [name] : []
-          }
-          if (entry.type !== 'dir') return []
-          const name = safeDirectoryName(entry.name, false)
-          return name ? [name] : []
-        })
-      )
-    ].sort((left, right) => left.localeCompare(right, undefined, { sensitivity: 'base' }))
+    directories.value = directoryNames(entries)
     path.value = candidatePath
   } catch (cause) {
     if (request !== requestNumber) return
@@ -148,6 +99,8 @@ async function loadDirectory(nextPath: string): Promise<void> {
 }
 
 async function show(): Promise<void> {
+  cancelLoad()
+  const request = requestNumber
   open.value = true
   let initial = props.modelValue.trim()
     ? props.modelValue
@@ -155,11 +108,22 @@ async function show(): Promise<void> {
       ? props.browseRoot
       : ''
   if (!initial) {
+    const nextController = new AbortController()
+    controller = nextController
+    loading.value = true
+    error.value = null
     try {
-      initial = await api.app.defaultSavePath()
+      initial = await api.app.defaultSavePath(nextController.signal)
     } catch {
+      if (request !== requestNumber) return
       initial = '/'
+    } finally {
+      if (request === requestNumber) {
+        controller = null
+        loading.value = false
+      }
     }
+    if (request !== requestNumber || !open.value) return
   }
   await loadDirectory(initial || '/')
 }

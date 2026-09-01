@@ -48,6 +48,7 @@ let timer: ReturnType<typeof setTimeout> | null = null
 let pollController: AbortController | null = null
 let disposed = false
 let pollFailureNotified = false
+let pollFailureCount = 0
 const activeJob = computed(() => jobs.value.find((job) => job.id === activeId.value) ?? null)
 const filteredResults = computed(() => {
   const needle = resultFilter.value.trim().toLocaleLowerCase()
@@ -117,19 +118,37 @@ async function poll(): Promise<void> {
       if (disposed || controller.signal.aborted) return
       const job = jobs.value.find((item) => item.id === status.id)
       if (!job) continue
-      job.status = status.status
+      const needsFullReconciliation =
+        status.status !== 'Running' || status.total < job.results.length
       job.total = status.total
-      const response = await api.search.results(
+      if (!needsFullReconciliation && status.total === job.results.length) {
+        job.status = status.status
+        continue
+      }
+      const offset = needsFullReconciliation ? 0 : job.results.length
+      let response = await api.search.results(
         job.id,
-        0,
-        Math.max(200, status.total),
+        offset,
+        Math.max(200, status.total - offset),
         controller.signal
       )
       if (disposed || controller.signal.aborted) return
-      job.results = response.results
+      let replaceResults = needsFullReconciliation
+      if (!replaceResults && response.status !== 'Running') {
+        response = await api.search.results(
+          job.id,
+          0,
+          Math.max(200, response.total),
+          controller.signal
+        )
+        if (disposed || controller.signal.aborted) return
+        replaceResults = true
+      }
+      job.results = replaceResults ? response.results : [...job.results, ...response.results]
       job.status = response.status
       job.total = response.total
     }
+    pollFailureCount = 0
     pollFailureNotified = false
   } catch (cause) {
     if (!disposed && !controller.signal.aborted && !pollFailureNotified) {
@@ -139,9 +158,13 @@ async function poll(): Promise<void> {
       )
       pollFailureNotified = true
     }
+    if (!disposed && !controller.signal.aborted) pollFailureCount += 1
   } finally {
     if (pollController === controller) pollController = null
-    if (!disposed && jobs.value.some((job) => job.status === 'Running')) schedulePoll(1500)
+    if (!disposed && jobs.value.some((job) => job.status === 'Running')) {
+      const visibleDelay = Math.min(30_000, 1_500 * 2 ** pollFailureCount)
+      schedulePoll(document.hidden ? 15_000 : visibleDelay)
+    }
   }
 }
 
@@ -149,6 +172,10 @@ function schedulePoll(delay: number): void {
   if (disposed) return
   if (timer) clearTimeout(timer)
   timer = setTimeout(() => void poll(), delay)
+}
+
+function onVisibilityChange(): void {
+  if (!document.hidden && jobs.value.some((job) => job.status === 'Running')) schedulePoll(0)
 }
 
 async function stopJob(job: Job): Promise<void> {
@@ -232,11 +259,13 @@ async function installPlugin(): Promise<void> {
 onMounted(() => {
   disposed = false
   window.addEventListener('resize', measureResults)
+  document.addEventListener('visibilitychange', onVisibilityChange)
   void loadPlugins()
 })
 onBeforeUnmount(() => {
   disposed = true
   window.removeEventListener('resize', measureResults)
+  document.removeEventListener('visibilitychange', onVisibilityChange)
   if (timer) clearTimeout(timer)
   pollController?.abort()
   pollController = null

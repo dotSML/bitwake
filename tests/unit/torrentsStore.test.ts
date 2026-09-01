@@ -230,6 +230,29 @@ describe('torrent incremental sync store', () => {
     expect(torrents.responseId).toBe(0)
   })
 
+  it('preserves torrent and selection identities for server-state-only updates', () => {
+    const { torrents, transfer } = createStores()
+    torrents.applyMainData({
+      rid: 1,
+      full_update: true,
+      torrents: { alpha: { name: 'Alpha' } },
+      server_state: { dl_info_speed: 1_024 }
+    })
+    torrents.setSelection(['alpha'])
+    const previousTorrents = torrents.byHash
+    const previousSelection = torrents.selectedHashes
+
+    torrents.applyMainData({
+      rid: 2,
+      server_state: { dl_info_speed: 2_048 }
+    })
+
+    expect(torrents.byHash).toBe(previousTorrents)
+    expect(torrents.selectedHashes).toBe(previousSelection)
+    expect(torrents.responseId).toBe(2)
+    expect(transfer.downloadSpeed).toBe(2_048)
+  })
+
   it('aborts in-flight synchronization and clears transfer runtime state on reset', async () => {
     const { api, torrents, transfer } = createStores()
     let requestSignal: AbortSignal | undefined

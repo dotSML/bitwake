@@ -70,6 +70,14 @@ describe('torrent details', () => {
     await flushPromises()
 
     expect(properties).toHaveBeenCalledWith(torrent.hash, expect.any(AbortSignal))
+    expect(wrapper.findAll('[role="tab"]').map((tab) => tab.text())).toEqual([
+      'Overview',
+      'Files',
+      'Trackers',
+      'Peers',
+      'Web Seeds',
+      'Pieces'
+    ])
     expect(wrapper.get('[role="tab"][aria-selected="true"]').text()).toBe('Overview')
     expect(wrapper.text()).toContain('fixture')
 

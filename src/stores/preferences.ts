@@ -1,32 +1,20 @@
 import { defineStore } from 'pinia'
-import { nextTick, ref, watch } from 'vue'
+import { nextTick, onScopeDispose, ref, watch } from 'vue'
 import { useApi } from '@/app/providers/api'
+import {
+  defaultTorrentDetailTab,
+  torrentDetailTabIds,
+  type TorrentDetailTab
+} from '@/domains/torrents/detailTabs'
+import {
+  defaultVisibleTorrentTableColumnIds,
+  isTorrentTableColumnId,
+  type TorrentTableColumnId
+} from '@/domains/torrents/tableColumns'
 import { useSessionStore } from './session'
 
 export type ThemePreference = 'system' | 'light' | 'dark'
 export type DensityPreference = 'comfortable' | 'compact' | 'extra-compact'
-
-export const torrentTableColumnIds = [
-  'name',
-  'size',
-  'progress',
-  'state',
-  'seeds',
-  'peers',
-  'dlspeed',
-  'upspeed',
-  'eta',
-  'ratio',
-  'amount_left',
-  'downloaded',
-  'uploaded',
-  'availability',
-  'category',
-  'tags',
-  'save_path'
-] as const
-
-const torrentTableColumnIdSet = new Set<string>(torrentTableColumnIds)
 
 export interface UiPreferences {
   schemaVersion: 2
@@ -37,14 +25,14 @@ export interface UiPreferences {
   sidebarWidth: number
   inspectorWidth: number
   inspectorOpen: boolean
-  visibleColumns: string[]
-  columnOrder: string[]
-  columnWidths: Record<string, number>
-  sort: { id: string; desc: boolean }[]
+  visibleColumns: TorrentTableColumnId[]
+  columnOrder: TorrentTableColumnId[]
+  columnWidths: Partial<Record<TorrentTableColumnId, number>>
+  sort: { id: TorrentTableColumnId; desc: boolean }[]
   graphRange: '1m' | '5m' | '30m' | 'session'
   dateDisplay: 'absolute' | 'relative'
   speedUnit: 'binary' | 'decimal'
-  detailTab: string
+  detailTab: TorrentDetailTab
   pollingInterval: 1000 | 2000 | 5000
   confirmStop: boolean
 }
@@ -58,14 +46,14 @@ export const defaultUiPreferences: UiPreferences = {
   sidebarWidth: 264,
   inspectorWidth: 390,
   inspectorOpen: true,
-  visibleColumns: torrentTableColumnIds.slice(0, 10),
+  visibleColumns: [...defaultVisibleTorrentTableColumnIds],
   columnOrder: [],
   columnWidths: {},
   sort: [{ id: 'name', desc: false }],
   graphRange: '5m',
   dateDisplay: 'absolute',
   speedUnit: 'binary',
-  detailTab: 'overview',
+  detailTab: defaultTorrentDetailTab,
   pollingInterval: 1000,
   confirmStop: false
 }
@@ -74,32 +62,26 @@ const storageKey = 'neotorrent:ui-preferences'
 const clientDataKey = 'neotorrent.ui-preferences.v2'
 const persistenceDelayMs = 150
 
-function sanitizeColumnIds(value: unknown): string[] {
+function sanitizeColumnIds(value: unknown): TorrentTableColumnId[] {
   if (!Array.isArray(value)) return []
-  const seen = new Set<string>()
-  return value.filter((item): item is string => {
-    if (typeof item !== 'string' || !torrentTableColumnIdSet.has(item) || seen.has(item)) {
-      return false
-    }
+  const seen = new Set<TorrentTableColumnId>()
+  return value.filter((item): item is TorrentTableColumnId => {
+    if (!isTorrentTableColumnId(item) || seen.has(item)) return false
     seen.add(item)
     return true
   })
 }
 
-function sanitizeColumnWidths(value: unknown): Record<string, number> {
+function sanitizeColumnWidths(value: unknown): UiPreferences['columnWidths'] {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
-  return Object.fromEntries(
-    Object.entries(value).flatMap(([id, width]) => {
-      if (
-        !torrentTableColumnIdSet.has(id) ||
-        typeof width !== 'number' ||
-        !Number.isFinite(width)
-      ) {
-        return []
-      }
-      return [[id, Math.min(800, Math.max(50, Math.round(width)))]]
-    })
-  )
+  const widths: UiPreferences['columnWidths'] = {}
+  for (const [id, width] of Object.entries(value)) {
+    if (!isTorrentTableColumnId(id) || typeof width !== 'number' || !Number.isFinite(width)) {
+      continue
+    }
+    widths[id] = Math.min(800, Math.max(50, Math.round(width)))
+  }
+  return widths
 }
 
 function oneOf<T extends string | number>(value: unknown, options: readonly T[], fallback: T): T {
@@ -117,20 +99,20 @@ function boundedNumber(value: unknown, fallback: number, minimum: number, maximu
 
 function sanitizeSort(value: unknown): UiPreferences['sort'] {
   if (!Array.isArray(value)) return structuredClone(defaultUiPreferences.sort)
-  const seen = new Set<string>()
-  const sort = value.flatMap((item) => {
-    if (!item || typeof item !== 'object' || Array.isArray(item)) return []
+  const seen = new Set<TorrentTableColumnId>()
+  const sort: UiPreferences['sort'] = []
+  for (const item of value) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) continue
     const candidate = item as Record<string, unknown>
     if (
-      typeof candidate.id !== 'string' ||
-      !torrentTableColumnIdSet.has(candidate.id) ||
+      !isTorrentTableColumnId(candidate.id) ||
       seen.has(candidate.id) ||
       typeof candidate.desc !== 'boolean'
     )
-      return []
+      continue
     seen.add(candidate.id)
-    return [{ id: candidate.id, desc: candidate.desc }]
-  })
+    sort.push({ id: candidate.id, desc: candidate.desc })
+  }
   return sort.length ? sort : structuredClone(defaultUiPreferences.sort)
 }
 
@@ -188,11 +170,7 @@ export function migrateUiPreferences(value: unknown): UiPreferences {
       ['binary', 'decimal'] as const,
       defaultUiPreferences.speedUnit
     ),
-    detailTab: oneOf(
-      record.detailTab,
-      ['overview', 'files', 'trackers', 'peers', 'webseeds', 'pieces'] as const,
-      defaultUiPreferences.detailTab
-    ),
+    detailTab: oneOf(record.detailTab, torrentDetailTabIds, defaultTorrentDetailTab),
     pollingInterval: oneOf(
       record.pollingInterval,
       [1000, 2000, 5000] as const,
@@ -353,16 +331,23 @@ export const usePreferencesStore = defineStore('preferences', () => {
     document.documentElement.style.colorScheme = resolved
   }
 
+  function onColorSchemeChange(): void {
+    if (value.value.theme === 'system') applyTheme()
+  }
+
+  watch(() => value.value.theme, applyTheme)
   watch(
     value,
     () => {
-      applyTheme()
       if (!suppressSave) schedulePersistence()
     },
     { deep: true }
   )
-  colorSchemeMedia?.addEventListener('change', () => {
-    if (value.value.theme === 'system') applyTheme()
+  colorSchemeMedia?.addEventListener('change', onColorSchemeChange)
+  onScopeDispose(() => {
+    colorSchemeMedia?.removeEventListener('change', onColorSchemeChange)
+    if (persistenceTimer) clearTimeout(persistenceTimer)
+    persistenceTimer = null
   })
 
   return { value, loaded, load, patch, persist, flushPersistence, applyTheme }

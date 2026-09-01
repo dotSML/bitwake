@@ -37,14 +37,37 @@ export function encodeUrlBody(body: UrlBody): URLSearchParams {
   return params
 }
 
-function combineSignals(signals: readonly AbortSignal[]): AbortSignal {
-  if (signals.length === 1) return signals[0] as AbortSignal
-  if ('any' in AbortSignal) return AbortSignal.any([...signals])
-  const controller = new AbortController()
-  for (const signal of signals) {
-    signal.addEventListener('abort', () => controller.abort(signal.reason), { once: true })
+interface CombinedSignal {
+  signal: AbortSignal
+  cleanup(): void
+}
+
+function combineSignals(signals: readonly AbortSignal[]): CombinedSignal {
+  if (signals.length === 1) return { signal: signals[0] as AbortSignal, cleanup: () => {} }
+  if ('any' in AbortSignal) {
+    return { signal: AbortSignal.any([...signals]), cleanup: () => {} }
   }
-  return controller.signal
+  const controller = new AbortController()
+  const listeners: Array<{ signal: AbortSignal; listener: () => void }> = []
+  const cleanup = () => {
+    for (const { signal, listener } of listeners) {
+      signal.removeEventListener('abort', listener)
+    }
+    listeners.length = 0
+  }
+  for (const signal of signals) {
+    if (signal.aborted) {
+      controller.abort(signal.reason)
+      break
+    }
+    const listener = () => {
+      controller.abort(signal.reason)
+      cleanup()
+    }
+    listeners.push({ signal, listener })
+    signal.addEventListener('abort', listener, { once: true })
+  }
+  return { signal: controller.signal, cleanup }
 }
 
 export class HttpClient {
@@ -70,16 +93,6 @@ export class HttpClient {
 
   async request<T = void>(path: string, options: RequestOptions<T> = {}): Promise<T> {
     const method = options.method ?? 'GET'
-    const timeoutController = new AbortController()
-    const timeoutMs = options.timeoutMs ?? this.#defaultTimeoutMs
-    const timer = globalThis.setTimeout(
-      () => timeoutController.abort(new DOMException('Request timed out', 'TimeoutError')),
-      timeoutMs
-    )
-    const signals = options.signal
-      ? [options.signal, timeoutController.signal]
-      : [timeoutController.signal]
-
     const headers = new Headers({
       Accept:
         options.response === 'blob'
@@ -96,6 +109,16 @@ export class HttpClient {
         headers.set('Content-Type', 'application/x-www-form-urlencoded; charset=UTF-8')
       }
     }
+    const timeoutController = new AbortController()
+    const timeoutMs = options.timeoutMs ?? this.#defaultTimeoutMs
+    const timer = globalThis.setTimeout(
+      () => timeoutController.abort(new DOMException('Request timed out', 'TimeoutError')),
+      timeoutMs
+    )
+    const signals = options.signal
+      ? [options.signal, timeoutController.signal]
+      : [timeoutController.signal]
+    const combinedSignal = combineSignals(signals)
 
     try {
       const response = await this.#fetch(
@@ -109,7 +132,7 @@ export class HttpClient {
           cache: 'no-store',
           headers,
           ...(body ? { body } : {}),
-          signal: combineSignals(signals)
+          signal: combinedSignal.signal
         }
       )
       const accepted = options.acceptedStatuses ?? [200, 202, 204]
@@ -133,7 +156,10 @@ export class HttpClient {
       if (timeoutController.signal.aborted && !options.signal?.aborted) {
         throw new ApiError('The request timed out.', { kind: 'timeout', cause: error })
       }
-      if (error instanceof DOMException && error.name === 'AbortError') {
+      if (
+        options.signal?.aborted ||
+        (error instanceof DOMException && error.name === 'AbortError')
+      ) {
         throw new ApiError('The request was cancelled.', {
           kind: 'cancelled',
           cause: error
@@ -145,6 +171,7 @@ export class HttpClient {
       })
     } finally {
       globalThis.clearTimeout(timer)
+      combinedSignal.cleanup()
     }
   }
 }

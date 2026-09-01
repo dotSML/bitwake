@@ -1,17 +1,18 @@
 import { createApp } from 'vue'
-import { createPinia } from 'pinia'
-import { createMemoryHistory, createRouter } from 'vue-router'
-import { createQbittorrentApi } from '@/api'
+import type { LoginCredentials } from '@/api/auth/authApi'
+import { createAuthApi } from '@/api/auth/authApi'
+import { HttpClient } from '@/api/core/httpClient'
 import PublicApp from '@/app/PublicApp.vue'
-import { apiKey } from '@/app/providers/api'
 import { i18n } from '@/i18n'
 import '@/styles/main.css'
 
-const app = createApp(PublicApp)
-const router = createRouter({ history: createMemoryHistory(), routes: [] })
-const api = createQbittorrentApi()
-app.use(createPinia())
-app.use(router)
+const auth = createAuthApi(new HttpClient())
+
+async function authenticate(credentials: LoginCredentials): Promise<void> {
+  await auth.login(credentials)
+  window.location.reload()
+}
+
+const app = createApp(PublicApp, { authenticate })
 app.use(i18n)
-app.provide(apiKey, api)
 app.mount('#app')

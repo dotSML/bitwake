@@ -99,8 +99,7 @@ function draw(): void {
 
 watch(
   () => transfer.graphRevision,
-  () => void nextTick(draw),
-  { deep: true }
+  () => void nextTick(draw)
 )
 watch(rangeMs, () => void nextTick(draw))
 

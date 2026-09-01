@@ -1,16 +1,29 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
 const props = defineProps<{ states: number[]; availability?: number[] }>()
 const canvas = ref<HTMLCanvasElement | null>(null)
-const downloaded = computed(() => props.states.filter((state) => state === 2).length)
-const downloading = computed(() => props.states.filter((state) => state === 1).length)
-const missing = computed(() => props.states.length - downloaded.value - downloading.value)
+let resizeObserver: ResizeObserver | null = null
+let observedWidth = 0
 
-function draw(): void {
+const summary = computed(() => {
+  let downloaded = 0
+  let downloading = 0
+  for (const state of props.states) {
+    if (state === 2) downloaded += 1
+    else if (state === 1) downloading += 1
+  }
+  return {
+    downloaded,
+    downloading,
+    missing: props.states.length - downloaded - downloading
+  }
+})
+
+function draw(requestedWidth?: number): void {
   const element = canvas.value
   if (!element) return
-  const width = element.clientWidth || 320
+  const width = Math.max(1, Math.floor(requestedWidth || element.clientWidth || 320))
   const cell = Math.max(
     3,
     Math.min(9, Math.floor(Math.sqrt((width * 130) / Math.max(1, props.states.length))))
@@ -50,8 +63,26 @@ function draw(): void {
   })
 }
 
-watch(() => [props.states, props.availability], draw, { deep: true })
-onMounted(draw)
+watch([() => props.states, () => props.availability], () => draw(observedWidth))
+
+onMounted(() => {
+  const element = canvas.value
+  if (!element) return
+  observedWidth = Math.max(1, Math.floor(element.clientWidth || 320))
+  resizeObserver = new ResizeObserver((entries) => {
+    const width = Math.max(
+      1,
+      Math.floor(entries[0]?.contentRect.width || element.clientWidth || 320)
+    )
+    if (width === observedWidth) return
+    observedWidth = width
+    draw(width)
+  })
+  resizeObserver.observe(element)
+  draw(observedWidth)
+})
+
+onBeforeUnmount(() => resizeObserver?.disconnect())
 </script>
 
 <template>
@@ -62,8 +93,10 @@ onMounted(draw)
     </div>
     <canvas ref="canvas" aria-hidden="true" />
     <p class="piece-summary" role="status">
-      {{ states.length.toLocaleString() }} pieces: {{ downloaded.toLocaleString() }} downloaded,
-      {{ downloading.toLocaleString() }} downloading, {{ missing.toLocaleString() }} remaining.
+      {{ states.length.toLocaleString() }} pieces:
+      {{ summary.downloaded.toLocaleString() }} downloaded,
+      {{ summary.downloading.toLocaleString() }} downloading,
+      {{ summary.missing.toLocaleString() }} remaining.
     </p>
   </div>
 </template>

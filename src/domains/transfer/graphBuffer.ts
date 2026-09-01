@@ -58,19 +58,29 @@ export function downsampleGraph(
   for (let bucket = 0; bucket < targetPoints; bucket += 1) {
     const from = Math.floor(bucket * bucketSize)
     const to = Math.min(samples.length, Math.floor((bucket + 1) * bucketSize))
-    const slice = samples.slice(from, Math.max(from + 1, to))
-    if (slice.some((sample) => sample.gap)) {
-      const last = slice.at(-1)
-      if (last) result.push({ ...last, gap: true })
-      continue
+    const end = Math.max(from + 1, to)
+    let last: TransferSample | undefined
+    let maximumDownload = Number.NEGATIVE_INFINITY
+    let maximumUpload = Number.NEGATIVE_INFINITY
+    let containsGap = false
+    for (let index = from; index < end; index += 1) {
+      const sample = samples[index]
+      if (!sample) continue
+      last = sample
+      maximumDownload = Math.max(maximumDownload, sample.download)
+      maximumUpload = Math.max(maximumUpload, sample.upload)
+      containsGap ||= sample.gap === true
     }
-    const last = slice.at(-1)
     if (!last) continue
-    result.push({
-      timestamp: last.timestamp,
-      download: Math.max(...slice.map((sample) => sample.download)),
-      upload: Math.max(...slice.map((sample) => sample.upload))
-    })
+    result.push(
+      containsGap
+        ? { ...last, gap: true }
+        : {
+            timestamp: last.timestamp,
+            download: maximumDownload,
+            upload: maximumUpload
+          }
+    )
   }
   return result
 }

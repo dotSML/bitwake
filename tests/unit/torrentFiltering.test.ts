@@ -5,6 +5,7 @@ import {
   type TorrentFilters
 } from '@/domains/torrents/filtering'
 import {
+  countTorrentSidebarStates,
   isTorrentStopped,
   matchesTorrentState,
   torrentStateLabel,
@@ -86,6 +87,35 @@ describe('torrent state predicates', () => {
     expect(isTorrentStopped('pausedDL')).toBe(true)
     expect(isTorrentStopped('stoppedUP')).toBe(true)
     expect(isTorrentStopped('uploading')).toBe(false)
+  })
+
+  it('counts sidebar states in one pass with canonical queued and activity semantics', () => {
+    const torrents = [
+      makeTorrent({ state: 'queuedDL', dlspeed: 0, upspeed: 0 }),
+      makeTorrent({ state: 'queuedUP', dlspeed: 0, upspeed: 500 }),
+      makeTorrent({ state: 'stalledDL', dlspeed: 250, upspeed: 0 }),
+      makeTorrent({ state: 'downloading', dlspeed: 0, upspeed: 0 }),
+      makeTorrent({ state: 'uploading', dlspeed: 0, upspeed: 0 }),
+      makeTorrent({ state: 'forcedUP', dlspeed: 0, upspeed: 5 }),
+      makeTorrent({ state: 'stoppedUP', dlspeed: 0, upspeed: 100 }),
+      makeTorrent({ state: 'pausedDL', dlspeed: 100, upspeed: 0 }),
+      makeTorrent({ state: 'metaDL', dlspeed: 10, upspeed: 0 })
+    ]
+
+    expect(countTorrentSidebarStates(torrents)).toEqual({
+      all: 9,
+      downloading: 4,
+      seeding: 3,
+      active: 2,
+      stopped: 2
+    })
+    expect(countTorrentSidebarStates([])).toEqual({
+      all: 0,
+      downloading: 0,
+      seeding: 0,
+      active: 0,
+      stopped: 0
+    })
   })
 })
 

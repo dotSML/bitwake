@@ -1,5 +1,33 @@
 const binaryUnits = ['B', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB'] as const
 const decimalUnits = ['B', 'kB', 'MB', 'GB', 'TB', 'PB'] as const
+const numberFormatters = new Map<number, Intl.NumberFormat>()
+const fractionalPercentFormatter = new Intl.NumberFormat(undefined, {
+  style: 'percent',
+  minimumFractionDigits: 1,
+  maximumFractionDigits: 1
+})
+const wholePercentFormatter = new Intl.NumberFormat(undefined, {
+  style: 'percent',
+  minimumFractionDigits: 0,
+  maximumFractionDigits: 1
+})
+const ratioFormatter = new Intl.NumberFormat(undefined, {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2
+})
+const timestampFormatter = new Intl.DateTimeFormat(undefined, {
+  dateStyle: 'medium',
+  timeStyle: 'short'
+})
+
+function numberFormatter(maximumFractionDigits: number): Intl.NumberFormat {
+  let formatter = numberFormatters.get(maximumFractionDigits)
+  if (!formatter) {
+    formatter = new Intl.NumberFormat(undefined, { maximumFractionDigits })
+    numberFormatters.set(maximumFractionDigits, formatter)
+  }
+  return formatter
+}
 
 export function formatBytes(
   value: number | null | undefined,
@@ -17,9 +45,8 @@ export function formatBytes(
     scaled /= base
     index += 1
   }
-  return `${new Intl.NumberFormat(undefined, {
-    maximumFractionDigits: options.maximumFractionDigits ?? (index === 0 ? 0 : 2)
-  }).format(scaled)} ${units[index]}`
+  const maximumFractionDigits = options.maximumFractionDigits ?? (index === 0 ? 0 : 2)
+  return `${numberFormatter(maximumFractionDigits).format(scaled)} ${units[index]}`
 }
 
 export function formatSpeed(
@@ -33,11 +60,7 @@ export function formatSpeed(
 
 export function formatPercent(value: number | null | undefined): string {
   if (value === null || value === undefined || !Number.isFinite(value)) return 'Unknown'
-  return new Intl.NumberFormat(undefined, {
-    style: 'percent',
-    minimumFractionDigits: value > 0 && value < 1 ? 1 : 0,
-    maximumFractionDigits: 1
-  }).format(value)
+  return (value > 0 && value < 1 ? fractionalPercentFormatter : wholePercentFormatter).format(value)
 }
 
 export function formatDuration(seconds: number | null | undefined): string {
@@ -66,17 +89,12 @@ export function formatRatio(value: number | null | undefined): string {
   if (value === null || value === undefined || value < 0 || Number.isNaN(value))
     return 'Not available'
   if (!Number.isFinite(value) || value >= 9999) return '∞'
-  return new Intl.NumberFormat(undefined, {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2
-  }).format(value)
+  return ratioFormatter.format(value)
 }
 
 export function formatTimestamp(value: number | null | undefined): string {
   if (!value || value < 0) return 'Never'
-  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(
-    new Date(value * 1000)
-  )
+  return timestampFormatter.format(new Date(value * 1000))
 }
 
 export function formatLimit(
