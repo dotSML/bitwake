@@ -9,9 +9,66 @@ import TorrentOperationDialog from '@/features/torrent-actions/TorrentOperationD
 import { createTorrent } from '@/mocks/fixtures'
 import { useNotificationsStore } from '@/stores/notifications'
 import { useTorrentsStore } from '@/stores/torrents'
+import ToastRegion from '@/ui/components/ToastRegion.vue'
 import { createTestContext, mountWithContext } from './support/mount'
 
 describe('torrent dialogs', () => {
+  it('renders daemon-derived notification text without direction controls', async () => {
+    const context = createTestContext()
+    context
+      .run(() => useNotificationsStore(context.pinia))
+      .push('Move completed for Invoice‮gnp.mkv')
+    const wrapper = await mountWithContext(ToastRegion, context)
+
+    expect(wrapper.text()).toContain('Move completed for Invoice gnp.mkv')
+    expect(wrapper.text()).not.toContain('‮')
+  })
+
+  it('keeps Media Placement Off on the legacy Add flow without inspecting torrent bytes', async () => {
+    const context = createTestContext()
+    const file = new File(['not bencode'], 'Opaque.Source.torrent', {
+      type: 'application/x-bittorrent',
+      lastModified: 1
+    })
+    const arrayBuffer = vi.fn().mockResolvedValue(new ArrayBuffer(0))
+    Object.defineProperty(file, 'arrayBuffer', { configurable: true, value: arrayBuffer })
+    await mountWithContext(AddTorrentDialog, context, {
+      props: { open: true },
+      attachTo: document.body
+    })
+    await flushPromises()
+
+    expect(document.querySelector('#save-path')).not.toBeNull()
+    expect(document.querySelector('.stepper')).toBeNull()
+    const input = document.querySelector<HTMLInputElement>('#torrent-files')!
+    Object.defineProperty(input, 'files', { configurable: true, value: [file] })
+    await new DOMWrapper(input).trigger('change')
+    await flushPromises()
+
+    expect(arrayBuffer).not.toHaveBeenCalled()
+    expect(document.body.textContent).toContain('Opaque.Source.torrent')
+  })
+
+  it('renders an untrusted local filename safely beside its remove action', async () => {
+    const context = createTestContext()
+    const file = new File(['opaque'], 'Invoice‮gnp.torrent', {
+      type: 'application/x-bittorrent'
+    })
+    await mountWithContext(AddTorrentDialog, context, {
+      props: { open: true },
+      attachTo: document.body
+    })
+    const input = document.querySelector<HTMLInputElement>('#torrent-files')!
+    Object.defineProperty(input, 'files', { configurable: true, value: [file] })
+    await new DOMWrapper(input).trigger('change')
+    await flushPromises()
+
+    expect(document.body.textContent).not.toContain('‮')
+    expect(document.querySelector<HTMLButtonElement>('.file-list button')?.ariaLabel).not.toContain(
+      '‮'
+    )
+  })
+
   it('moves an actively downloading torrent to a typed host path', async () => {
     const context = createTestContext()
     const torrent = { ...createTorrent(0), state: 'downloading' as const, auto_tmm: true }
@@ -111,6 +168,20 @@ describe('torrent dialogs', () => {
         creation_date: 0,
         last_access_date: 0,
         last_modification_date: 0
+      },
+      {
+        name: 'spoof‮dir',
+        type: 'dir',
+        creation_date: 0,
+        last_access_date: 0,
+        last_modification_date: 0
+      },
+      {
+        name: 'nested/escape',
+        type: 'dir',
+        creation_date: 0,
+        last_access_date: 0,
+        last_modification_date: 0
       }
     ])
     await mountWithContext(TorrentOperationDialog, context, {
@@ -130,6 +201,8 @@ describe('torrent dialogs', () => {
       true,
       expect.any(AbortSignal)
     )
+    expect(document.body.textContent).not.toContain('spoof')
+    expect(document.body.textContent).not.toContain('escape')
 
     const media = [...document.querySelectorAll<HTMLButtonElement>('button')].find(
       (button) => button.textContent?.trim() === 'media'

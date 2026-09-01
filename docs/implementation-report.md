@@ -9,6 +9,11 @@ NeoTorrent is a functional preview of a responsive qBittorrent WebUI with two de
 
 The project includes a typed Web API client, explicit session modes, incremental synchronized state, virtualized desktop and mobile workspaces, common torrent actions and details, Search, RSS, Torrent Creator, logs, statistics, curated settings, deterministic mocks, automated tests, and Kubernetes examples.
 
+Media Placement adds an optional Assist mode without changing the client-only boundary. It performs
+bounded local source analysis, generates TV series/season or per-movie destinations, keeps Manual
+path independent and always available, previews effective qBittorrent layout, and reuses the planner
+for existing-torrent Set Location.
+
 The primary integration target is qBittorrent 5.2.3 with Web API 2.15.1. NeoTorrent does not yet claim complete stock-WebUI parity, broad qBittorrent 5.x verification, or production readiness. See the [feature parity inventory](feature-parity.md) for details and the [implementation status](../IMPLEMENTATION_STATUS.md) for the concise living summary.
 
 ## Architecture decisions
@@ -34,6 +39,20 @@ Request values normally remain canonical until the shared form encoder. Web Seed
 Desktop uses a dense virtualized table with persisted columns, contextual actions, roving keyboard focus, and range selection across virtual boundaries. Tablet and mobile layouts use purpose-built navigation, rows, action sheets, and adaptive details instead of shrinking the desktop composition.
 
 The file tree keeps immutable local state, deduplicates folder descendants, guards duplicate priority submissions, and supports pointer and keyboard multi-selection. Tracker, Web Seed, Search plugin, RSS, category/tag, and shutdown workflows use application dialogs with validation, retained errors, and busy-state protection.
+
+### Media Placement planning
+
+The feature is isolated under `src/features/media-placement`: pure name/torrent analysis, host-path
+utilities, sanitization, warning/layout planning, runtime loading, persistence, and small reusable
+components. Media kind and destination method are distinct types. Switching a TV or Movie suggestion
+to Manual copies the suggestion without changing classification, while reset restores the generated
+path. Exact library roots and wrong-library targets require acknowledgement but remain possible;
+outside-root paths remain possible with an honest non-blocking notice.
+
+Assist-mode Add creates one editable plan per source and sends separate bounded-concurrency requests
+where destination or options differ. Off mode retains the generic shared request. Automatic Torrent
+Management defaults off and warns when enabled. Set Location calls qBittorrent directly and refreshes
+incremental state rather than moving files or forcing a full resync.
 
 ## Product surface
 
@@ -75,6 +94,11 @@ Point qBittorrent at the parent `dist/alt-webui` directory, which contains both 
 `corepack pnpm build` and `corepack pnpm build:standalone` produce the static application consumed by the multi-stage container build. The runtime contains Nginx, static assets, and generated configuration; it runs without root privileges and supports a read-only root filesystem with a memory-backed `/tmp`.
 
 Startup validation covers the qBittorrent URL, ports, upload size, timeouts, and upstream TLS verification. Unsafe upstream URLs, embedded credentials, query/fragment components, and an `/api/v2` suffix are rejected.
+
+The same entrypoint validates Media Placement environment, emits a correctly escaped non-secret
+runtime JSON resource in `/tmp`, and serves it no-store. The PWA treats it as NetworkOnly. Locked
+deployment roots remain read-only in Settings but never remove Manual path. NeoTorrent still has no
+media-volume mount.
 
 The proxy preserves methods, queries, request bodies, statuses, cookies, and download headers. API responses are not cached and `/api/` failures never fall back to the SPA. Health and readiness endpoints report NeoTorrent's process and configuration state, not qBittorrent reachability.
 

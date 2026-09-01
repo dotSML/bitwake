@@ -55,6 +55,7 @@ docker run -d --name "$qbit_name" --network "container:$pod_name" \
   -e QBT_WEBUI_PORT=8080 \
   -v "$config_volume:/config" \
   -v "$downloads_volume:/downloads" \
+  -v "$downloads_volume:/data" \
   "$qbit_image" >/dev/null
 
 for attempt in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
@@ -68,6 +69,11 @@ for attempt in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
   sleep 1
 done
 
+# These are legal, disposable test-library roots in the named download volume.
+# NeoTorrent itself never mounts this volume; only qBittorrent can access it.
+docker exec "$qbit_name" mkdir -p /data/tv-shows /data/movies /data/manual-review
+docker exec "$qbit_name" chown 1000:1000 /data /data/tv-shows /data/movies /data/manual-review
+
 password=$(docker logs "$qbit_name" 2>&1 \
   | sed -n 's/.*temporary password is provided for this session: *//p' \
   | tr -d '\r' \
@@ -78,6 +84,13 @@ docker run -d --name "$proxy_name" --network "container:$pod_name" \
   --read-only --cap-drop ALL --security-opt no-new-privileges:true \
   --tmpfs /tmp:rw,noexec,nosuid,size=32m \
   -e QBITTORRENT_URL=http://127.0.0.1:8080 \
+  -e NEOTORRENT_MEDIA_MODE=assist \
+  -e NEOTORRENT_TV_ROOT=/data/tv-shows \
+  -e NEOTORRENT_MOVIES_ROOT=/data/movies \
+  -e NEOTORRENT_MEDIA_BROWSE_ROOT=/data \
+  -e NEOTORRENT_MEDIA_CONFIG_LOCKED=true \
+  -e 'NEOTORRENT_TV_CATEGORY=TV Shows' \
+  -e NEOTORRENT_MOVIE_CATEGORY=Movies \
   "$image" >/dev/null
 
 host_port=$(docker port "$pod_name" 8081/tcp | sed -n '1s/.*://p')

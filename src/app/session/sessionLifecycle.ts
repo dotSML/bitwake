@@ -3,6 +3,7 @@ import type { LoginCredentials } from '@/api/auth/authApi'
 import { ApiError } from '@/api/core/errors'
 import type { QbittorrentApi } from '@/api'
 import { useApi } from '@/app/providers/api'
+import { useMediaPlacementStore } from '@/features/media-placement/stores/mediaPlacement'
 import {
   deploymentMode,
   usesNativeAuthenticationBoundary,
@@ -18,6 +19,7 @@ type SessionStore = ReturnType<typeof useSessionStore>
 type NotificationsStore = ReturnType<typeof useNotificationsStore>
 type PreferencesStore = ReturnType<typeof usePreferencesStore>
 type TorrentsStore = ReturnType<typeof useTorrentsStore>
+type MediaPlacementStore = ReturnType<typeof useMediaPlacementStore>
 
 export interface SessionLifecycleDependencies {
   api: QbittorrentApi
@@ -25,6 +27,7 @@ export interface SessionLifecycleDependencies {
   session: SessionStore
   notifications: NotificationsStore
   preferences: PreferencesStore
+  mediaPlacement: MediaPlacementStore
   torrents: TorrentsStore
   mode: DeploymentMode
   reload: () => void
@@ -40,7 +43,17 @@ export interface SessionLifecycle {
 export function createSessionLifecycle(
   dependencies: SessionLifecycleDependencies
 ): SessionLifecycle {
-  const { api, router, session, notifications, preferences, torrents, mode, reload } = dependencies
+  const {
+    api,
+    router,
+    session,
+    notifications,
+    preferences,
+    mediaPlacement,
+    torrents,
+    mode,
+    reload
+  } = dependencies
   const nativeBoundary = usesNativeAuthenticationBoundary(mode)
 
   function safePrivateRoute(route: string | null): string {
@@ -50,19 +63,20 @@ export function createSessionLifecycle(
     return route
   }
 
-  function resetPrivateState(): void {
+  function resetPrivateState(clearMediaPlacement = false): void {
     torrents.clearAll()
     notifications.clear()
+    if (clearMediaPlacement) mediaPlacement.resetPrivateState()
   }
 
   async function activatePrivateSession(): Promise<void> {
-    await preferences.load()
+    await Promise.all([preferences.load(), mediaPlacement.load()])
     torrents.setPollingInterval(preferences.value.pollingInterval)
     torrents.startSync()
   }
 
-  async function showLogin(): Promise<void> {
-    resetPrivateState()
+  async function showLogin(clearMediaPlacement = false): Promise<void> {
+    resetPrivateState(clearMediaPlacement)
     if (nativeBoundary) {
       reload()
       return
@@ -76,7 +90,7 @@ export function createSessionLifecycle(
     if (!authenticated) {
       if (session.status === 'anonymous') {
         session.expire(requestedRoute)
-        await showLogin()
+        await showLogin(true)
       }
       return false
     }
@@ -116,7 +130,7 @@ export function createSessionLifecycle(
     try {
       await api.auth.logout()
     } finally {
-      resetPrivateState()
+      resetPrivateState(true)
       session.signOut()
       if (nativeBoundary) reload()
       else if (router.currentRoute.value.path !== '/login') await router.replace('/login')
@@ -126,7 +140,7 @@ export function createSessionLifecycle(
   async function expire(route = router.currentRoute.value.fullPath): Promise<void> {
     if (session.status === 'anonymous' && router.currentRoute.value.path === '/login') return
     session.expire(route)
-    await showLogin()
+    await showLogin(true)
   }
 
   return { initialize, login, logout, expire }
@@ -139,6 +153,7 @@ export function useSessionLifecycle(): SessionLifecycle {
     session: useSessionStore(),
     notifications: useNotificationsStore(),
     preferences: usePreferencesStore(),
+    mediaPlacement: useMediaPlacementStore(),
     torrents: useTorrentsStore(),
     mode: deploymentMode,
     reload: () => window.location.reload()

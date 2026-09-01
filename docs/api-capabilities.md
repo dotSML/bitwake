@@ -162,9 +162,13 @@ The target source differs from parts of the generic wiki: queue priority does no
 - Newline-separated `urls` for magnets and HTTP(S) URLs.
 - Save path, cookie, category, comma-separated tags, skip checking, stopped/forced state, content layout, rename, up/down limits, ratio/seeding limits, automatic management, sequential download, and first/last-piece priority.
 
-The current dialog exposes files, sources, save path, category, tags, stopped/start, automatic management, sequential mode, and first/last priority. It validates typed sources as magnet, HTTP, or HTTPS.
+The dialog exposes files, sources, per-source Media Placement when Assist is enabled, save path,
+category, tags, stopped/start, automatic management, content layout, sequential mode, and first/last
+priority. It validates typed sources as magnet, HTTP, or HTTPS. Off mode retains the generic shared
+save-path request. Assist mode splits unrelated source plans when destination/options differ and
+limits concurrent Add calls.
 
-The parser handles both legacy text (`Ok.`) and detailed objects containing `success_count`, `pending_count`, `failure_count`, and `added_torrent_ids`. The UI reports partial/pending results. Metadata preview and the remaining advanced add fields are not wired. Desktop drag/drop filters `.torrent` files and passes them into the shared add dialog as initial file selections.
+The parser handles both legacy text (`Ok.`) and detailed objects containing `success_count`, `pending_count`, `failure_count`, and `added_torrent_ids`. The UI reports partial/pending results and retains failed Assist-mode plans for retry. Local bounded bencode inspection supports placement planning but is separate from qBittorrent's metadata-preview endpoints; unknown magnets remain unknown. Desktop drag/drop filters `.torrent` files and passes them into the shared add dialog as initial file selections.
 
 ### Categories and tags
 
@@ -235,7 +239,8 @@ The current view polls both streams incrementally every two seconds, deduplicate
 | `clientdata/load`  | Yes    | Yes | Optional JSON-encoded key list   |
 | `clientdata/store` | Yes    | Yes | JSON object in form field `data` |
 
-Client data is used only for versioned NeoTorrent interface preferences. Local storage remains a fallback and local mirror.
+Client data is used for versioned NeoTorrent interface preferences and native/unlocked Media
+Placement settings under separate namespaced keys. Local storage remains a fallback and local mirror.
 
 ## Capability registry
 

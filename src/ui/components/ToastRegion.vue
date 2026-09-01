@@ -1,8 +1,13 @@
 <script setup lang="ts">
 import { X } from 'lucide-vue-next'
+import { replaceControlCharacters } from '@/features/media-placement/domain/textSafety'
 import { useNotificationsStore } from '@/stores/notifications'
 
 const notifications = useNotificationsStore()
+
+function safeNotificationText(value: string): string {
+  return replaceControlCharacters(value)
+}
 </script>
 
 <template>
@@ -15,7 +20,7 @@ const notifications = useNotificationsStore()
         :class="`toast-${item.tone}`"
         role="status"
       >
-        <span>{{ item.message }}</span>
+        <span>{{ safeNotificationText(item.message) }}</span>
         <button
           class="toast-close"
           type="button"
@@ -53,6 +58,9 @@ const notifications = useNotificationsStore()
   box-shadow: var(--shadow-float);
   padding: 10px 10px 10px 13px;
   pointer-events: auto;
+}
+.toast > span {
+  unicode-bidi: plaintext;
 }
 .toast-success {
   border-left-color: rgb(var(--color-positive));

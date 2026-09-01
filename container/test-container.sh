@@ -8,10 +8,12 @@ run_id="neotorrent-contract-$$"
 pod_name="$run_id-pod"
 upstream_name="$run_id-upstream"
 proxy_name="$run_id-proxy"
+invalid_runtime_name="$run_id-invalid-runtime"
 temporary_directory=$(mktemp -d)
 
 cleanup() {
-  docker rm -f "$proxy_name" "$upstream_name" "$pod_name" >/dev/null 2>&1 || true
+  docker rm -f "$invalid_runtime_name" "$proxy_name" "$upstream_name" "$pod_name" \
+    >/dev/null 2>&1 || true
   rm -rf "$temporary_directory"
 }
 trap cleanup EXIT INT TERM
@@ -94,13 +96,48 @@ if docker run --rm --entrypoint sh "$image" -c 'command -v node' >/dev/null 2>&1
   fail 'final image contains a Node.js runtime'
 fi
 docker run --rm --entrypoint sh "$image" -c \
-  'test ! -e /app/src && test ! -e /usr/share/nginx/html/mockServiceWorker.js && ! find /usr/share/nginx/html -name "*.map" -print -quit | grep -q .'
+  'test ! -e /app/src && test ! -e /usr/share/nginx/html/mockServiceWorker.js && test ! -e /usr/share/nginx/html/_neotorrent/runtime-config.json && ! find /usr/share/nginx/html -name "*.map" -print -quit | grep -q .'
+docker run --rm --entrypoint sh "$image" -c '
+  worker=/usr/share/nginx/html/sw.js
+  test -f "$worker"
+  test "$(grep -o "_neotorrent/runtime-config.json" "$worker" | wc -l | tr -d "[:space:]")" = 1
+  grep -Eq "runtime-config\\.json.*NetworkOnly,?\\\"GET\\\"" "$worker"
+' || fail 'service worker did not exclude runtime configuration from precaching and use NetworkOnly'
 
 assert_status 200 "$base_url/healthz"
 assert_status 200 "$base_url/readyz"
 curl -fsS "$base_url/" | grep -q '<div id="app"></div>' || fail 'SPA index did not load'
 curl -fsSI "$base_url/" | grep -qi "content-security-policy: .*script-src 'self'" \
   || fail 'compatible CSP header is missing'
+
+runtime_headers="$temporary_directory/runtime-headers"
+runtime_body="$temporary_directory/runtime-config.json"
+curl -fsS -D "$runtime_headers" -o "$runtime_body" \
+  "$base_url/_neotorrent/runtime-config.json"
+[ "$(grep -ci '^cache-control:' "$runtime_headers")" = '1' ] \
+  || fail 'runtime configuration contained conflicting Cache-Control headers'
+grep -qi '^cache-control: no-store' "$runtime_headers" \
+  || fail 'runtime configuration was not marked no-store'
+grep -qi '^content-type: application/json' "$runtime_headers" \
+  || fail 'runtime configuration did not use the JSON content type'
+node -e '
+  const assert = require("node:assert/strict")
+  const fs = require("node:fs")
+  assert.deepStrictEqual(JSON.parse(fs.readFileSync(process.argv[1], "utf8")), {
+    mediaPlacement: {
+      mode: "off",
+      locked: false,
+      tvRoot: "",
+      moviesRoot: "",
+      browseRoot: "",
+      tvCategory: "",
+      movieCategory: ""
+    }
+  })
+' "$runtime_body" || fail 'existing deployments did not receive the safe off defaults'
+assert_status 404 "$base_url/_neotorrent/not-a-resource"
+! grep -q '<div id="app"></div>' "$temporary_directory/response" \
+  || fail 'unknown runtime resource fell back to the SPA'
 
 headers="$temporary_directory/headers"
 curl -sS -D "$headers" -o "$temporary_directory/get" \
@@ -226,5 +263,163 @@ if docker run --rm -e 'QBITTORRENT_URL=http://127.0.0.1:65536' "$image" \
 fi
 grep -q 'QBITTORRENT_URL port must be an integer from 1 through 65535' "$invalid_log" \
   || fail 'out-of-range upstream port error was not clear'
+
+escaped_runtime="$temporary_directory/escaped-runtime-config.json"
+docker run --rm --read-only --tmpfs /tmp:rw,noexec,nosuid,size=8m \
+  -e 'NEOTORRENT_MEDIA_MODE=assist' \
+  -e 'NEOTORRENT_MEDIA_CONFIG_LOCKED=true' \
+  -e 'NEOTORRENT_TV_ROOT=/runtime/neotorrent-runtime-only-tv-9f31c2 "quoted"\shows' \
+  -e 'NEOTORRENT_MOVIES_ROOT=/runtime/neotorrent-runtime-only-movies-7a84d6/Français' \
+  -e 'NEOTORRENT_MEDIA_BROWSE_ROOT=/data' \
+  -e 'NEOTORRENT_TV_CATEGORY=TV "Prime"\Archive' \
+  -e 'NEOTORRENT_MOVIE_CATEGORY=Movies & more' \
+  "$image" sh -c 'cat /tmp/neotorrent-runtime-config.json' > "$escaped_runtime"
+node -e '
+  const assert = require("node:assert/strict")
+  const fs = require("node:fs")
+  const value = JSON.parse(fs.readFileSync(process.argv[1], "utf8"))
+  assert.deepStrictEqual(value, {
+    mediaPlacement: {
+      mode: "assist",
+      locked: true,
+      tvRoot: "/runtime/neotorrent-runtime-only-tv-9f31c2 \"quoted\"\\shows",
+      moviesRoot: "/runtime/neotorrent-runtime-only-movies-7a84d6/Français",
+      browseRoot: "/data",
+      tvCategory: "TV \"Prime\"\\Archive",
+      movieCategory: "Movies & more"
+    }
+  })
+  assert.equal("QBITTORRENT_URL" in value, false)
+  assert.equal("credentials" in value, false)
+' "$escaped_runtime" || fail 'runtime configuration was not valid, escaped JSON'
+docker run --rm --entrypoint sh "$image" -c '
+  ! grep -R -F -q "neotorrent-runtime-only-tv-9f31c2" /usr/share/nginx/html/assets
+  ! grep -R -F -q "neotorrent-runtime-only-movies-7a84d6" /usr/share/nginx/html/assets
+' || fail 'environment-specific media roots were compiled into frontend assets'
+
+invalid_runtime="$temporary_directory/invalid-runtime-config.json"
+invalid_runtime_log="$temporary_directory/invalid-runtime.log"
+
+assert_invalid_media_runtime() {
+  invalid_case=$1
+  shift
+
+  if ! docker run --rm --read-only --tmpfs /tmp:rw,noexec,nosuid,size=8m \
+    "$@" "$image" sh -c \
+    'test -s /tmp/nginx.conf && cat /tmp/neotorrent-runtime-config.json' \
+    >"$invalid_runtime" 2>"$invalid_runtime_log"; then
+    fail "$invalid_case stopped the standalone container"
+  fi
+
+  node -e '
+    const assert = require("node:assert/strict")
+    const fs = require("node:fs")
+    assert.deepStrictEqual(JSON.parse(fs.readFileSync(process.argv[1], "utf8")), {
+      mediaPlacement: null,
+      configurationError: true
+    })
+  ' "$invalid_runtime" || fail "$invalid_case did not emit the safe invalid-config sentinel"
+  grep -q 'NeoTorrent media configuration warning: .*Media Placement will start off' \
+    "$invalid_runtime_log" \
+    || fail "$invalid_case did not log the generic fallback warning"
+}
+
+assert_invalid_media_runtime 'invalid media mode' \
+  -e 'NEOTORRENT_MEDIA_MODE=enforce'
+assert_invalid_media_runtime 'invalid media configuration lock' \
+  -e 'NEOTORRENT_MEDIA_CONFIG_LOCKED=yes'
+
+control_character_path=$(printf '/data/tv\tshows')
+assert_invalid_media_runtime 'media path with an ASCII control character' \
+  -e "NEOTORRENT_TV_ROOT=$control_character_path"
+
+c1_control_path=$(printf '/data/tv\302\205shows')
+assert_invalid_media_runtime 'media path with UTF-8 U+0085' \
+  -e "NEOTORRENT_TV_ROOT=$c1_control_path"
+
+bidi_control_category=$(printf 'TV\342\200\256Spoof')
+assert_invalid_media_runtime 'media category with UTF-8 U+202E bidi control' \
+  -e "NEOTORRENT_TV_CATEGORY=$bidi_control_category"
+
+line_separator_category=$(printf 'Movies\342\200\250Injected')
+assert_invalid_media_runtime 'media category with UTF-8 U+2028 line separator' \
+  -e "NEOTORRENT_MOVIE_CATEGORY=$line_separator_category"
+
+newline_path=$(printf '/data/tv\nshows')
+assert_invalid_media_runtime 'media path with a newline' \
+  -e "NEOTORRENT_TV_ROOT=$newline_path"
+
+assert_invalid_media_runtime 'relative TV root' \
+  -e 'NEOTORRENT_TV_ROOT=data/tv-shows'
+assert_invalid_media_runtime 'relative Movies root' \
+  -e 'NEOTORRENT_MOVIES_ROOT=data/movies'
+assert_invalid_media_runtime 'relative browse root' \
+  -e 'NEOTORRENT_MEDIA_BROWSE_ROOT=data'
+assert_invalid_media_runtime 'drive-relative TV root' \
+  -e 'NEOTORRENT_TV_ROOT=C:Media\TV'
+assert_invalid_media_runtime 'Windows root with an invalid segment' \
+  -e 'NEOTORRENT_MOVIES_ROOT=C:\Media\Bad<Name'
+assert_invalid_media_runtime 'Windows root with a reserved segment' \
+  -e 'NEOTORRENT_MOVIES_ROOT=C:\Media\CON'
+assert_invalid_media_runtime 'UNC root without a share' \
+  -e 'NEOTORRENT_MOVIES_ROOT=\\media-server'
+assert_invalid_media_runtime 'locked assist without a Movies root' \
+  -e 'NEOTORRENT_MEDIA_MODE=assist' \
+  -e 'NEOTORRENT_MEDIA_CONFIG_LOCKED=true' \
+  -e 'NEOTORRENT_TV_ROOT=/data/tv-shows'
+
+docker run -d --name "$invalid_runtime_name" \
+  --read-only --cap-drop ALL --security-opt no-new-privileges:true \
+  --tmpfs /tmp:rw,noexec,nosuid,size=8m \
+  -p 127.0.0.1::8081 \
+  -e 'NEOTORRENT_TV_ROOT=relative/tv-shows' \
+  "$image" >/dev/null
+invalid_runtime_port=$(docker port "$invalid_runtime_name" 8081/tcp | sed -n '1s/.*://p')
+[ -n "$invalid_runtime_port" ] || fail 'could not discover invalid-runtime test port'
+for attempt in 1 2 3 4 5 6 7 8 9 10; do
+  if curl -fsS \
+    "http://127.0.0.1:$invalid_runtime_port/_neotorrent/runtime-config.json" \
+    > "$invalid_runtime"; then
+    break
+  fi
+  [ "$attempt" -lt 10 ] || {
+    docker logs "$invalid_runtime_name" >&2
+    fail 'invalid media configuration prevented Nginx from starting'
+  }
+  sleep 1
+done
+node -e '
+  const assert = require("node:assert/strict")
+  const fs = require("node:fs")
+  assert.deepStrictEqual(JSON.parse(fs.readFileSync(process.argv[1], "utf8")), {
+    mediaPlacement: null,
+    configurationError: true
+  })
+' "$invalid_runtime" || fail 'running Nginx did not serve the safe invalid-config sentinel'
+docker rm -f "$invalid_runtime_name" >/dev/null
+
+windows_unc_runtime="$temporary_directory/windows-unc-runtime-config.json"
+docker run --rm --read-only --tmpfs /tmp:rw,noexec,nosuid,size=8m \
+  -e 'NEOTORRENT_MEDIA_MODE=assist' \
+  -e 'NEOTORRENT_MEDIA_CONFIG_LOCKED=true' \
+  -e 'NEOTORRENT_TV_ROOT=D:\Media\TV' \
+  -e 'NEOTORRENT_MOVIES_ROOT=\\nas.example\media\Movies' \
+  -e 'NEOTORRENT_MEDIA_BROWSE_ROOT=//nas.example/media' \
+  "$image" sh -c 'cat /tmp/neotorrent-runtime-config.json' > "$windows_unc_runtime"
+node -e '
+  const assert = require("node:assert/strict")
+  const fs = require("node:fs")
+  assert.deepStrictEqual(JSON.parse(fs.readFileSync(process.argv[1], "utf8")), {
+    mediaPlacement: {
+      mode: "assist",
+      locked: true,
+      tvRoot: "D:\\Media\\TV",
+      moviesRoot: "\\\\nas.example\\media\\Movies",
+      browseRoot: "//nas.example/media",
+      tvCategory: "",
+      movieCategory: ""
+    }
+  })
+' "$windows_unc_runtime" || fail 'valid Windows drive and UNC roots were rejected or changed'
 
 printf 'container contract tests passed (deterministic upstream and localhost sidecar topology)\n'

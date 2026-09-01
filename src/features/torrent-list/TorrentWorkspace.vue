@@ -243,7 +243,13 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
         <button class="btn" type="button" @click="torrents.clearFilters">Clear all filters</button>
       </div>
       <template v-else>
-        <div class="desktop-table"><TorrentTable @activate="activate" @context="onContext" /></div>
+        <div class="desktop-table">
+          <TorrentTable
+            @activate="activate"
+            @context="onContext"
+            @review-placement="openOperation('location', [$event])"
+          />
+        </div>
         <MobileTorrentList
           @activate="activate"
           @select="torrents.toggleSelection"
@@ -263,6 +269,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
         <TorrentDetailPanel
           :hash="inspectorHash"
           @close="preferences.patch({ inspectorOpen: false })"
+          @review-placement="openOperation('location', [inspectorHash])"
         />
       </div>
     </template>

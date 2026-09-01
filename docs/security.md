@@ -40,6 +40,8 @@ It does not claim to protect a session after the browser, qBittorrent host, admi
 - Production API URLs are same-origin and relative to `document.baseURI`.
 - API `fetch` uses `cache: 'no-store'`.
 - The service worker has explicit NetworkOnly rules for API GET and POST requests.
+- The standalone Media Placement runtime resource is fetched with `no-store`, served with
+  `Cache-Control: no-store`, excluded from precaching, and matched by a NetworkOnly rule.
 - The native Alternative WebUI public login entry does not register the service worker. Standalone login shares the SPA worker scope, but its API/login requests still match NetworkOnly and the HTTP client uses `no-store`.
 - HTML is not in the Workbox precache glob.
 - There is no offline torrent-data mode.
@@ -71,7 +73,24 @@ It does not claim to protect a session after the browser, qBittorrent host, admi
 - Interface preferences contain layout/formatting choices only.
 - Interface preference migration reconstructs an allow-listed schema, validates/clamps every stored field, and drops unknown keys.
 - Uploaded `.torrent` `File` objects and typed magnet/URL sources live in component memory and are cleared when the dialog closes.
+- Media names, paths, magnets, and bounded `.torrent` structure are analyzed locally and are never
+  sent to metadata, AI, search, telemetry, or Jellyfin services.
+- The runtime Media Placement resource contains only non-secret mode, lock, root, browse, and
+  category values. It excludes qBittorrent credentials and `QBITTORRENT_URL`.
 - Mock and screenshot data are explicitly synthetic/open-source themed.
+
+### Media path handling
+
+- Runtime environment values reject NUL/control characters and newline injection before JSON is
+  generated; startup JSON escaping does not interpolate raw values into JavaScript.
+- `.torrent` inspection bounds total input, nesting, strings, items, file count, and extracted path
+  text. Piece hashes are not retained as source analysis.
+- Suggested folder segments strip separators, controls, and host-invalid punctuation while
+  preserving useful Unicode. Manual paths are validated but never silently rewritten.
+- Containment is segment-aware and path-style-aware. Browser code does not resolve host symlinks or
+  claim filesystem authority; qBittorrent remains authoritative for permissions and creation.
+- Exact-root and wrong-library destinations require acknowledgement but are not permanently blocked.
+  There is no forced destination mode.
 
 ### Build/package checks
 
@@ -174,6 +193,7 @@ The real qBittorrent 5.2.3 integration suite exercises the standalone login/sess
 | qBittorrent session cookie     | Browser cookie jar                             | Controlled by qBittorrent/browser; unread by app                                       |
 | Torrent names/paths/state      | Pinia memory                                   | Current page session only; API/service worker no-store                                 |
 | Add sources and uploaded files | Dialog memory                                  | Cleared when dialog closes                                                             |
+| Media Placement runtime config | Standalone `/tmp` and browser memory           | Non-secret; `no-store`; regenerated at container startup                               |
 | UI preferences                 | qB client data and/or namespaced local storage | Versioned schema                                                                       |
 | Server preferences             | Settings-route draft memory                    | Sensitive-looking keys are filtered; known changes are sent only when explicitly saved |
 | Transfer graph                 | Bounded Pinia memory                           | Browser session only                                                                   |

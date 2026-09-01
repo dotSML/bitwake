@@ -9,7 +9,10 @@ import {
   type ThemePreference
 } from '@/stores/preferences'
 import RouteScaffold from '@/ui/components/RouteScaffold.vue'
+import MediaPlacementSettings from './MediaPlacementSettings.vue'
 import { settingsSchema, type SettingDefinition, type SettingsSection } from './settingsSchema'
+
+type SettingsNavigationSection = SettingsSection | 'Media Placement' | 'Interface'
 
 const api = useApi()
 const ui = usePreferencesStore()
@@ -17,7 +20,7 @@ const notifications = useNotificationsStore()
 const serverValues = ref<Record<string, unknown>>({})
 const draft = ref<Record<string, unknown>>({})
 const search = ref('')
-const activeSection = ref<SettingsSection | 'Interface'>('Downloads')
+const activeSection = ref<SettingsNavigationSection>('Downloads')
 const loading = ref(true)
 const saving = ref(false)
 const errors = ref<Record<string, string>>({})
@@ -26,7 +29,7 @@ const networkAddresses = ref<string[]>([])
 const networkOptionsLoading = ref(false)
 const networkOptionsError = ref<string | null>(null)
 let networkAddressRequest = 0
-const sections: Array<SettingsSection | 'Interface'> = [
+const sections: SettingsNavigationSection[] = [
   'Downloads',
   'Connection',
   'Speed',
@@ -35,6 +38,7 @@ const sections: Array<SettingsSection | 'Interface'> = [
   'RSS',
   'Web UI',
   'Advanced',
+  'Media Placement',
   'Interface'
 ]
 const shareLimitPairs = [
@@ -106,7 +110,7 @@ function sanitizePreferences(values: Record<string, unknown>): Record<string, un
   )
 }
 
-function selectSection(section: SettingsSection | 'Interface'): void {
+function selectSection(section: SettingsNavigationSection): void {
   activeSection.value = section
   search.value = ''
 }
@@ -370,6 +374,7 @@ onMounted(() => void load())
   >
     <template #actions
       ><button
+        v-if="activeSection !== 'Media Placement'"
         class="btn btn-primary"
         type="button"
         :disabled="saving || !changedServer || Object.keys(errors).length > 0"
@@ -403,6 +408,7 @@ onMounted(() => void load())
         <div v-if="loading" class="settings-state">
           <LoaderCircle class="spin" :size="20" />Loading settings…
         </div>
+        <MediaPlacementSettings v-else-if="activeSection === 'Media Placement' && !search" />
         <template v-else-if="activeSection === 'Interface' && !search">
           <header>
             <h2>NeoTorrent interface</h2>

@@ -43,6 +43,20 @@ spec:
               value: 300s
             - name: PROXY_SSL_VERIFY
               value: 'on'
+            - name: NEOTORRENT_MEDIA_MODE
+              value: assist
+            - name: NEOTORRENT_TV_ROOT
+              value: /data/tv-shows
+            - name: NEOTORRENT_MOVIES_ROOT
+              value: /data/movies
+            - name: NEOTORRENT_MEDIA_BROWSE_ROOT
+              value: /data
+            - name: NEOTORRENT_MEDIA_CONFIG_LOCKED
+              value: 'true'
+            - name: NEOTORRENT_TV_CATEGORY
+              value: TV Shows
+            - name: NEOTORRENT_MOVIE_CATEGORY
+              value: Movies
           ports:
             - name: webui
               containerPort: 8081

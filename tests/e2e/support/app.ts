@@ -3,12 +3,33 @@ import { expect, type Page } from '@playwright/test'
 export interface FetchControl {
   failMainData: boolean
   expireMainDataOnce: boolean
+  failAddSourceIncludes: string[]
+  injectMediaCategories: boolean
+  injectExistingMediaWarning: boolean
+  runtimeMediaPlacement: MediaPlacementRuntimeConfig | null
+  requests: CapturedApiRequest[]
+  pendingLocationUpdates: Record<string, string>
   partialAdd: null | {
     success_count: number
     pending_count: number
     failure_count: number
     added_torrent_ids: string[]
   }
+}
+
+export interface CapturedApiRequest {
+  path: string
+  fields: Record<string, string[]>
+}
+
+export interface MediaPlacementRuntimeConfig {
+  mode: 'off' | 'assist'
+  locked: boolean
+  tvRoot: string
+  moviesRoot: string
+  browseRoot: string
+  tvCategory: string
+  movieCategory: string
 }
 
 export interface StandaloneSessionControl {
@@ -19,45 +40,159 @@ export interface StandaloneSessionControl {
 const defaultFetchControl: FetchControl = {
   failMainData: false,
   expireMainDataOnce: false,
+  failAddSourceIncludes: [],
+  injectMediaCategories: false,
+  injectExistingMediaWarning: false,
+  runtimeMediaPlacement: null,
+  requests: [],
+  pendingLocationUpdates: {},
   partialAdd: null
 }
+
+export const defaultMediaPlacementRuntime: Readonly<MediaPlacementRuntimeConfig> = Object.freeze({
+  mode: 'assist',
+  locked: true,
+  tvRoot: '/data/tv-shows',
+  moviesRoot: '/data/movies',
+  browseRoot: '/data',
+  tvCategory: 'TV Shows',
+  movieCategory: 'Movies'
+})
 
 /**
  * Installs a narrow fetch shim before NeoTorrent creates its HttpClient.
  * Requests not selected by the test continue to the browser MSW worker.
  */
-export async function installFetchControl(page: Page): Promise<void> {
-  await page.addInitScript((initial: FetchControl) => {
-    const controlledGlobal = globalThis as typeof globalThis & {
-      __neotorrentE2eFetchControl: FetchControl
-    }
-    const originalFetch = globalThis.fetch.bind(globalThis)
-    controlledGlobal.__neotorrentE2eFetchControl = structuredClone(initial)
-    globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = new URL(
-        input instanceof Request ? input.url : String(input),
-        globalThis.location.href
-      )
-      const control = controlledGlobal.__neotorrentE2eFetchControl
+export async function installFetchControl(
+  page: Page,
+  update: Partial<FetchControl> = {}
+): Promise<void> {
+  await page.addInitScript(
+    (initial: FetchControl) => {
+      const controlledGlobal = globalThis as typeof globalThis & {
+        __neotorrentE2eFetchControl: FetchControl
+      }
+      const originalFetch = globalThis.fetch.bind(globalThis)
+      controlledGlobal.__neotorrentE2eFetchControl = structuredClone(initial)
+      globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = new URL(
+          input instanceof Request ? input.url : String(input),
+          globalThis.location.href
+        )
+        const control = controlledGlobal.__neotorrentE2eFetchControl
 
-      if (url.pathname.endsWith('/api/v2/sync/maindata')) {
-        if (control.expireMainDataOnce) {
-          control.expireMainDataOnce = false
-          return new Response('Forbidden', { status: 403 })
+        if (url.pathname === '/_neotorrent/runtime-config.json' && control.runtimeMediaPlacement) {
+          return Response.json(
+            { mediaPlacement: control.runtimeMediaPlacement },
+            { headers: { 'Cache-Control': 'no-store' } }
+          )
         }
-        if (control.failMainData) throw new TypeError('Simulated network loss')
-      }
 
-      if (url.pathname.endsWith('/api/v2/torrents/add') && control.partialAdd) {
-        return new Response(JSON.stringify(control.partialAdd), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' }
-        })
-      }
+        async function requestFields(): Promise<Record<string, string[]>> {
+          let body: FormData | URLSearchParams | null = null
+          if (init?.body instanceof FormData || init?.body instanceof URLSearchParams) {
+            body = init.body
+          } else if (input instanceof Request) {
+            const request = input.clone()
+            const contentType = request.headers.get('content-type') ?? ''
+            if (contentType.includes('multipart/form-data')) body = await request.formData()
+            else if (contentType.includes('application/x-www-form-urlencoded')) {
+              body = new URLSearchParams(await request.text())
+            }
+          }
+          if (!body) return {}
+          const fields: Record<string, string[]> = {}
+          for (const [key, value] of body.entries()) {
+            const serialized = typeof value === 'string' ? value : `[file:${value.name}]`
+            ;(fields[key] ??= []).push(serialized)
+          }
+          return fields
+        }
 
-      return originalFetch(input, init)
-    }
-  }, defaultFetchControl)
+        const isApiPost = init?.method === 'POST' && url.pathname.includes('/api/v2/')
+        const fields = isApiPost ? await requestFields() : {}
+        if (isApiPost) control.requests.push({ path: url.pathname, fields })
+
+        if (url.pathname.endsWith('/api/v2/torrents/setLocation')) {
+          const location = fields.location?.[0]
+          if (location) {
+            for (const hash of (fields.hashes?.[0] ?? '').split('|').filter(Boolean)) {
+              control.pendingLocationUpdates[hash] = location
+            }
+          }
+        }
+
+        if (url.pathname.endsWith('/api/v2/sync/maindata')) {
+          if (control.expireMainDataOnce) {
+            control.expireMainDataOnce = false
+            return new Response('Forbidden', { status: 403 })
+          }
+          if (control.failMainData) throw new TypeError('Simulated network loss')
+
+          const response = await originalFetch(input, init)
+          if (
+            !control.injectMediaCategories &&
+            !control.injectExistingMediaWarning &&
+            !Object.keys(control.pendingLocationUpdates).length
+          ) {
+            return response
+          }
+          const payload = (await response.clone().json()) as {
+            full_update?: boolean
+            categories?: Record<string, unknown>
+            torrents?: Record<string, Record<string, unknown>>
+          }
+          if (control.injectMediaCategories && payload.full_update) {
+            payload.categories = {
+              ...payload.categories,
+              'TV Shows': { name: 'TV Shows', savePath: '/data/tv-shows' },
+              Movies: { name: 'Movies', savePath: '/data/movies' }
+            }
+          }
+          if (control.injectExistingMediaWarning && payload.full_update && payload.torrents) {
+            const firstHash = Object.keys(payload.torrents)[0]
+            if (firstHash && payload.torrents[firstHash]) {
+              Object.assign(payload.torrents[firstHash], {
+                name: 'Example Show S01E01',
+                category: 'TV Shows',
+                save_path: '/data/tv-shows',
+                content_path: '/data/tv-shows/Example.Show.S01E01.mkv',
+                auto_tmm: false
+              })
+            }
+          }
+          if (Object.keys(control.pendingLocationUpdates).length) {
+            payload.torrents ??= {}
+            for (const [hash, location] of Object.entries(control.pendingLocationUpdates)) {
+              payload.torrents[hash] = {
+                ...(payload.torrents[hash] ?? {}),
+                save_path: location,
+                state: 'stoppedDL'
+              }
+              delete control.pendingLocationUpdates[hash]
+            }
+          }
+          return Response.json(payload, { status: response.status, headers: response.headers })
+        }
+
+        if (url.pathname.endsWith('/api/v2/torrents/add')) {
+          const source = fields.urls?.join('\n') ?? ''
+          if (control.failAddSourceIncludes.some((needle) => source.includes(needle))) {
+            return new Response('Simulated source rejection', { status: 500 })
+          }
+          if (control.partialAdd) {
+            return new Response(JSON.stringify(control.partialAdd), {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' }
+            })
+          }
+        }
+
+        return originalFetch(input, init)
+      }
+    },
+    { ...defaultFetchControl, ...update, requests: [], pendingLocationUpdates: {} }
+  )
 }
 
 export async function setFetchControl(page: Page, update: Partial<FetchControl>): Promise<void> {
@@ -67,6 +202,21 @@ export async function setFetchControl(page: Page, update: Partial<FetchControl>)
     }
     Object.assign(controlledGlobal.__neotorrentE2eFetchControl, next)
   }, update)
+}
+
+export async function capturedApiRequests(
+  page: Page,
+  pathSuffix?: string
+): Promise<CapturedApiRequest[]> {
+  return page.evaluate((suffix) => {
+    const controlledGlobal = globalThis as typeof globalThis & {
+      __neotorrentE2eFetchControl: FetchControl
+    }
+    const requests = controlledGlobal.__neotorrentE2eFetchControl.requests
+    return structuredClone(
+      suffix ? requests.filter((request) => request.path.endsWith(suffix)) : requests
+    )
+  }, pathSuffix)
 }
 
 export async function installStandaloneSession(

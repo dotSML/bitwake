@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ChevronDown, ChevronUp, ChevronsUpDown } from 'lucide-vue-next'
+import { AlertTriangle, ChevronDown, ChevronUp, ChevronsUpDown } from 'lucide-vue-next'
 import {
   createColumnHelper,
   FlexRender,
@@ -15,13 +15,20 @@ import { useVirtualizer } from '@tanstack/vue-virtual'
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import type { TorrentInfo } from '@/api/types/models'
 import { torrentStateLabel } from '@/domains/torrents/state'
+import { detectExistingPlacementWarnings } from '@/features/media-placement/domain/detectExistingPlacementWarnings'
+import { useMediaPlacementStore } from '@/features/media-placement/stores/mediaPlacement'
 import { torrentTableColumnIds, usePreferencesStore } from '@/stores/preferences'
 import { useTorrentsStore } from '@/stores/torrents'
 import { formatBytes, formatEta, formatPercent, formatRatio, formatSpeed } from '@/utils/format'
 
-const emit = defineEmits<{ activate: [hash: string]; context: [event: MouseEvent, hash: string] }>()
+const emit = defineEmits<{
+  activate: [hash: string]
+  context: [event: MouseEvent, hash: string]
+  reviewPlacement: [hash: string]
+}>()
 const torrents = useTorrentsStore()
 const preferences = usePreferencesStore()
+const mediaPlacement = useMediaPlacementStore()
 const scrollElement = ref<HTMLElement | null>(null)
 const sorting = ref<SortingState>(preferences.value.sort)
 const columnSizing = ref<ColumnSizingState>({ ...preferences.value.columnWidths })
@@ -166,6 +173,17 @@ function resetColumnWidth(id: string): void {
   delete next[id]
   columnSizing.value = next
   persistColumnSizing()
+}
+
+function placementWarningCount(torrent: TorrentInfo): number {
+  const config = mediaPlacement.config
+  if (config.mode !== 'assist') return 0
+  return detectExistingPlacementWarnings(torrent, {
+    tvRoot: config.tvRoot,
+    moviesRoot: config.moviesRoot,
+    tvCategory: config.tvCategory,
+    movieCategory: config.movieCategory
+  }).length
 }
 
 const table = useVueTable({
@@ -431,7 +449,24 @@ async function onKeydown(event: KeyboardEvent, index: number): Promise<void> {
           :title="String(cell.getValue() ?? '')"
           :style="{ width: `${cell.column.getSize()}px` }"
         >
-          <template v-if="cell.column.id === 'progress'">
+          <template v-if="cell.column.id === 'name'">
+            <div class="name-cell">
+              <button
+                v-if="placementWarningCount(rows[virtualRow.index]!.original)"
+                class="placement-warning-button"
+                type="button"
+                :aria-label="`Review media destination for ${rows[virtualRow.index]!.original.name}`"
+                :title="`${placementWarningCount(rows[virtualRow.index]!.original)} media path warning${placementWarningCount(rows[virtualRow.index]!.original) === 1 ? '' : 's'}. Review media destination…`"
+                @click.stop="emit('reviewPlacement', rows[virtualRow.index]!.original.hash)"
+                @dblclick.stop
+                @contextmenu.stop
+              >
+                <AlertTriangle :size="14" aria-hidden="true" />
+              </button>
+              <FlexRender :render="cell.column.columnDef.cell" :props="cell.getContext()" />
+            </div>
+          </template>
+          <template v-else-if="cell.column.id === 'progress'">
             <div class="progress-cell">
               <div class="progress-track">
                 <div
@@ -507,6 +542,32 @@ async function onKeydown(event: KeyboardEvent, index: number): Promise<void> {
 }
 .sort-idle {
   opacity: 0.35;
+}
+.name-cell {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.placement-warning-button {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: rgb(var(--color-warning));
+  padding: 0;
+  cursor: pointer;
+}
+.placement-warning-button:hover,
+.placement-warning-button:focus-visible {
+  background: rgb(var(--color-warning) / 0.12);
 }
 .column-resizer {
   position: absolute;

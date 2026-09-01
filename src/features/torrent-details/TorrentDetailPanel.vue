@@ -1,5 +1,15 @@
 <script setup lang="ts">
-import { Ban, Copy, Edit3, LoaderCircle, Plus, RefreshCw, Trash2, X } from 'lucide-vue-next'
+import {
+  AlertTriangle,
+  Ban,
+  Copy,
+  Edit3,
+  LoaderCircle,
+  Plus,
+  RefreshCw,
+  Trash2,
+  X
+} from 'lucide-vue-next'
 import { useVirtualizer } from '@tanstack/vue-virtual'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type {
@@ -11,6 +21,9 @@ import type {
 } from '@/api/types/models'
 import { useApi } from '@/app/providers/api'
 import { torrentStateLabel } from '@/domains/torrents/state'
+import { detectExistingPlacementWarnings } from '@/features/media-placement/domain/detectExistingPlacementWarnings'
+import { isPathWithinRoot } from '@/features/media-placement/domain/pathUtils'
+import { useMediaPlacementStore } from '@/features/media-placement/stores/mediaPlacement'
 import { useNotificationsStore } from '@/stores/notifications'
 import { usePreferencesStore } from '@/stores/preferences'
 import { useSessionStore } from '@/stores/session'
@@ -31,12 +44,13 @@ import PiecesCanvas from './PiecesCanvas.vue'
 const tabs = ['overview', 'files', 'trackers', 'peers', 'webseeds', 'pieces'] as const
 type Tab = (typeof tabs)[number]
 const props = defineProps<{ hash: string; mobile?: boolean; initialTab?: Tab }>()
-const emit = defineEmits<{ close: []; tabChange: [tab: Tab] }>()
+const emit = defineEmits<{ close: []; tabChange: [tab: Tab]; reviewPlacement: [] }>()
 const api = useApi()
 const torrents = useTorrentsStore()
 const preferences = usePreferencesStore()
 const session = useSessionStore()
 const notifications = useNotificationsStore()
+const mediaPlacement = useMediaPlacementStore()
 const activeTab = ref<Tab>(
   props.initialTab && tabs.includes(props.initialTab)
     ? props.initialTab
@@ -48,6 +62,7 @@ const loading = ref(false)
 const error = ref<string | null>(null)
 const properties = ref<TorrentProperties | null>(null)
 const files = ref<TorrentFile[]>([])
+const fileEvidenceHash = ref('')
 const trackers = ref<Tracker[]>([])
 const peers = ref<Array<[string, Peer]>>([])
 const peerScroller = ref<HTMLElement | null>(null)
@@ -66,6 +81,18 @@ const endpointValue = ref('')
 const endpointError = ref<string | null>(null)
 const endpointWorking = ref(false)
 const torrent = computed(() => torrents.byHash.get(props.hash))
+const placementWarnings = computed(() => {
+  const item = torrent.value
+  const config = mediaPlacement.config
+  if (!item || config.mode !== 'assist') return []
+  return detectExistingPlacementWarnings(item, {
+    tvRoot: config.tvRoot,
+    moviesRoot: config.moviesRoot,
+    tvCategory: config.tvCategory,
+    movieCategory: config.movieCategory,
+    filePaths: fileEvidenceHash.value === props.hash ? files.value.map((file) => file.name) : []
+  })
+})
 let loadGeneration = 0
 let loadController: AbortController | null = null
 let peerResponseId = 0
@@ -204,12 +231,43 @@ async function loadTab(): Promise<void> {
     activeTab.value === tab
   try {
     if (tab === 'overview') {
-      const value = await api.torrents.properties(hash, controller.signal)
-      if (current()) properties.value = value
+      const item = torrent.value
+      const config = mediaPlacement.config
+      const effectivePath = item?.content_path ?? item?.save_path ?? ''
+      const tvCategory = config.tvCategory.trim().toLocaleLowerCase()
+      const movieCategory = config.movieCategory.trim().toLocaleLowerCase()
+      const categoryMatches = Boolean(
+        item?.category &&
+        ((tvCategory && item.category.trim().toLocaleLowerCase() === tvCategory) ||
+          (movieCategory && item.category.trim().toLocaleLowerCase() === movieCategory))
+      )
+      const pathMatches = Boolean(
+        effectivePath &&
+        ((config.tvRoot && isPathWithinRoot(effectivePath, config.tvRoot)) ||
+          (config.moviesRoot && isPathWithinRoot(effectivePath, config.moviesRoot)))
+      )
+      const fileEvidence =
+        config.mode === 'assist' && item && (categoryMatches || pathMatches)
+          ? api.torrents.files(hash, undefined, controller.signal).catch(() => null)
+          : Promise.resolve(null)
+      const [value, evidence] = await Promise.all([
+        api.torrents.properties(hash, controller.signal),
+        fileEvidence
+      ])
+      if (current()) {
+        properties.value = value
+        if (evidence) {
+          files.value = evidence
+          fileEvidenceHash.value = hash
+        }
+      }
     }
     if (tab === 'files') {
       const value = await api.torrents.files(hash, undefined, controller.signal)
-      if (current()) files.value = value
+      if (current()) {
+        files.value = value
+        fileEvidenceHash.value = hash
+      }
     }
     if (tab === 'trackers') {
       const value = await api.torrents.trackers(hash, controller.signal)
@@ -253,6 +311,7 @@ async function loadTab(): Promise<void> {
 function clearDetails(): void {
   properties.value = null
   files.value = []
+  fileEvidenceHash.value = ''
   trackers.value = []
   peers.value = []
   webSeeds.value = []
@@ -450,6 +509,20 @@ onBeforeUnmount(() => {
         <button class="btn" type="button" @click="loadTab"><RefreshCw :size="15" />Retry</button>
       </div>
       <template v-else-if="activeTab === 'overview'">
+        <aside v-if="placementWarnings.length" class="placement-alert" role="note">
+          <AlertTriangle :size="18" aria-hidden="true" />
+          <div>
+            <strong>Media path warning</strong>
+            <ul>
+              <li v-for="warning in placementWarnings" :key="warning.id">
+                {{ warning.title }} {{ warning.message }}
+              </li>
+            </ul>
+            <button class="btn" type="button" @click="emit('reviewPlacement')">
+              Review media destination…
+            </button>
+          </div>
+        </aside>
         <div class="overview-sections">
           <section v-for="section in overviewSections" :key="section.title">
             <h3>{{ section.title }}</h3>
@@ -677,6 +750,37 @@ onBeforeUnmount(() => {
   flex-direction: column;
   border-left: 1px solid rgb(var(--color-line));
   background: rgb(var(--color-surface));
+}
+.placement-alert {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  border: 1px solid rgb(var(--color-warning) / 0.38);
+  border-radius: 8px;
+  background: rgb(var(--color-warning) / 0.08);
+  margin-bottom: 12px;
+  padding: 10px;
+}
+.placement-alert > svg {
+  flex: 0 0 auto;
+  color: rgb(var(--color-warning));
+}
+.placement-alert strong {
+  display: block;
+  font-size: 12px;
+}
+.placement-alert ul {
+  display: grid;
+  gap: 4px;
+  margin: 5px 0 9px;
+  padding-left: 17px;
+  color: rgb(var(--color-muted));
+  font-size: 11px;
+  line-height: 1.4;
+}
+.placement-alert .btn {
+  min-height: 32px;
+  font-size: 11px;
 }
 .detail-header {
   display: flex;

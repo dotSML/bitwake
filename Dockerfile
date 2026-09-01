@@ -41,7 +41,14 @@ ENV LISTEN_PORT=8081 \
     PROXY_CONNECT_TIMEOUT=10s \
     PROXY_READ_TIMEOUT=300s \
     PROXY_SEND_TIMEOUT=300s \
-    PROXY_SSL_VERIFY=on
+    PROXY_SSL_VERIFY=on \
+    NEOTORRENT_MEDIA_MODE=off \
+    NEOTORRENT_TV_ROOT= \
+    NEOTORRENT_MOVIES_ROOT= \
+    NEOTORRENT_MEDIA_BROWSE_ROOT= \
+    NEOTORRENT_MEDIA_CONFIG_LOCKED=false \
+    NEOTORRENT_TV_CATEGORY= \
+    NEOTORRENT_MOVIE_CATEGORY=
 
 COPY --from=build --chown=101:101 /app/dist/standalone/ /usr/share/nginx/html/
 COPY --chown=101:101 container/nginx.conf.template /etc/nginx/templates/neotorrent.conf.template

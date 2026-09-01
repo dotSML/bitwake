@@ -3,12 +3,14 @@ import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import AppShell from './layouts/AppShell.vue'
 import { useSessionLifecycle } from './session/sessionLifecycle'
 import { usePreferencesStore } from '@/stores/preferences'
+import { useMediaPlacementStore } from '@/features/media-placement/stores/mediaPlacement'
 import { useSessionStore } from '@/stores/session'
 import { useTorrentsStore } from '@/stores/torrents'
 
 const session = useSessionStore()
 const torrents = useTorrentsStore()
 const preferences = usePreferencesStore()
+const mediaPlacement = useMediaPlacementStore()
 const lifecycle = useSessionLifecycle()
 
 const retryDelays = [1_000, 2_000, 4_000, 8_000, 15_000] as const
@@ -82,6 +84,14 @@ function onVisibility(): void {
 watch(
   () => preferences.value.pollingInterval,
   (interval) => torrents.setPollingInterval(interval)
+)
+
+watch(
+  () => session.status,
+  (status) => {
+    if (status === 'authenticated') void mediaPlacement.load()
+  },
+  { immediate: true }
 )
 
 onMounted(() => {

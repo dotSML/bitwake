@@ -69,6 +69,27 @@ The administrator needs clear version/capability information, installable public
 - Provide start, stop, delete with optional data deletion, recheck, reannounce, force start, priority, queue, location, category, tag, limits, automatic management, sequential download, first/last-piece priority, and export when the target API exposes them.
 - Never turn a request acceptance toast into a claim that the daemon completed the operation.
 
+### Media Placement
+
+- Keep media classification (`tv`, `movie`, `other`, or unknown) independent from destination
+  method (`suggested` or `manual`). Manual is never a media type.
+- In Assist mode, suggest a series/season tree for TV and an individual movie folder for Movies,
+  while keeping Manual path visible for every classification and for Set Location.
+- Treat names and `.torrent` structures conservatively and locally. Do not call external metadata,
+  Jellyfin, search, telemetry, or AI services.
+- Warn and require acknowledgement for exact library roots, wrong-library placement, and other
+  dangerous layout combinations, but allow an acknowledged custom destination.
+- Compare containment by path segments across POSIX, Windows-drive, and UNC styles; never label an
+  arbitrary custom path Jellyfin-safe.
+- Plan each unrelated Add source independently and split requests when save paths or options differ.
+  Keep failed plans for correction and retry.
+- Preview the effective tree using source shape and qBittorrent content layout. Do not silently
+  change a manually selected layout.
+- Existing-torrent moves use `torrents/setLocation`, incremental refresh, and observed daemon state;
+  no background automatic move or browser-side filesystem operation is permitted.
+
+The complete behavior and deployment contract are in [media-placement.md](media-placement.md).
+
 ### Torrent details
 
 - Overview: identity, state, transfer, time, path, limits, peers/seeds, hashes, and metadata.
@@ -168,6 +189,8 @@ Use `clientdata/load` and `clientdata/store` on supported APIs and namespaced lo
 - Mirroring the Qt desktop client when the Web API exposes no equivalent.
 - Inventing transfer history, endpoints, capabilities, or successful results.
 - Copying VueTorrent code, styles, translations, assets, component hierarchy, stores, or layouts.
+- Kids/Lastekas routing, Sonarr/Radarr, Jellyfin API integration, external media metadata, automatic
+  filename/subtitle renaming, or forced destination enforcement.
 
 ## Acceptance and release evidence
 

@@ -67,6 +67,20 @@ http {
             return 404 'Not Found\n';
         }
 
+        location = /_neotorrent/runtime-config.json {
+            access_log off;
+            alias /tmp/neotorrent-runtime-config.json;
+            default_type application/json;
+            etag off;
+            add_header Cache-Control "no-store" always;
+            include /etc/nginx/neotorrent-security-headers.conf;
+        }
+
+        location ^~ /_neotorrent/ {
+            default_type text/plain;
+            return 404 'Not Found\n';
+        }
+
         location ^~ /api/ {
             proxy_pass ${QBITTORRENT_API_URL};
             proxy_http_version 1.1;

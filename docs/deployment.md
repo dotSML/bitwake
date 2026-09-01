@@ -57,19 +57,31 @@ docker run --rm --name neotorrent \
 
 ### Runtime environment
 
-| Variable                | Default                          | Contract                                                                                                                                                          |
-| ----------------------- | -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `QBITTORRENT_URL`       | Derived from `QB_HOST`/`QB_PORT` | Preferred qBittorrent base HTTP(S) URL; an optional upstream path is allowed, but credentials, whitespace, query, fragment, and a trailing `/api/v2` are rejected |
-| `QB_HOST`               | `127.0.0.1`                      | Fallback host used only when `QBITTORRENT_URL` is unset                                                                                                           |
-| `QB_PORT`               | `8080`                           | Fallback port from 1 through 65535                                                                                                                                |
-| `LISTEN_PORT`           | `8081`                           | Unprivileged listen port from 1024 through 65535                                                                                                                  |
-| `MAX_UPLOAD_SIZE`       | `100m`                           | Positive Nginx size; must accommodate intended `.torrent` uploads                                                                                                 |
-| `PROXY_CONNECT_TIMEOUT` | `10s`                            | Positive Nginx duration                                                                                                                                           |
-| `PROXY_READ_TIMEOUT`    | `300s`                           | Positive Nginx duration                                                                                                                                           |
-| `PROXY_SEND_TIMEOUT`    | `300s`                           | Positive Nginx duration                                                                                                                                           |
-| `PROXY_SSL_VERIFY`      | `on`                             | `on` verifies an HTTPS qBittorrent upstream against the image CA bundle; `off` is an explicit security downgrade                                                  |
+| Variable                         | Default                          | Contract                                                                                                                                                          |
+| -------------------------------- | -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `QBITTORRENT_URL`                | Derived from `QB_HOST`/`QB_PORT` | Preferred qBittorrent base HTTP(S) URL; an optional upstream path is allowed, but credentials, whitespace, query, fragment, and a trailing `/api/v2` are rejected |
+| `QB_HOST`                        | `127.0.0.1`                      | Fallback host used only when `QBITTORRENT_URL` is unset                                                                                                           |
+| `QB_PORT`                        | `8080`                           | Fallback port from 1 through 65535                                                                                                                                |
+| `LISTEN_PORT`                    | `8081`                           | Unprivileged listen port from 1024 through 65535                                                                                                                  |
+| `MAX_UPLOAD_SIZE`                | `100m`                           | Positive Nginx size; must accommodate intended `.torrent` uploads                                                                                                 |
+| `PROXY_CONNECT_TIMEOUT`          | `10s`                            | Positive Nginx duration                                                                                                                                           |
+| `PROXY_READ_TIMEOUT`             | `300s`                           | Positive Nginx duration                                                                                                                                           |
+| `PROXY_SEND_TIMEOUT`             | `300s`                           | Positive Nginx duration                                                                                                                                           |
+| `PROXY_SSL_VERIFY`               | `on`                             | `on` verifies an HTTPS qBittorrent upstream against the image CA bundle; `off` is an explicit security downgrade                                                  |
+| `NEOTORRENT_MEDIA_MODE`          | `off`                            | `off` preserves generic paths; `assist` enables Media Placement                                                                                                   |
+| `NEOTORRENT_TV_ROOT`             | empty                            | qBittorrent-visible TV root; not a path mounted in NeoTorrent                                                                                                     |
+| `NEOTORRENT_MOVIES_ROOT`         | empty                            | qBittorrent-visible Movies root; not a path mounted in NeoTorrent                                                                                                 |
+| `NEOTORRENT_MEDIA_BROWSE_ROOT`   | empty                            | Initial qBittorrent directory-browser root                                                                                                                        |
+| `NEOTORRENT_MEDIA_CONFIG_LOCKED` | `false`                          | `true` makes runtime media fields deployment-managed; Manual path still remains enabled                                                                           |
+| `NEOTORRENT_TV_CATEGORY`         | empty                            | Optional existing TV category suggestion; it is not created automatically                                                                                         |
+| `NEOTORRENT_MOVIE_CATEGORY`      | empty                            | Optional existing Movie category suggestion; it is not created automatically                                                                                      |
 
 `QBITTORRENT_URL` is routing configuration, not a secret. Never embed a username, password, cookie, token, or API key in it. The entrypoint validates values before rendering `/tmp/nginx.conf` and runs `nginx -t` before starting.
+
+The entrypoint also writes the non-secret `/_neotorrent/runtime-config.json` resource into `/tmp`.
+It rejects invalid modes, control characters, and newline injection, escapes JSON values, and serves
+the resource with `Cache-Control: no-store`. The resource contains no qBittorrent URL or credential.
+Existing deployments that omit every Media Placement variable continue with the feature Off.
 
 The standalone server exposes `/healthz` and `/readyz`. Both report whether NeoTorrent's static proxy process is alive and configured; they intentionally remain 200 while qBittorrent is unavailable. API availability is represented by proxied 502/504 responses and the application's connection state, not these probes.
 
@@ -93,6 +105,29 @@ Two Kustomize bases are provided. They are examples to merge and customize, not 
 Use this when qBittorrent already runs in a Kubernetes Deployment and NeoTorrent should share its Pod network namespace. Copy the `neotorrent` container and `neotorrent-tmp` volume into the existing Pod template; keep the existing qBittorrent image, volumes, VPN sidecars, environment, ports, resources, security context, and scheduling rules. The checked-in `replace-with-your-existing-qbittorrent-image` entry is explanatory and must never be deployed.
 
 The sidecar uses `QBITTORRENT_URL=http://127.0.0.1:8080`. Change the existing Service to target NeoTorrent's named `webui` port at 8081, and route the Ingress to that Service. Do not expose the qBittorrent Web UI port through a second public Service.
+
+The checked-in current-media example enables locked assistance with TV at `/data/tv-shows`, Movies
+at `/data/movies`, browsing at `/data`, and optional `TV Shows`/`Movies` categories. These are paths
+seen by the unchanged qBittorrent sidecar. Do not add a `/data` volume mount to NeoTorrent.
+
+Exact environment patch for that deployment:
+
+```yaml
+- name: NEOTORRENT_MEDIA_MODE
+  value: assist
+- name: NEOTORRENT_TV_ROOT
+  value: /data/tv-shows
+- name: NEOTORRENT_MOVIES_ROOT
+  value: /data/movies
+- name: NEOTORRENT_MEDIA_BROWSE_ROOT
+  value: /data
+- name: NEOTORRENT_MEDIA_CONFIG_LOCKED
+  value: 'true'
+- name: NEOTORRENT_TV_CATEGORY
+  value: TV Shows
+- name: NEOTORRENT_MOVIE_CATEGORY
+  value: Movies
+```
 
 #### Separate Deployment: `deploy/kubernetes/separate`
 

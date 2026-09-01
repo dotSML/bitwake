@@ -91,7 +91,13 @@ export default defineConfig(({ mode }) => {
           sourcemap: false,
           navigateFallback: null,
           globPatterns: ['**/*.{js,css,svg,png,woff2}'],
+          globIgnores: ['**/_neotorrent/**', '**/runtime-config.json'],
           runtimeCaching: [
+            {
+              urlPattern: ({ url }) => url.pathname === '/_neotorrent/runtime-config.json',
+              handler: 'NetworkOnly',
+              method: 'GET'
+            },
             {
               urlPattern: ({ url }) => url.pathname.includes('/api/'),
               handler: 'NetworkOnly',

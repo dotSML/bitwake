@@ -40,20 +40,21 @@ An implemented feature does not imply complete stock-WebUI parity or production 
 
 ## Torrent workspace and actions
 
-| Area                              | Status                          | Notes                                                                                                                           |
-| --------------------------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| Incremental `sync/maindata` state | Implemented                     | Uses non-overlapping polling, full/delta merges, resync handling, and copy-on-change row identity preservation.                 |
-| Desktop torrent table             | Implemented                     | Virtualized sorting, filtering, persistent column layout, keyboard navigation, range selection, and contextual actions.         |
-| Mobile and tablet layouts         | Implemented                     | Purpose-built virtualized rows, bulk actions, adaptive detail views, and persistent tablet navigation.                          |
-| Large-library behavior            | Partial                         | Bounded-DOM regression fixtures exist, but there is no calibrated browser timing or memory benchmark.                           |
-| Common torrent lifecycle actions  | Implemented                     | Start, stop, delete, recheck, reannounce, force start, queue movement, limits, location, rename, and management modes.          |
-| Add and export flows              | Implemented                     | Supports torrent files, magnets, HTTP(S) sources, drag-and-drop, partial-result reporting, and single-torrent metadata export.  |
-| Torrent details                   | Implemented                     | Includes Overview, Files, Trackers, Peers, Web Seeds, and Pieces on desktop and mobile.                                         |
-| File priorities                   | Implemented                     | Virtualized immutable tree with folder descendants, conventional multi-selection, keyboard navigation, and guarded submissions. |
-| Tracker management                | Implemented                     | Add, edit, and remove dialogs are available; tier editing and reordering are not.                                               |
-| Peer management                   | Partial                         | Incremental peer updates and banning are implemented; adding peers is not exposed in the UI.                                    |
-| Web Seed management               | Implemented, integration-tested | Add, edit, and remove paths preserve encoded URL octets required by the target qBittorrent API.                                 |
-| File and folder rename            | Partial                         | API support exists, but no user-facing workflow is available.                                                                   |
+| Area                              | Status                          | Notes                                                                                                                                                                  |
+| --------------------------------- | ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Incremental `sync/maindata` state | Implemented                     | Uses non-overlapping polling, full/delta merges, resync handling, and copy-on-change row identity preservation.                                                        |
+| Desktop torrent table             | Implemented                     | Virtualized sorting, filtering, persistent column layout, keyboard navigation, range selection, and contextual actions.                                                |
+| Mobile and tablet layouts         | Implemented                     | Purpose-built virtualized rows, bulk actions, adaptive detail views, and persistent tablet navigation.                                                                 |
+| Large-library behavior            | Partial                         | Bounded-DOM regression fixtures exist, but there is no calibrated browser timing or memory benchmark.                                                                  |
+| Common torrent lifecycle actions  | Implemented                     | Start, stop, delete, recheck, reannounce, force start, queue movement, limits, location, rename, and management modes.                                                 |
+| Add and export flows              | Implemented                     | Supports torrent files, magnets, HTTP(S) sources, drag-and-drop, partial-result reporting, and single-torrent metadata export.                                         |
+| Media Placement                   | Implemented, integration-tested | Assist mode plans independent TV/Movie/Other Suggested or Manual destinations; Off preserves generic addition, and Manual remains available with locked runtime roots. |
+| Torrent details                   | Implemented                     | Includes Overview, Files, Trackers, Peers, Web Seeds, and Pieces on desktop and mobile.                                                                                |
+| File priorities                   | Implemented                     | Virtualized immutable tree with folder descendants, conventional multi-selection, keyboard navigation, and guarded submissions.                                        |
+| Tracker management                | Implemented                     | Add, edit, and remove dialogs are available; tier editing and reordering are not.                                                                                      |
+| Peer management                   | Partial                         | Incremental peer updates and banning are implemented; adding peers is not exposed in the UI.                                                                           |
+| Web Seed management               | Implemented, integration-tested | Add, edit, and remove paths preserve encoded URL octets required by the target qBittorrent API.                                                                        |
+| File and folder rename            | Partial                         | API support exists, but no user-facing workflow is available.                                                                                                          |
 
 ## Extended tools and administration
 

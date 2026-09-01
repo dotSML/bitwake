@@ -67,6 +67,8 @@ src/
 ├── config/              compile-time deployment-mode contract
 ├── domains/             torrent filters/state, file tree, graph buffer
 ├── features/            route and workflow components
+│   └── media-placement/ focused components, pure domain planning, runtime loader,
+│                        and persisted configuration store
 ├── stores/              session, torrent sync, transfer graph, preferences,
 │                       notifications
 ├── ui/                  dialog and shared presentational primitives
@@ -221,6 +223,34 @@ Passwords, qBittorrent cookies, torrent files, and magnet history are not part o
 
 Migration constructs a fresh allow-listed object. It validates enum and boolean fields, clamps sidebar/inspector widths and column widths, filters/uniquifies known columns and sort keys, fills defaults, and drops unknown stored keys.
 
+Media Placement uses a separate namespaced preference value because deployment-managed roots are
+not interface layout. A standalone runtime resource is resolved before saved client-data settings;
+a locked runtime value is authoritative, while an unlocked value supplies defaults that users may
+override. Native Alternative WebUI builds have no container environment and therefore use the saved
+client-data value directly. Neither preference schema contains torrent bytes, magnets, credentials,
+or source-analysis history.
+
+## Media Placement domain
+
+`src/features/media-placement/` keeps five concerns separate:
+
+1. Bounded local source inspection identifies conservative name/season/year hints and torrent shape.
+2. Folder sanitization and host-path utilities handle POSIX, Windows-drive, and UNC styles without
+   browser-local filesystem or symlink resolution.
+3. Planning combines media kind, Suggested/Manual method, metadata, roots, category/tags, and
+   qBittorrent content layout into an effective save path and preview.
+4. Components render media type, destination method, fields, directory browsing, warnings,
+   acknowledgement, and predicted trees without owning request encoding.
+5. Add and Set Location adapters construct qBittorrent calls. Assist-mode additions split unrelated
+   per-source plans and use bounded concurrency; Set Location uses the existing endpoint and
+   incremental `refreshNow()` state.
+
+The dependency direction is source bytes/name → pure analysis → editable placement plan → explicit
+qBittorrent request. Manual is a destination method, never a media type. Changing from Suggested to
+Manual copies the suggestion but does not change classification or silently rewrite the value.
+Exact-root and wrong-library warnings can require acknowledgement, but there is deliberately no
+enforcement mode. See [media-placement.md](media-placement.md).
+
 ## Production builds and container runtime
 
 ### Native public/private packaging
@@ -241,7 +271,7 @@ Vite uses `base: './'`, separate `login-assets/` and `app-assets/`, hashed chunk
 
 `vite build --mode standalone` emits one SPA to `dist/standalone`. The Dockerfile builds that output in a Node stage and copies it into the pinned `nginxinc/nginx-unprivileged:1.30.4-alpine@sha256:45ce1e2e699234253d1def7baa96218a5d00b498d1ba0cbb1a17b6bdf73d1351` runtime. The runtime runs as `101:101` and intentionally contains neither Node nor the source/test tree.
 
-The POSIX entrypoint validates `QBITTORRENT_URL` or the `QB_HOST`/`QB_PORT` fallback, listen port, upload size, and proxy timeouts. It rejects embedded credentials, query/fragment text, unsafe characters, and an upstream ending in `/api/v2`, then renders Nginx configuration into writable `/tmp` and runs `nginx -t`.
+The POSIX entrypoint validates `QBITTORRENT_URL` or the `QB_HOST`/`QB_PORT` fallback, listen port, upload size, and proxy timeouts. It rejects embedded credentials, query/fragment text, unsafe characters, and an upstream ending in `/api/v2`, then renders Nginx configuration and a non-secret Media Placement JSON resource into writable `/tmp` and runs `nginx -t`.
 
 Nginx serves the hash-routed SPA, proxies root `/api/` to the configured upstream `/api/`, forwards cookies and validation-relevant headers, disables API buffering/caching, and returns proxy statuses without substituting the SPA. `/healthz` and `/readyz` describe only the NeoTorrent process and deliberately do not probe qBittorrent.
 
@@ -249,7 +279,7 @@ Kubernetes has sidecar and separate-Deployment examples. The sidecar shares loop
 
 ## PWA and cache boundary
 
-The standalone and authenticated Alternative WebUI entries register the generated service worker. Workbox precaches JS, CSS, SVG, PNG, and WOFF2 application assets. HTML is not included in the configured glob. GET and POST requests whose URL path contains `/api/` use `NetworkOnly`, and all fetches from the API client also use `no-store`.
+The standalone and authenticated Alternative WebUI entries register the generated service worker. Workbox precaches JS, CSS, SVG, PNG, and WOFF2 application assets. HTML and the runtime Media Placement resource are not included in the configured glob. GET and POST requests whose URL path contains `/api/`, plus `/_neotorrent/runtime-config.json`, use `NetworkOnly`; API and runtime-config fetches also use `no-store`.
 
 The manifest declares standalone display, generated 192×192 and 512×512 PNG icons, the local SVG source icon, and relative start/scope. File and protocol handlers are intentionally absent until the app has a safe launch-payload consumer.
 

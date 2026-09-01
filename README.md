@@ -25,6 +25,8 @@ NeoTorrent is an independent project and is not affiliated with or endorsed by t
 
 - Virtualized desktop and mobile torrent lists with keyboard and multi-selection support.
 - Torrent addition from files, magnets, and HTTP(S) URLs.
+- Optional Media Placement assistance with independent TV/Movie/Other classification and
+  Suggested or first-class Manual destinations.
 - Shared desktop and mobile actions for lifecycle, queue, location, limits, categories, tags, comments, and deletion.
 - Overview, Files, Trackers, Peers, Web Seeds, and Pieces detail views.
 - Search, RSS, Torrent Creator, logs, transfer statistics, categories, tags, and curated server settings.
@@ -101,6 +103,13 @@ NEOTORRENT_IMAGE=neotorrent:local corepack pnpm container:build
 
 `QBITTORRENT_URL` must be the qBittorrent base HTTP(S) URL without credentials, query text, fragments, or `/api/v2`. The image listens on port `8081`, runs as UID/GID `101:101`, and supports a read-only root filesystem with `/tmp` writable.
 
+Media Placement defaults to off for compatibility. Standalone deployments can enable it with
+`NEOTORRENT_MEDIA_MODE=assist` and qBittorrent-visible `NEOTORRENT_TV_ROOT`,
+`NEOTORRENT_MOVIES_ROOT`, and `NEOTORRENT_MEDIA_BROWSE_ROOT` values. These paths belong to the
+qBittorrent host/container; NeoTorrent does not mount the media filesystem. See the
+[Media Placement guide](docs/media-placement.md) for all variables, warnings, and Manual-path
+behavior.
+
 The container workflow publishes `edge`, commit-derived, and version-derived tags after its verification gates pass. For deployments, select and verify an immutable image digest rather than relying on a mutable tag.
 
 The Kubernetes examples intentionally contain this non-runnable placeholder:
@@ -152,6 +161,7 @@ Read [docs/architecture.md](docs/architecture.md) for design details and [docs/s
 - [Implementation status and roadmap](IMPLEMENTATION_STATUS.md)
 - [Product specification](docs/product-spec.md)
 - [Architecture](docs/architecture.md)
+- [Media Placement](docs/media-placement.md)
 - [API capabilities](docs/api-capabilities.md)
 - [Deployment guide](docs/deployment.md)
 - [Security model](docs/security.md)

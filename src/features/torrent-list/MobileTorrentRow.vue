@@ -1,13 +1,27 @@
 <script setup lang="ts">
-import { MoreVertical } from 'lucide-vue-next'
+import { AlertTriangle, MoreVertical } from 'lucide-vue-next'
+import { computed } from 'vue'
 import type { TorrentInfo } from '@/api/types/models'
 import { torrentStateLabel } from '@/domains/torrents/state'
+import { detectExistingPlacementWarnings } from '@/features/media-placement/domain/detectExistingPlacementWarnings'
+import { useMediaPlacementStore } from '@/features/media-placement/stores/mediaPlacement'
 import { usePreferencesStore } from '@/stores/preferences'
 import { formatBytes, formatEta, formatPercent, formatSpeed } from '@/utils/format'
 
-defineProps<{ torrent: TorrentInfo; selected: boolean; selectionMode: boolean }>()
+const props = defineProps<{ torrent: TorrentInfo; selected: boolean; selectionMode: boolean }>()
 const emit = defineEmits<{ activate: []; select: []; menu: [event: MouseEvent] }>()
 const preferences = usePreferencesStore()
+const mediaPlacement = useMediaPlacementStore()
+const placementWarnings = computed(() => {
+  const config = mediaPlacement.config
+  if (config.mode !== 'assist') return []
+  return detectExistingPlacementWarnings(props.torrent, {
+    tvRoot: config.tvRoot,
+    moviesRoot: config.moviesRoot,
+    tvCategory: config.tvCategory,
+    movieCategory: config.movieCategory
+  })
+})
 </script>
 
 <template>
@@ -30,6 +44,13 @@ const preferences = usePreferencesStore()
       <div class="row-main">
         <div class="row-heading">
           <strong :title="torrent.name">{{ torrent.name }}</strong>
+          <AlertTriangle
+            v-if="placementWarnings.length"
+            class="placement-warning"
+            :size="15"
+            role="img"
+            aria-label="Media path warning. Open details to review the media destination."
+          />
           <span>{{ formatPercent(torrent.progress) }}</span>
         </div>
         <div
@@ -120,6 +141,10 @@ const preferences = usePreferencesStore()
 .row-heading span {
   font-size: 12px;
   font-variant-numeric: tabular-nums;
+}
+.placement-warning {
+  flex: 0 0 auto;
+  color: rgb(var(--color-warning));
 }
 .row-stats,
 .row-foot {

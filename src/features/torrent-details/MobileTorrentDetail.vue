@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { ArrowLeft } from 'lucide-vue-next'
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import TorrentOperationDialog from '@/features/torrent-actions/TorrentOperationDialog.vue'
 import { useTorrentsStore } from '@/stores/torrents'
 import TorrentDetailPanel from './TorrentDetailPanel.vue'
 
@@ -16,6 +17,7 @@ const tab = computed<DetailTab>(() => {
   return validTabs.includes(value) ? value : 'overview'
 })
 const torrent = computed(() => torrents.byHash.get(hash.value))
+const placementDialogOpen = ref(false)
 
 function updateTab(value: DetailTab): void {
   void router.replace({ name: 'torrent-detail', params: { hash: hash.value, tab: value } })
@@ -34,7 +36,18 @@ function updateTab(value: DetailTab): void {
       </div>
       <span class="header-spacer" aria-hidden="true" />
     </header>
-    <TorrentDetailPanel :hash="hash" :initial-tab="tab" mobile @tab-change="updateTab" />
+    <TorrentDetailPanel
+      :hash="hash"
+      :initial-tab="tab"
+      mobile
+      @tab-change="updateTab"
+      @review-placement="placementDialogOpen = true"
+    />
+    <TorrentOperationDialog
+      v-model:open="placementDialogOpen"
+      operation="location"
+      :hashes="[hash]"
+    />
   </div>
 </template>
 
