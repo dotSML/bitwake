@@ -238,8 +238,15 @@ async function refresh(): Promise<void> {
 async function selectArticle(article: RssArticle): Promise<void> {
   selectedArticle.value = article
   if (!article.isRead && selectedFeed.value && article.id) {
-    await api.rss.markAsRead(selectedFeed.value, article.id).catch(() => undefined)
-    article.isRead = true
+    try {
+      await api.rss.markAsRead(selectedFeed.value, article.id)
+      article.isRead = true
+    } catch (cause) {
+      notifications.push(
+        cause instanceof Error ? cause.message : 'The RSS article could not be marked as read.',
+        'error'
+      )
+    }
   }
 }
 function selectFeed(path: string): void {

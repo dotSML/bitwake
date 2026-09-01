@@ -19,10 +19,16 @@ const levels = ref(new Set(['normal', 'info', 'warning', 'critical']))
 const follow = ref(true)
 const paused = ref(false)
 const scroller = ref<HTMLElement | null>(null)
+const pollError = ref<string | null>(null)
 let timer: ReturnType<typeof setTimeout> | null = null
 let pollController: AbortController | null = null
 let disposed = false
+let pollFailureNotified = false
+let pollFailureCount = 0
 const maximumRetainedEntries = 10_000
+const normalPollDelay = 2_000
+const hiddenPollDelay = 15_000
+const maximumPollDelay = 30_000
 const logTimestampFormatter = new Intl.DateTimeFormat(undefined, {
   dateStyle: 'short',
   timeStyle: 'medium'
@@ -96,13 +102,27 @@ async function poll(): Promise<void> {
             align: 'end'
           })
         )
+      pollError.value = null
+      pollFailureCount = 0
+      pollFailureNotified = false
     } catch {
-      /* connection banner owns persistent polling errors */
+      if (!disposed && !controller.signal.aborted) {
+        pollError.value = 'Log refresh failed; retrying.'
+        pollFailureCount = Math.min(pollFailureCount + 1, 4)
+        if (!pollFailureNotified) {
+          notifications.push('Log refresh failed; retrying.', 'warning')
+          pollFailureNotified = true
+        }
+      }
     } finally {
       if (pollController === controller) pollController = null
     }
   }
-  if (!disposed) timer = setTimeout(() => void poll(), document.hidden ? 15_000 : 2_000)
+  if (!disposed) {
+    const visibleDelay = Math.min(maximumPollDelay, normalPollDelay * 2 ** pollFailureCount)
+    const delay = document.hidden ? Math.max(hiddenPollDelay, visibleDelay) : visibleDelay
+    timer = setTimeout(() => void poll(), delay)
+  }
 }
 
 function onVisibilityChange(): void {
@@ -123,16 +143,24 @@ function clearLocal(): void {
   else peerEntries.value = []
   notifications.push('Local log display cleared. Server logs were not deleted.', 'info')
 }
+async function copyLogText(value: string, successMessage?: string): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(value)
+    if (successMessage) notifications.push(successMessage, 'success')
+  } catch {
+    notifications.push('Clipboard access is unavailable. Copy the log text manually.', 'error')
+  }
+}
 async function copyVisible(): Promise<void> {
-  await navigator.clipboard.writeText(
+  await copyLogText(
     displayEntries.value
       .map((entry) => `${formatTime(entry.timestamp)} [${entry.level}] ${entry.message}`)
-      .join('\n')
+      .join('\n'),
+    'Visible log entries copied.'
   )
-  notifications.push('Visible log entries copied.', 'success')
 }
 async function copyEntry(message: string): Promise<void> {
-  await navigator.clipboard.writeText(message)
+  await copyLogText(message)
 }
 function formatTime(timestamp: number): string {
   return logTimestampFormatter.format(new Date(timestamp * 1000))
@@ -220,6 +248,7 @@ onBeforeUnmount(() => {
       <footer>
         <span>{{ displayEntries.length.toLocaleString() }} visible</span
         ><span v-if="paused">Polling paused</span
+        ><span v-if="pollError" class="poll-error" role="status">{{ pollError }}</span
         ><span>Clearing this view never deletes qBittorrent server logs.</span>
       </footer>
     </section>
@@ -388,6 +417,9 @@ onBeforeUnmount(() => {
 }
 .logs-panel footer span:last-child {
   margin-left: auto;
+}
+.logs-panel footer .poll-error {
+  color: rgb(var(--color-warning));
 }
 @media (max-width: 850px) {
   .logs-toolbar {

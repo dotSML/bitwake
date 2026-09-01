@@ -412,7 +412,7 @@ describe('torrent dialogs', () => {
     await nextTick()
 
     expect(document.body.textContent).toContain(
-      'inherited category or global action can remove the torrent and permanently delete its content'
+      'inherited global action can remove the torrent and permanently delete its content'
     )
     await new DOMWrapper(document.querySelector('#torrent-share-limits-form')).trigger('submit')
     expect(document.body.textContent).toContain('Acknowledge the potentially destructive action')
@@ -605,9 +605,16 @@ describe('torrent dialogs', () => {
     const context = createTestContext()
     const remove = vi.spyOn(context.api.torrents, 'delete').mockResolvedValue()
     const torrents = context.run(() => useTorrentsStore(context.pinia))
-    torrents.setSelection(['hash-a', 'hash-b'])
+    const first = createTorrent(0)
+    const second = createTorrent(1)
+    torrents.applyMainData({
+      rid: 1,
+      full_update: true,
+      torrents: { [first.hash]: first, [second.hash]: second }
+    })
+    torrents.setSelection([first.hash, second.hash])
     const wrapper = await mountWithContext(DeleteTorrentDialog, context, {
-      props: { open: true, hashes: ['hash-a', 'hash-b'] },
+      props: { open: true, hashes: [first.hash, second.hash] },
       attachTo: document.body
     })
     await nextTick()
@@ -629,9 +636,40 @@ describe('torrent dialogs', () => {
     await new DOMWrapper(confirmElement).trigger('click')
     await flushPromises()
 
-    expect(remove).toHaveBeenCalledWith(['hash-a', 'hash-b'], true)
+    expect(remove).toHaveBeenCalledWith([first.hash, second.hash], true)
     expect(torrents.selectedHashes.size).toBe(0)
     expect(wrapper.emitted('update:open')).toContainEqual([false])
+  })
+
+  it('blocks stale deletion when a selected torrent disappears while confirmation is open', async () => {
+    const context = createTestContext()
+    const remove = vi.spyOn(context.api.torrents, 'delete').mockResolvedValue()
+    const torrents = context.run(() => useTorrentsStore(context.pinia))
+    const torrent = createTorrent(0)
+    torrents.applyMainData({
+      rid: 1,
+      full_update: true,
+      torrents: { [torrent.hash]: torrent }
+    })
+    const wrapper = await mountWithContext(DeleteTorrentDialog, context, {
+      props: { open: true, hashes: [torrent.hash] },
+      attachTo: document.body
+    })
+    await nextTick()
+
+    torrents.applyMainData({ rid: 2, torrents_removed: [torrent.hash] })
+    const confirmElement = [...document.querySelectorAll<HTMLButtonElement>('button')].find(
+      (button) => button.textContent?.includes('Remove torrents')
+    )
+    expect(confirmElement).toBeDefined()
+    await new DOMWrapper(confirmElement).trigger('click')
+    await flushPromises()
+
+    expect(remove).not.toHaveBeenCalled()
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain(
+      'selected torrents no longer exist'
+    )
+    expect(wrapper.emitted('update:open')).toBeUndefined()
   })
 
   it('shows per-batch partial results and leaves the add flow open for recovery', async () => {

@@ -1,10 +1,11 @@
 import { DOMWrapper, flushPromises } from '@vue/test-utils'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createCapabilityRegistry } from '@/api/capabilities/capabilityRegistry'
 import type { TorrentProperties } from '@/api/types/models'
 import FileTreeView from '@/features/torrent-details/FileTreeView.vue'
 import TorrentDetailPanel from '@/features/torrent-details/TorrentDetailPanel.vue'
 import { createFiles, createTorrents } from '@/mocks/fixtures'
+import { useNotificationsStore } from '@/stores/notifications'
 import { useSessionStore } from '@/stores/session'
 import { useTorrentsStore } from '@/stores/torrents'
 import { createTestContext, mountWithContext } from './support/mount'
@@ -17,7 +18,64 @@ function deferred<T>() {
   return { promise, resolve }
 }
 
+afterEach(() => {
+  vi.useRealTimers()
+  vi.restoreAllMocks()
+})
+
 describe('torrent details', () => {
+  it('reports repeated live-peer failures once and keeps the last good snapshot', async () => {
+    vi.useFakeTimers()
+    const context = createTestContext()
+    const torrent = createTorrents(1)[0]!
+    context
+      .run(() => useTorrentsStore(context.pinia))
+      .applyMainData({ rid: 1, full_update: true, torrents: { [torrent.hash]: torrent } })
+    vi.spyOn(context.api.torrents, 'properties').mockResolvedValue({})
+    const torrentPeers = vi
+      .spyOn(context.api.sync, 'torrentPeers')
+      .mockResolvedValueOnce({
+        rid: 1,
+        full_update: true,
+        peers: {
+          peer: {
+            ip: '192.0.2.10',
+            port: 51413,
+            client: 'Fixture',
+            country: '',
+            flags: '',
+            progress: 0.5,
+            dl_speed: 1,
+            up_speed: 2,
+            downloaded: 3,
+            uploaded: 4
+          }
+        }
+      })
+      .mockRejectedValue(new Error('Peer sync failed.'))
+    const notifications = context.run(() => useNotificationsStore(context.pinia))
+    const wrapper = await mountWithContext(TorrentDetailPanel, context, {
+      props: { hash: torrent.hash },
+      attachTo: document.body
+    })
+    await flushPromises()
+    await wrapper.get('[role="tab"]:nth-child(4)').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('192.0.2.10')
+
+    await vi.advanceTimersByTimeAsync(2_000)
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(2_000)
+    await flushPromises()
+
+    expect(torrentPeers).toHaveBeenCalledTimes(3)
+    expect(wrapper.text()).toContain('192.0.2.10')
+    expect(notifications.items.filter((item) => item.message === 'Peer sync failed.')).toHaveLength(
+      1
+    )
+    wrapper.unmount()
+  })
+
   it('loads each selected detail tab and preserves accessible tab state', async () => {
     const context = createTestContext()
     const torrent = createTorrents(1)[0]!
@@ -81,10 +139,13 @@ describe('torrent details', () => {
     expect(wrapper.get('[role="tab"][aria-selected="true"]').text()).toBe('Overview')
     expect(wrapper.text()).toContain('fixture')
 
-    await wrapper.get('[role="tab"]:nth-child(2)').trigger('click')
+    const overviewTab = wrapper.get<HTMLElement>('[role="tab"]:nth-child(1)')
+    overviewTab.element.focus()
+    await overviewTab.trigger('keydown', { key: 'ArrowRight' })
     await flushPromises()
     expect(files).toHaveBeenCalledWith(torrent.hash, undefined, expect.any(AbortSignal))
     expect(wrapper.get('[role="tab"][aria-selected="true"]').text()).toBe('Files')
+    expect(wrapper.get('[role="tab"][aria-selected="true"]').element).toBe(document.activeElement)
     expect(wrapper.find('[role="tree"]').exists()).toBe(true)
 
     await wrapper.get('[role="tab"]:nth-child(3)').trigger('click')
@@ -145,6 +206,33 @@ describe('torrent details', () => {
     await flushPromises()
     expect(wrapper.text()).toContain('current-hash-client')
     expect(wrapper.text()).not.toContain('stale-old-hash-client')
+  })
+
+  it('reports clipboard denial instead of leaving an unhandled copy rejection', async () => {
+    const context = createTestContext()
+    const torrent = createTorrents(1)[0]!
+    context
+      .run(() => useTorrentsStore(context.pinia))
+      .applyMainData({ rid: 1, full_update: true, torrents: { [torrent.hash]: torrent } })
+    vi.spyOn(context.api.torrents, 'properties').mockResolvedValue({})
+    const writeText = vi
+      .spyOn(navigator.clipboard, 'writeText')
+      .mockRejectedValue(new DOMException('Clipboard permission denied', 'NotAllowedError'))
+    const notifications = context.run(() => useNotificationsStore(context.pinia))
+    const wrapper = await mountWithContext(TorrentDetailPanel, context, {
+      props: { hash: torrent.hash },
+      attachTo: document.body
+    })
+    await flushPromises()
+
+    await wrapper.get('button[aria-label="Copy Save path"]').trigger('click')
+    await flushPromises()
+
+    expect(writeText).toHaveBeenCalledWith(torrent.save_path)
+    expect(notifications.items.at(-1)).toMatchObject({
+      tone: 'error',
+      message: 'Clipboard access is unavailable. Copy the value manually.'
+    })
   })
 
   it('uses accessible endpoint dialogs and keeps removal failures actionable', async () => {

@@ -27,8 +27,17 @@ watch(
 
 async function confirm(): Promise<void> {
   if (!props.hashes.length || working.value) return
-  working.value = true
   error.value = null
+  const missingCount = props.hashes.filter((hash) => !torrents.byHash.has(hash)).length
+  if (missingCount) {
+    error.value =
+      missingCount === props.hashes.length
+        ? 'The selected torrents no longer exist. Close this dialog and review the current list.'
+        : 'One or more selected torrents no longer exist. Close this dialog and review the current selection.'
+    torrents.refreshNow()
+    return
+  }
+  working.value = true
   try {
     await api.torrents.delete(props.hashes, deleteFiles.value)
     notifications.push(

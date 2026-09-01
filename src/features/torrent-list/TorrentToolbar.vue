@@ -153,7 +153,7 @@ function setDensity(): void {
         </button>
       </div>
       <span v-if="torrents.invalidRegex" class="regex-error" role="alert"
-        >Invalid regular expression</span
+        >Invalid or unsafe regular expression</span
       >
       <div class="toolbar-spacer" />
       <details class="toolbar-menu columns-menu">

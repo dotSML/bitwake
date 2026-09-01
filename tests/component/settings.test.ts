@@ -4,6 +4,14 @@ import SettingsView from '@/features/settings/SettingsView.vue'
 import { settingsSchema } from '@/features/settings/settingsSchema'
 import { createTestContext, mountWithContext } from './support/mount'
 
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise
+  })
+  return { promise, resolve }
+}
+
 function validPreferences(): Record<string, unknown> {
   const preferences: Record<string, unknown> = {}
   for (const definition of settingsSchema) {
@@ -18,6 +26,61 @@ function validPreferences(): Record<string, unknown> {
 }
 
 describe('SettingsView', () => {
+  it('serializes saves and locks server fields until the authoritative reload finishes', async () => {
+    const context = createTestContext()
+    vi.spyOn(context.api.app, 'preferences')
+      .mockResolvedValueOnce({ ...validPreferences(), alt_dl_limit: 2_048 })
+      .mockResolvedValueOnce({ ...validPreferences(), alt_dl_limit: 3_072 })
+    const pendingSave = deferred<void>()
+    const save = vi.spyOn(context.api.app, 'setPreferences').mockReturnValue(pendingSave.promise)
+    const wrapper = await mountWithContext(SettingsView, context)
+    await flushPromises()
+    const speed = wrapper
+      .findAll<HTMLButtonElement>('.settings-nav > button')
+      .find((button) => button.text() === 'Speed')
+    await speed!.trigger('click')
+    const limit = wrapper.get<HTMLInputElement>('#setting-alt_dl_limit')
+    await limit.setValue('3')
+
+    const saveButton = wrapper.get<HTMLButtonElement>('.route-header > button')
+    await saveButton.trigger('click')
+    expect(save).toHaveBeenCalledOnce()
+    expect(limit.element.disabled).toBe(true)
+    await saveButton.trigger('click')
+    expect(save).toHaveBeenCalledOnce()
+
+    pendingSave.resolve()
+    await flushPromises()
+    const reloadedLimit = wrapper.get<HTMLInputElement>('#setting-alt_dl_limit')
+    expect(reloadedLimit.element.value).toBe('3')
+    expect(reloadedLimit.element.disabled).toBe(false)
+  })
+
+  it('treats a disabled share-limit value as unchanged after toggling it on and back off', async () => {
+    const context = createTestContext()
+    vi.spyOn(context.api.app, 'preferences').mockResolvedValue({
+      ...validPreferences(),
+      max_ratio_enabled: false,
+      max_ratio: -1
+    })
+    const save = vi.spyOn(context.api.app, 'setPreferences').mockResolvedValue()
+    const wrapper = await mountWithContext(SettingsView, context)
+    await flushPromises()
+    const bittorrent = wrapper
+      .findAll<HTMLButtonElement>('.settings-nav > button')
+      .find((button) => button.text() === 'BitTorrent')
+    await bittorrent!.trigger('click')
+    const enabled = wrapper.get<HTMLInputElement>('#setting-max_ratio_enabled')
+
+    await enabled.setValue(true)
+    await enabled.setValue(false)
+
+    const saveButton = wrapper.get<HTMLButtonElement>('.route-header > button')
+    expect(saveButton.element.disabled).toBe(true)
+    await saveButton.trigger('click')
+    expect(save).not.toHaveBeenCalled()
+  })
+
   it('validates numeric boundaries before enabling save', async () => {
     const context = createTestContext()
     vi.spyOn(context.api.app, 'preferences').mockResolvedValue({
@@ -290,6 +353,48 @@ describe('SettingsView', () => {
       current_network_interface: 'wg0',
       current_interface_address: '10.8.0.2'
     })
+  })
+
+  it('does not let a stale aggregate interface load replace addresses chosen later', async () => {
+    const context = createTestContext()
+    vi.spyOn(context.api.app, 'preferences').mockResolvedValue({
+      ...validPreferences(),
+      current_network_interface: 'eth0',
+      current_interface_address: '192.0.2.10'
+    })
+    const interfaces = deferred<Array<{ name: string; value: string }>>()
+    vi.spyOn(context.api.app, 'networkInterfaceList').mockReturnValue(interfaces.promise)
+    const addresses = vi
+      .spyOn(context.api.app, 'networkInterfaceAddressList')
+      .mockImplementation((interfaceName) =>
+        Promise.resolve(interfaceName === '' ? ['203.0.113.5'] : ['192.0.2.10'])
+      )
+    const wrapper = await mountWithContext(SettingsView, context)
+    await flushPromises()
+
+    const connection = wrapper
+      .findAll<HTMLButtonElement>('.settings-nav > button')
+      .find((button) => button.text() === 'Connection')
+    await connection!.trigger('click')
+    await wrapper.get('#setting-current_network_interface').setValue('')
+    await flushPromises()
+
+    expect(addresses).toHaveBeenCalledTimes(1)
+    expect(addresses).toHaveBeenLastCalledWith('')
+    expect(wrapper.get('#setting-current_interface_address').text()).toContain('203.0.113.5')
+
+    interfaces.resolve([
+      { name: 'Ethernet', value: 'eth0' },
+      { name: 'WireGuard', value: 'wg0' }
+    ])
+    await flushPromises()
+
+    expect(addresses).toHaveBeenCalledTimes(1)
+    expect(wrapper.get<HTMLSelectElement>('#setting-current_network_interface').element.value).toBe(
+      ''
+    )
+    expect(wrapper.get('#setting-current_interface_address').text()).toContain('203.0.113.5')
+    expect(wrapper.get('#setting-current_interface_address').text()).not.toContain('192.0.2.10')
   })
 
   it('enables an IP filter path only with filtering and sends the exact host path', async () => {

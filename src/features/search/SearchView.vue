@@ -44,6 +44,7 @@ const pluginDialogOpen = ref(false)
 const pluginSource = ref('')
 const pluginError = ref<string | null>(null)
 const pluginInstalling = ref(false)
+const pluginUpdating = ref(false)
 let timer: ReturnType<typeof setTimeout> | null = null
 let pollController: AbortController | null = null
 let disposed = false
@@ -73,12 +74,31 @@ function measureResults(): void {
   resultVirtualizer.value.measure()
 }
 
-async function loadPlugins(): Promise<void> {
+async function loadPlugins(): Promise<boolean> {
   try {
     plugins.value = await api.search.plugins()
     unsupported.value = null
+    return true
   } catch (cause) {
     unsupported.value = cause instanceof Error ? cause.message : 'Search support is unavailable.'
+    return false
+  }
+}
+
+async function updatePlugins(): Promise<void> {
+  if (pluginUpdating.value) return
+  pluginUpdating.value = true
+  try {
+    await api.search.updatePlugins()
+    if (await loadPlugins()) notifications.push('Search plugins updated.', 'success')
+    else notifications.push(unsupported.value ?? 'Search plugins could not be reloaded.', 'error')
+  } catch (cause) {
+    notifications.push(
+      cause instanceof Error ? cause.message : 'Search plugins could not be updated.',
+      'error'
+    )
+  } finally {
+    pluginUpdating.value = false
   }
 }
 
@@ -179,14 +199,28 @@ function onVisibilityChange(): void {
 }
 
 async function stopJob(job: Job): Promise<void> {
-  await api.search.stop(job.id)
-  job.status = 'Stopped'
-  notifications.push('Search stopped.', 'success')
+  try {
+    await api.search.stop(job.id)
+    job.status = 'Stopped'
+    notifications.push('Search stopped.', 'success')
+  } catch (cause) {
+    notifications.push(
+      cause instanceof Error ? cause.message : 'Search could not be stopped.',
+      'error'
+    )
+  }
 }
 async function deleteJob(job: Job): Promise<void> {
-  await api.search.delete(job.id)
-  jobs.value = jobs.value.filter((item) => item.id !== job.id)
-  activeId.value = jobs.value.at(-1)?.id ?? null
+  try {
+    await api.search.delete(job.id)
+    jobs.value = jobs.value.filter((item) => item.id !== job.id)
+    activeId.value = jobs.value.at(-1)?.id ?? null
+  } catch (cause) {
+    notifications.push(
+      cause instanceof Error ? cause.message : 'Search could not be deleted.',
+      'error'
+    )
+  }
 }
 async function download(result: SearchResult): Promise<void> {
   const pluginName =
@@ -352,12 +386,8 @@ onBeforeUnmount(() => {
                 @change="togglePlugin(plugin)"
               /><span>{{ plugin.fullName }}</span
               ><small>{{ plugin.version }}</small></label
-            ><button
-              class="btn"
-              type="button"
-              @click="api.search.updatePlugins().then(loadPlugins)"
-            >
-              <RefreshCw :size="14" />Update plugins
+            ><button class="btn" type="button" :disabled="pluginUpdating" @click="updatePlugins">
+              <RefreshCw :size="14" />{{ pluginUpdating ? 'Updating…' : 'Update plugins' }}
             </button>
           </details>
         </aside>

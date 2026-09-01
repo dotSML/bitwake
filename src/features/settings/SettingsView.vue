@@ -29,6 +29,7 @@ const networkAddresses = ref<string[]>([])
 const networkOptionsLoading = ref(false)
 const networkOptionsError = ref<string | null>(null)
 let networkAddressRequest = 0
+let networkOptionsGeneration = 0
 const sections: SettingsNavigationSection[] = [
   'Downloads',
   'Connection',
@@ -77,15 +78,15 @@ const visibleDefinitions = computed(() => {
           .includes(needle)
   )
 })
-const changedServer = computed(
-  () =>
-    visibleDefinitions.value.some(
-      (definition) => draft.value[definition.key] !== serverValues.value[definition.key]
-    ) ||
-    settingsSchema.some(
-      (definition) => draft.value[definition.key] !== serverValues.value[definition.key]
-    )
-)
+function hasSettingChanged(definition: SettingDefinition): boolean {
+  const pair = shareLimitPairs.find(({ value }) => value === definition.key)
+  if (pair && draft.value[pair.enabled] === false && serverValues.value[pair.enabled] === false) {
+    return false
+  }
+  return draft.value[definition.key] !== serverValues.value[definition.key]
+}
+
+const changedServer = computed(() => settingsSchema.some(hasSettingChanged))
 const criticalChanged = computed(() =>
   settingsSchema.some(
     (definition) =>
@@ -170,20 +171,26 @@ async function loadNetworkAddresses(interfaceName: string): Promise<void> {
 }
 
 async function loadNetworkOptions(values: Record<string, unknown>): Promise<void> {
+  const generation = ++networkOptionsGeneration
   let interfaceLoadFailed = false
   networkOptionsLoading.value = true
   try {
-    networkInterfaces.value = await api.app.networkInterfaceList()
+    const interfaces = await api.app.networkInterfaceList()
+    if (generation !== networkOptionsGeneration) return
+    networkInterfaces.value = interfaces
     networkOptionsError.value = null
   } catch {
+    if (generation !== networkOptionsGeneration) return
     interfaceLoadFailed = true
     networkInterfaces.value = []
     networkOptionsError.value =
       'Network interfaces could not be loaded. Current values remain available.'
   } finally {
-    networkOptionsLoading.value = false
+    if (generation === networkOptionsGeneration) networkOptionsLoading.value = false
   }
+  if (generation !== networkOptionsGeneration) return
   await loadNetworkAddresses(String(values.current_network_interface ?? ''))
+  if (generation !== networkOptionsGeneration) return
   if (interfaceLoadFailed)
     networkOptionsError.value =
       'Network interfaces could not be loaded. Current values remain available.'
@@ -215,6 +222,7 @@ function setValue(definition: SettingDefinition, raw: string | boolean): void {
       : raw
   draft.value = { ...draft.value, [definition.key]: value }
   if (definition.key === 'current_network_interface') {
+    networkOptionsGeneration += 1
     draft.value = { ...draft.value, current_interface_address: '' }
     void loadNetworkAddresses(String(value))
   }
@@ -250,6 +258,7 @@ function displayValue(definition: SettingDefinition): string {
   return String(draft.value[definition.key] ?? '')
 }
 function isSettingDisabled(definition: SettingDefinition): boolean {
+  if (saving.value) return true
   const pair = shareLimitPairs.find(({ value }) => value === definition.key)
   if (pair && draft.value[pair.enabled] === false) return true
   if (definition.key === 'torrent_stop_condition' && draft.value.add_stopped_enabled === true)
@@ -264,6 +273,7 @@ function isSettingDisabled(definition: SettingDefinition): boolean {
   return false
 }
 async function save(): Promise<void> {
+  if (saving.value) return
   for (const definition of settingsSchema) {
     if (Object.prototype.hasOwnProperty.call(draft.value, definition.key)) {
       validate(definition, draft.value[definition.key])
@@ -283,6 +293,7 @@ async function save(): Promise<void> {
       .map((definition) => [definition.key, draft.value[definition.key]])
   )
   for (const pair of shareLimitPairs) {
+    if (draft.value[pair.enabled] === false && serverValues.value[pair.enabled] === false) continue
     if (
       draft.value[pair.enabled] === serverValues.value[pair.enabled] &&
       draft.value[pair.value] === serverValues.value[pair.value]
@@ -535,6 +546,7 @@ onMounted(() => void load())
                 class="toggle"
                 type="checkbox"
                 :checked="draft[definition.key] === true"
+                :disabled="saving"
                 @change="setValue(definition, ($event.target as HTMLInputElement).checked)"
               />
               <select

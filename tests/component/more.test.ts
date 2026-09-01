@@ -1,6 +1,7 @@
 import { DOMWrapper, flushPromises } from '@vue/test-utils'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import MoreView from '@/features/more/MoreView.vue'
+import { createTorrent } from '@/mocks/fixtures'
 import { useTorrentsStore } from '@/stores/torrents'
 import { createTestContext, mountWithContext } from './support/mount'
 
@@ -31,6 +32,39 @@ function lastButtonWithText(text: string): DOMWrapper<HTMLButtonElement> {
 }
 
 describe('More view confirmations', () => {
+  it('requires acknowledgement when removing a category can move Auto-TMM torrent data', async () => {
+    const context = createTestContext()
+    const torrents = context.run(() => useTorrentsStore(context.pinia))
+    const torrent = { ...createTorrent(0), category: 'TV', auto_tmm: true }
+    torrents.applyMainData({
+      rid: 1,
+      full_update: true,
+      torrents: { [torrent.hash]: torrent },
+      categories: { TV: { name: 'TV', savePath: '/data/tv' } }
+    })
+    const remove = vi.spyOn(context.api.collections, 'removeCategories').mockResolvedValue()
+    await mountWithContext(MoreView, context, { attachTo: document.body })
+
+    await buttonContaining('Categories').trigger('click')
+    await lastButtonWithText('Remove').trigger('click')
+
+    expect(document.body.textContent).toContain('may move downloaded content')
+    const confirmation = lastButtonWithText('Remove')
+    expect(confirmation.element.disabled).toBe(true)
+    expect(remove).not.toHaveBeenCalled()
+
+    const acknowledgement = document.querySelector<HTMLInputElement>(
+      '.category-removal-acknowledgement input'
+    )
+    expect(acknowledgement).not.toBeNull()
+    await new DOMWrapper(acknowledgement).setValue(true)
+    expect(confirmation.element.disabled).toBe(false)
+    await confirmation.trigger('click')
+    await flushPromises()
+
+    expect(remove).toHaveBeenCalledWith(['TV'])
+  })
+
   it.each([
     ['Categories', 'Linux', 'category', 'removeCategories'],
     ['Tags', 'archive', 'tag', 'deleteTags']

@@ -2,6 +2,7 @@ import { DOMWrapper, flushPromises } from '@vue/test-utils'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SearchResult } from '@/api/types/models'
 import SearchView from '@/features/search/SearchView.vue'
+import { useNotificationsStore } from '@/stores/notifications'
 import { createTestContext, mountWithContext } from './support/mount'
 
 afterEach(() => {
@@ -28,6 +29,36 @@ function searchResult(id: number): SearchResult {
 }
 
 describe('search plugin installation', () => {
+  it('reports plugin update failures and prevents duplicate in-flight requests', async () => {
+    const context = createTestContext()
+    vi.spyOn(context.api.search, 'plugins').mockResolvedValue([])
+    let rejectUpdate!: (cause: Error) => void
+    const updatePlugins = vi.spyOn(context.api.search, 'updatePlugins').mockImplementation(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          rejectUpdate = reject
+        })
+    )
+    const notifications = context.run(() => useNotificationsStore(context.pinia))
+    await mountWithContext(SearchView, context, { attachTo: document.body })
+    await flushPromises()
+
+    const updateButton = element<HTMLButtonElement>('.plugin-list .btn')
+    await updateButton.trigger('click')
+    await updateButton.trigger('click')
+    expect(updatePlugins).toHaveBeenCalledOnce()
+    expect(updateButton.element.disabled).toBe(true)
+
+    rejectUpdate(new Error('Plugin update request failed.'))
+    await flushPromises()
+
+    expect(notifications.items.at(-1)).toMatchObject({
+      message: 'Plugin update request failed.',
+      tone: 'error'
+    })
+    expect(updateButton.element.disabled).toBe(false)
+  })
+
   it('installs a plugin from an accessible dialog without a browser prompt', async () => {
     const context = createTestContext()
     vi.spyOn(context.api.search, 'plugins').mockResolvedValue([])
@@ -70,6 +101,37 @@ describe('search plugin installation', () => {
 })
 
 describe('search result polling', () => {
+  it('keeps failed stop and delete operations recoverable without changing the job', async () => {
+    const context = createTestContext()
+    vi.spyOn(context.api.search, 'plugins').mockResolvedValue([])
+    vi.spyOn(context.api.search, 'start').mockResolvedValue({ id: 6 })
+    vi.spyOn(context.api.search, 'stop').mockRejectedValue(new Error('Stop request failed.'))
+    vi.spyOn(context.api.search, 'delete').mockRejectedValue(new Error('Delete request failed.'))
+    const notifications = context.run(() => useNotificationsStore(context.pinia))
+    await mountWithContext(SearchView, context, { attachTo: document.body })
+    await flushPromises()
+
+    await element<HTMLInputElement>('[aria-label="Search query"]').setValue('recoverable')
+    await element<HTMLFormElement>('.search-form').trigger('submit')
+    await flushPromises()
+
+    await element<HTMLButtonElement>('button[aria-label="Stop search"]').trigger('click')
+    await flushPromises()
+    expect(document.body.textContent).toContain('Running')
+    expect(notifications.items.at(-1)).toMatchObject({
+      message: 'Stop request failed.',
+      tone: 'error'
+    })
+
+    await element<HTMLButtonElement>('button[aria-label="Delete search"]').trigger('click')
+    await flushPromises()
+    expect(document.body.textContent).toContain('recoverable')
+    expect(notifications.items.at(-1)).toMatchObject({
+      message: 'Delete request failed.',
+      tone: 'error'
+    })
+  })
+
   it('requests only appended results while running and reconciles once on completion', async () => {
     vi.useFakeTimers()
     const context = createTestContext()

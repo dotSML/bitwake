@@ -40,13 +40,30 @@ type ConfirmationAction =
 const confirmation = ref<ConfirmationAction | null>(null)
 const confirmationWorking = ref(false)
 const confirmationError = ref<string | null>(null)
+const categoryMoveAcknowledged = ref(false)
+const categoryRemovalImpact = computed(() => {
+  const action = confirmation.value
+  if (action?.kind !== 'remove-item' || action.collection !== 'categories') {
+    return { affected: 0, autoManaged: 0 }
+  }
+  const prefix = action.name + '/'
+  const affected = torrents.torrents.filter(
+    (torrent) => torrent.category === action.name || torrent.category.startsWith(prefix)
+  )
+  return {
+    affected: affected.length,
+    autoManaged: affected.filter((torrent) => torrent.auto_tmm).length
+  }
+})
 const confirmationTitle = computed(() =>
   confirmation.value?.kind === 'shutdown' ? 'Shut down qBittorrent' : 'Remove item'
 )
 const confirmationDescription = computed(() =>
   confirmation.value?.kind === 'shutdown'
     ? 'Active transfers stop and the qBittorrent application exits.'
-    : 'This removes the category or tag without deleting torrent data.'
+    : confirmation.value?.collection === 'categories'
+      ? 'This removes the category without deleting torrent data. Assigned torrents are reclassified.'
+      : 'This removes the tag without deleting torrent data.'
 )
 
 const links = [
@@ -95,12 +112,14 @@ function requestRemoveItem(name: string): void {
   confirmation.value = { kind: 'remove-item', collection: manager.value, name }
   confirmationError.value = null
   confirmationWorking.value = false
+  categoryMoveAcknowledged.value = false
 }
 
 function closeConfirmation(): void {
   if (confirmationWorking.value) return
   confirmation.value = null
   confirmationError.value = null
+  categoryMoveAcknowledged.value = false
 }
 
 async function createItem(): Promise<void> {
@@ -123,6 +142,15 @@ async function createItem(): Promise<void> {
 async function confirmAction(): Promise<void> {
   const action = confirmation.value
   if (!action || confirmationWorking.value) return
+  if (
+    action.kind === 'remove-item' &&
+    action.collection === 'categories' &&
+    categoryRemovalImpact.value.autoManaged > 0 &&
+    !categoryMoveAcknowledged.value
+  ) {
+    confirmationError.value = 'Acknowledge the possible Automatic Torrent Management moves.'
+    return
+  }
   confirmationWorking.value = true
   confirmationError.value = null
   try {
@@ -273,6 +301,29 @@ function cycleTheme(): void {
         <template v-else>
           <p>Remove this {{ confirmation?.collection === 'categories' ? 'category' : 'tag' }}?</p>
           <code>{{ confirmation?.name }}</code>
+          <p
+            v-if="confirmation?.collection === 'categories' && categoryRemovalImpact.affected"
+            class="category-removal-warning"
+          >
+            qBittorrent will reassign {{ categoryRemovalImpact.affected }} affected torrent{{
+              categoryRemovalImpact.affected === 1 ? '' : 's'
+            }}
+            to the parent or default category.
+            <strong v-if="categoryRemovalImpact.autoManaged">
+              {{ categoryRemovalImpact.autoManaged }} use{{
+                categoryRemovalImpact.autoManaged === 1 ? 's' : ''
+              }}
+              Automatic Torrent Management and may move downloaded content to that category’s save
+              path.
+            </strong>
+          </p>
+          <label
+            v-if="confirmation?.collection === 'categories' && categoryRemovalImpact.autoManaged"
+            class="category-removal-acknowledgement"
+          >
+            <input v-model="categoryMoveAcknowledged" type="checkbox" />
+            <span>I understand that removing this category may move torrent data.</span>
+          </label>
         </template>
         <p v-if="confirmationError" class="confirmation-error" role="alert">
           {{ confirmationError }}
@@ -290,7 +341,13 @@ function cycleTheme(): void {
         <button
           class="btn btn-danger"
           type="button"
-          :disabled="confirmationWorking"
+          :disabled="
+            confirmationWorking ||
+            (confirmation?.kind === 'remove-item' &&
+              confirmation.collection === 'categories' &&
+              categoryRemovalImpact.autoManaged > 0 &&
+              !categoryMoveAcknowledged)
+          "
           @click="confirmAction"
         >
           {{
@@ -319,6 +376,21 @@ function cycleTheme(): void {
 }
 .more-group {
   overflow: hidden;
+}
+.category-removal-warning {
+  border-radius: 8px;
+  background: rgb(var(--color-warning) / 0.1);
+  color: rgb(var(--color-warning));
+  padding: 10px 12px;
+}
+.category-removal-warning strong {
+  display: block;
+  margin-top: 6px;
+}
+.category-removal-acknowledgement {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
 }
 .more-group h2 {
   margin: 0;

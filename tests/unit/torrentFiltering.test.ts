@@ -176,6 +176,45 @@ describe('torrent filtering', () => {
     })
   })
 
+  it.each([
+    '(a+)+$',
+    '(a|aa)+$',
+    '((a|aa))+$',
+    '(a+){2}$',
+    String.raw`^(\w+\s?)*$`,
+    String.raw`(a)\1+`
+  ])(
+    'rejects the potentially exponential regular expression %s before matching torrent names',
+    (text) => {
+      expect(filterTorrents(items, filters({ text, regex: true }))).toEqual({
+        torrents: [],
+        invalidRegex: true
+      })
+    }
+  )
+
+  it('rejects sequential ambiguous repetition before matching torrent names', () => {
+    for (const text of ['a*a*b', 'a?a?a?b', '(a|aa)(a|aa)(a|aa)b']) {
+      expect(filterTorrents(items, filters({ text, regex: true }))).toEqual({
+        torrents: [],
+        invalidRegex: true
+      })
+    }
+  })
+
+  it('keeps ordinary grouped and quantified regular expressions available', () => {
+    expect(
+      filterTorrents(items, filters({ text: '^(Ubuntu|Public).+(ISO|Archive)$', regex: true }))
+        .torrents
+    ).toEqual([linux, archive])
+    expect(filterTorrents(items, filters({ text: '^(?:Ubuntu)+', regex: true })).torrents).toEqual([
+      linux
+    ])
+    expect(
+      filterTorrents(items, filters({ text: '^(Ubuntu|Public)?', regex: true })).invalidRegex
+    ).toBe(false)
+  })
+
   it('composes state, category, exact tag, tracker, and save-path filters', () => {
     expect(
       filterTorrents(

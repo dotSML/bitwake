@@ -192,4 +192,37 @@ describe('RSS view contracts', () => {
     expect(wrapper.findAll('.article-item').length).toBeGreaterThan(0)
     expect(wrapper.findAll('.article-item').length).toBeLessThan(100)
   })
+
+  it('preserves an unread article after a failed mark-as-read request and allows retry', async () => {
+    const context = createTestContext()
+    vi.spyOn(context.api.rss, 'items').mockResolvedValue({
+      Releases: {
+        title: 'Release feed',
+        url: 'https://feeds.example.test/releases.xml',
+        articles: [{ id: 'article-1', title: 'Unread release', isRead: false }]
+      }
+    })
+    const markAsRead = vi
+      .spyOn(context.api.rss, 'markAsRead')
+      .mockRejectedValueOnce(new Error('Read state was not saved.'))
+      .mockResolvedValueOnce()
+    const notifications = context.run(() => useNotificationsStore(context.pinia))
+    const wrapper = await mountWithContext(RssView, context, { attachTo: document.body })
+    await flushPromises()
+
+    await wrapper.get('.article-item').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('.article-item').classes()).toContain('unread')
+    expect(wrapper.get('.feed-item small').text()).toBe('1')
+    expect(notifications.items.at(-1)).toMatchObject({
+      message: 'Read state was not saved.',
+      tone: 'error'
+    })
+
+    await wrapper.get('.article-item').trigger('click')
+    await flushPromises()
+    expect(markAsRead).toHaveBeenCalledTimes(2)
+    expect(wrapper.get('.article-item').classes()).not.toContain('unread')
+    expect(wrapper.get('.feed-item small').text()).toBe('0')
+  })
 })

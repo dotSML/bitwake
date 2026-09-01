@@ -90,6 +90,11 @@ vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) =>
 vi.stubGlobal('cancelAnimationFrame', (handle: number) => window.clearTimeout(handle))
 vi.stubGlobal('PointerEvent', MouseEvent)
 
+Object.defineProperty(navigator, 'clipboard', {
+  configurable: true,
+  value: { writeText: vi.fn().mockResolvedValue(undefined) }
+})
+
 Object.defineProperty(HTMLElement.prototype, 'clientWidth', {
   configurable: true,
   get: function getClientWidth(this: HTMLElement) {

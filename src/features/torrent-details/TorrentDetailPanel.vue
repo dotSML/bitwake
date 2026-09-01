@@ -106,6 +106,8 @@ let loadController: AbortController | null = null
 let peerResponseId = 0
 let peerTimer: ReturnType<typeof setTimeout> | null = null
 let peerController: AbortController | null = null
+let peerFailureCount = 0
+let peerFailureNotified = false
 const peerVirtualizer = useVirtualizer({
   get count() {
     return peers.value.length
@@ -186,6 +188,8 @@ function stopPeerPolling(): void {
   peerController?.abort()
   peerController = null
   peerResponseId = 0
+  peerFailureCount = 0
+  peerFailureNotified = false
 }
 
 function applyPeerResponse(response: PeerSyncResponse): void {
@@ -200,7 +204,13 @@ function applyPeerResponse(response: PeerSyncResponse): void {
 function schedulePeerPoll(): void {
   if (peerTimer) clearTimeout(peerTimer)
   if (activeTab.value !== 'peers') return
-  peerTimer = setTimeout(() => void pollPeers(), document.hidden ? 15_000 : 2_000)
+  const retryDelay = peerFailureCount
+    ? Math.min(30_000, 2_000 * 2 ** Math.max(0, peerFailureCount - 1))
+    : 2_000
+  peerTimer = setTimeout(
+    () => void pollPeers(),
+    document.hidden ? Math.max(15_000, retryDelay) : retryDelay
+  )
 }
 
 async function pollPeers(): Promise<void> {
@@ -212,9 +222,20 @@ async function pollPeers(): Promise<void> {
     const response = await api.sync.torrentPeers(hash, peerResponseId, controller.signal)
     if (!controller.signal.aborted && props.hash === hash && activeTab.value === 'peers') {
       applyPeerResponse(response)
+      peerFailureCount = 0
+      peerFailureNotified = false
     }
-  } catch {
-    // Keep the last good peer snapshot and retry quietly with the next detail poll.
+  } catch (cause) {
+    if (!controller.signal.aborted && props.hash === hash && activeTab.value === 'peers') {
+      peerFailureCount += 1
+      if (!peerFailureNotified) {
+        notifications.push(
+          cause instanceof Error ? cause.message : 'Live peer data could not be refreshed.',
+          'warning'
+        )
+        peerFailureNotified = true
+      }
+    }
   } finally {
     if (peerController === controller) peerController = null
     if (!controller.signal.aborted && props.hash === hash && activeTab.value === 'peers') {
@@ -285,6 +306,8 @@ async function loadTab(): Promise<void> {
       const response = await api.sync.torrentPeers(hash, 0, controller.signal)
       if (current()) {
         applyPeerResponse(response)
+        peerFailureCount = 0
+        peerFailureNotified = false
         schedulePeerPoll()
       }
     }
@@ -333,9 +356,31 @@ function selectTab(tab: TorrentDetailTab): void {
   emit('tabChange', tab)
 }
 
+function navigateTabsWithKeyboard(event: KeyboardEvent): void {
+  const currentIndex = torrentDetailTabs.findIndex((tab) => tab.id === activeTab.value)
+  let nextIndex: number
+  if (event.key === 'ArrowRight') nextIndex = (currentIndex + 1) % torrentDetailTabs.length
+  else if (event.key === 'ArrowLeft') {
+    nextIndex = (currentIndex - 1 + torrentDetailTabs.length) % torrentDetailTabs.length
+  } else if (event.key === 'Home') nextIndex = 0
+  else if (event.key === 'End') nextIndex = torrentDetailTabs.length - 1
+  else return
+
+  event.preventDefault()
+  const nextTab = torrentDetailTabs[nextIndex]
+  if (!nextTab) return
+  selectTab(nextTab.id)
+  const tabList = (event.currentTarget as HTMLElement).parentElement
+  tabList?.querySelectorAll<HTMLButtonElement>('[role="tab"]')[nextIndex]?.focus()
+}
+
 async function copy(value: string): Promise<void> {
-  await navigator.clipboard.writeText(value)
-  notifications.push('Copied to clipboard.', 'success', 2000)
+  try {
+    await navigator.clipboard.writeText(value)
+    notifications.push('Copied to clipboard.', 'success', 2000)
+  } catch {
+    notifications.push('Clipboard access is unavailable. Copy the value manually.', 'error')
+  }
 }
 
 const endpointDialogTitle = computed(() => {
@@ -504,6 +549,7 @@ onBeforeUnmount(() => {
         :aria-selected="activeTab === tab.id"
         :tabindex="activeTab === tab.id ? 0 : -1"
         @click="selectTab(tab.id)"
+        @keydown="navigateTabsWithKeyboard"
       >
         {{ tab.label }}
       </button>
