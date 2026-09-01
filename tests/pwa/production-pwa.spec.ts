@@ -3,17 +3,17 @@ import { expect, test, type Page } from '@playwright/test'
 async function installAuthenticatedApiFixture(page: Page): Promise<void> {
   await page.addInitScript(() => {
     const controlledGlobal = globalThis as typeof globalThis & {
-      __neotorrentNativeFetch: typeof fetch
+      __bitwakeNativeFetch: typeof fetch
     }
     const nativeFetch = globalThis.fetch.bind(globalThis)
-    controlledGlobal.__neotorrentNativeFetch = nativeFetch
+    controlledGlobal.__bitwakeNativeFetch = nativeFetch
     globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(
         input instanceof Request ? input.url : String(input),
         globalThis.location.href
       )
       const path = url.pathname
-      if (path.endsWith('/_neotorrent/runtime-config.json')) {
+      if (/\/(?:_bitwake|_neotorrent)\/runtime-config\.json$/u.test(path)) {
         return Response.json(
           {
             mediaPlacement: {
@@ -83,8 +83,8 @@ test('installs a scoped production worker and keeps API data network-only', asyn
   expect(manifest.contentType).toContain('manifest')
   expect(manifestValue).toMatchObject({
     id: './',
-    name: 'NeoTorrent',
-    short_name: 'NeoTorrent',
+    name: 'Bitwake',
+    short_name: 'Bitwake',
     display: 'standalone',
     start_url: './',
     scope: './'
@@ -94,10 +94,29 @@ test('installs a scoped production worker and keeps API data network-only', asyn
   }
   expect(manifestValue.icons).toEqual(
     expect.arrayContaining([
-      expect.objectContaining({ sizes: '192x192', type: 'image/png' }),
-      expect.objectContaining({ sizes: '512x512', type: 'image/png' })
+      expect.objectContaining({
+        src: 'icons/bitwake-192.png',
+        sizes: '192x192',
+        type: 'image/png'
+      }),
+      expect.objectContaining({
+        src: 'icons/bitwake-512.png',
+        sizes: '512x512',
+        type: 'image/png'
+      }),
+      expect.objectContaining({ src: 'icons/bitwake.svg', sizes: 'any', type: 'image/svg+xml' })
     ])
   )
+  for (const icon of [
+    '/icons/bitwake.svg',
+    '/icons/bitwake-192.png',
+    '/icons/bitwake-512.png',
+    '/icons/neotorrent.svg',
+    '/icons/neotorrent-192.png',
+    '/icons/neotorrent-512.png'
+  ]) {
+    expect((await page.request.get(icon)).status(), icon).toBe(200)
+  }
 
   await page.evaluate(() => navigator.serviceWorker.ready)
   if (!(await page.evaluate(() => Boolean(navigator.serviceWorker.controller)))) {
@@ -107,9 +126,10 @@ test('installs a scoped production worker and keeps API data network-only', asyn
   const worker = await page.evaluate(async () => {
     const registration = await navigator.serviceWorker.ready
     const controller = navigator.serviceWorker.controller
+    const cacheNames = await caches.keys()
     const cacheEntries = (
       await Promise.all(
-        (await caches.keys()).map(async (cacheName) => {
+        cacheNames.map(async (cacheName) => {
           const cache = await caches.open(cacheName)
           return (await cache.keys()).map((request) => request.url)
         })
@@ -118,6 +138,7 @@ test('installs a scoped production worker and keeps API data network-only', asyn
     return {
       scope: registration.scope,
       scriptURL: controller?.scriptURL ?? '',
+      cacheNames,
       cacheEntries,
       assetUrl: document.querySelector<HTMLScriptElement>('script[type="module"][src]')?.src ?? ''
     }
@@ -125,19 +146,24 @@ test('installs a scoped production worker and keeps API data network-only', asyn
   expect(worker.scope).toBe('http://127.0.0.1:4190/')
   expect(worker.scriptURL).toBe('http://127.0.0.1:4190/sw.js')
   expect(worker.assetUrl).toMatch(/\/assets\/[^/]+\.js$/u)
+  expect(worker.cacheNames.some((name) => name.startsWith('workbox-precache-v2-'))).toBe(true)
   expect(worker.cacheEntries.some((url) => url.includes('/api/'))).toBe(false)
+  expect(worker.cacheEntries.some((url) => url.includes('/_bitwake/'))).toBe(false)
   expect(worker.cacheEntries.some((url) => url.includes('/_neotorrent/'))).toBe(false)
 
   await page.evaluate(async () => {
     const controlledGlobal = globalThis as typeof globalThis & {
-      __neotorrentNativeFetch: typeof fetch
+      __bitwakeNativeFetch: typeof fetch
     }
-    await controlledGlobal.__neotorrentNativeFetch('/api/v2/pwa-network-probe', {
+    await controlledGlobal.__bitwakeNativeFetch('/api/v2/pwa-network-probe', {
       cache: 'no-store'
     })
-    await controlledGlobal.__neotorrentNativeFetch('/_neotorrent/runtime-config.json', {
-      cache: 'no-store'
-    })
+    for (const runtimeUrl of [
+      '/_bitwake/runtime-config.json',
+      '/_neotorrent/runtime-config.json'
+    ]) {
+      await controlledGlobal.__bitwakeNativeFetch(runtimeUrl, { cache: 'no-store' })
+    }
   })
   await context.setOffline(true)
   try {
@@ -146,11 +172,11 @@ test('installs a scoped production worker and keeps API data network-only', asyn
 
     const offline = await page.evaluate(async (assetUrl) => {
       const controlledGlobal = globalThis as typeof globalThis & {
-        __neotorrentNativeFetch: typeof fetch
+        __bitwakeNativeFetch: typeof fetch
       }
       const probe = async (url: string) => {
         try {
-          const response = await controlledGlobal.__neotorrentNativeFetch(url, {
+          const response = await controlledGlobal.__bitwakeNativeFetch(url, {
             cache: 'no-store'
           })
           return { ok: response.ok, status: response.status }
@@ -161,12 +187,14 @@ test('installs a scoped production worker and keeps API data network-only', asyn
       return {
         asset: await probe(assetUrl),
         api: await probe('/api/v2/pwa-network-probe'),
-        runtimeConfig: await probe('/_neotorrent/runtime-config.json')
+        runtimeConfig: await probe('/_bitwake/runtime-config.json'),
+        legacyRuntimeConfig: await probe('/_neotorrent/runtime-config.json')
       }
     }, worker.assetUrl)
     expect(offline.asset).toEqual({ ok: true, status: 200 })
     expect(offline.api).toEqual({ ok: false, status: 0 })
     expect(offline.runtimeConfig).toEqual({ ok: false, status: 0 })
+    expect(offline.legacyRuntimeConfig).toEqual({ ok: false, status: 0 })
   } finally {
     await context.setOffline(false)
   }
@@ -181,7 +209,10 @@ test('installs a scoped production worker and keeps API data network-only', asyn
       )
     )
       .flat()
-      .filter((url) => url.includes('/api/') || url.includes('/_neotorrent/'))
+      .filter(
+        (url) =>
+          url.includes('/api/') || url.includes('/_bitwake/') || url.includes('/_neotorrent/')
+      )
   )
   expect(cachedPrivateData).toEqual([])
 })

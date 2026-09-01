@@ -1,8 +1,9 @@
 import { createI18n } from 'vue-i18n'
 import { setFormattingLocale } from '@/utils/format'
+import { appIdentity, appStorageKeys } from '@/config/appIdentity'
 
 const en = {
-  app: { name: 'NeoTorrent', tagline: 'A focused qBittorrent workspace' },
+  app: { name: appIdentity.name, tagline: 'A focused qBittorrent workspace' },
   auth: {
     title: 'Sign in to qBittorrent',
     subtitle: 'Use the credentials configured in qBittorrent Web UI.',
@@ -103,7 +104,7 @@ const en = {
     title: 'Settings',
     description: "qBittorrent server preferences and this WebUI's interface settings.",
     interface: 'Interface',
-    interfaceTitle: 'NeoTorrent interface',
+    interfaceTitle: 'Bitwake interface',
     interfaceDescription: 'These preferences affect only this Alternative WebUI.',
     language: 'Language',
     languageHelp: 'Use the browser language or choose a supported interface language.',
@@ -153,7 +154,7 @@ const en = {
     lockedExplanation:
       'The library settings are managed by this deployment. Manual Path remains available in Add Torrent and Set Location.',
     manualExplanation:
-      'Manual paths remain available in Assist mode. NeoTorrent warns about unusual placement but allows an acknowledged custom destination. Paths refer to the qBittorrent host or container, not this browser device.',
+      'Manual paths remain available in Assist mode. Bitwake warns about unusual placement but allows an acknowledged custom destination. Paths refer to the qBittorrent host or container, not this browser device.',
     saving: 'Saving…',
     save: 'Save Media Placement',
     saved: 'Media Placement settings saved.',
@@ -175,8 +176,9 @@ const en = {
       'An empty qBittorrent result cannot distinguish an empty directory from one it cannot read, and never proves the directory is writable.'
   },
   pwa: {
-    updateAvailable: 'NeoTorrent update available',
+    updateAvailable: 'Bitwake update available',
     updateHint: 'Reload to use the new version.',
+    updateBlocked: 'Finish or close the unsaved dialog before reloading.',
     updating: 'Updating…',
     reload: 'Reload and update',
     dismiss: 'Dismiss update'
@@ -259,7 +261,7 @@ const en = {
 }
 
 const et = {
-  app: { name: 'NeoTorrent', tagline: 'Selge qBittorrenti töölaud' },
+  app: { name: appIdentity.name, tagline: 'Selge qBittorrenti töölaud' },
   auth: {
     title: 'Logi qBittorrenti sisse',
     subtitle: 'Kasuta qBittorrenti veebiliideses seadistatud kasutajaandmeid.',
@@ -360,7 +362,7 @@ const et = {
     title: 'Seaded',
     description: 'qBittorrenti serveri ja selle veebiliidese seaded.',
     interface: 'Kasutajaliides',
-    interfaceTitle: 'NeoTorrenti kasutajaliides',
+    interfaceTitle: 'Bitwake’i kasutajaliides',
     interfaceDescription: 'Need eelistused mõjutavad ainult seda alternatiivset veebiliidest.',
     language: 'Keel',
     languageHelp: 'Kasuta brauseri keelt või vali toetatud kasutajaliidese keel.',
@@ -411,7 +413,7 @@ const et = {
     lockedExplanation:
       'Teegi seadeid haldab see juurutus. Käsitsi tee jääb torrenti lisamisel ja asukoha määramisel kasutatavaks.',
     manualExplanation:
-      'Käsitsi teed jäävad abirežiimis kasutatavaks. NeoTorrent hoiatab ebatavalise paigutuse eest, kuid lubab kinnitatud kohandatud sihtkoha. Teed viitavad qBittorrenti hostile või konteinerile, mitte sellele brauseriseadmele.',
+      'Käsitsi teed jäävad abirežiimis kasutatavaks. Bitwake hoiatab ebatavalise paigutuse eest, kuid lubab kinnitatud kohandatud sihtkoha. Teed viitavad qBittorrenti hostile või konteinerile, mitte sellele brauseriseadmele.',
     saving: 'Salvestamine…',
     save: 'Salvesta meedia paigutus',
     saved: 'Meedia paigutuse seaded salvestati.',
@@ -433,8 +435,9 @@ const et = {
       'Tühi qBittorrenti vastus ei erista tühja kausta loetamatust kaustast ega tõesta kunagi kirjutusõigust.'
   },
   pwa: {
-    updateAvailable: 'NeoTorrenti uuendus on saadaval',
+    updateAvailable: 'Bitwake’i uuendus on saadaval',
     updateHint: 'Uue versiooni kasutamiseks laadi leht uuesti.',
+    updateBlocked: 'Enne uuesti laadimist lõpeta või sulge salvestamata dialoog.',
     updating: 'Uuendamine…',
     reload: 'Laadi uuesti ja uuenda',
     dismiss: 'Peida uuendus'
@@ -517,8 +520,23 @@ const et = {
 
 export type ApplicationLocalePreference = 'system' | 'en' | 'et'
 
-const localeStorageKey = 'neotorrent:ui-preferences'
 const supportedLocalePreferences = new Set<ApplicationLocalePreference>(['system', 'en', 'et'])
+
+function localeFromSerializedPreference(
+  serialized: string | null
+): ApplicationLocalePreference | null {
+  if (!serialized) return null
+  try {
+    const value = JSON.parse(serialized) as unknown
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+    const locale = (value as Record<string, unknown>).locale
+    return supportedLocalePreferences.has(locale as ApplicationLocalePreference)
+      ? (locale as ApplicationLocalePreference)
+      : null
+  } catch {
+    return null
+  }
+}
 
 /** Read only the non-sensitive locale field needed before either app shell mounts. */
 export function readBootstrapLocalePreference(
@@ -528,14 +546,11 @@ export function readBootstrapLocalePreference(
 ): ApplicationLocalePreference {
   if (!storage) return 'system'
   try {
-    const serialized = storage.getItem(localeStorageKey)
-    if (!serialized) return 'system'
-    const value = JSON.parse(serialized) as unknown
-    if (!value || typeof value !== 'object' || Array.isArray(value)) return 'system'
-    const locale = (value as Record<string, unknown>).locale
-    return supportedLocalePreferences.has(locale as ApplicationLocalePreference)
-      ? (locale as ApplicationLocalePreference)
-      : 'system'
+    return (
+      localeFromSerializedPreference(storage.getItem(appStorageKeys.uiPreferences.browser)) ??
+      localeFromSerializedPreference(storage.getItem(appStorageKeys.uiPreferences.legacyBrowser)) ??
+      'system'
+    )
   } catch {
     return 'system'
   }

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { TorrentFilterState } from '@/domains/torrents/state'
 import {
@@ -16,6 +16,7 @@ import {
 } from '@/domains/torrents/savedFilters'
 import { useSavedTorrentFiltersStore } from '@/stores/savedTorrentFilters'
 import { useTorrentsStore } from '@/stores/torrents'
+import { usePwaStore } from '@/stores/pwa'
 import AppDialog from '@/ui/primitives/AppDialog.vue'
 
 const props = defineProps<{ open: boolean }>()
@@ -23,6 +24,7 @@ const emit = defineEmits<{ 'update:open': [value: boolean] }>()
 
 const torrents = useTorrentsStore()
 const savedFilters = useSavedTorrentFiltersStore()
+const pwa = usePwaStore()
 const { t } = useI18n()
 const draft = ref<TorrentFilters>({ ...defaultTorrentFilters })
 const saveName = ref('')
@@ -74,6 +76,23 @@ const canSave = computed(
     savedFilters.items.length < maximumSavedTorrentFilters &&
     !working.value
 )
+const dirty = computed(() => {
+  if (!props.open) return false
+  const renameOriginal = renamingId.value
+    ? savedFilters.items.find((item) => item.id === renamingId.value)?.name
+    : undefined
+  return (
+    JSON.stringify(normalizedDraft.value) !==
+      JSON.stringify(normalizeTorrentFilters(torrents.filters)) ||
+    Boolean(saveName.value.trim()) ||
+    (renameOriginal !== undefined && renameName.value !== renameOriginal)
+  )
+})
+
+watch(dirty, (value) => pwa.trackUnsavedDialog('advanced-torrent-filters', value), {
+  immediate: true
+})
+onBeforeUnmount(() => pwa.trackUnsavedDialog('advanced-torrent-filters', false))
 
 watch(
   () => props.open,

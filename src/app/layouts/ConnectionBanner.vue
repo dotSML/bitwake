@@ -15,7 +15,7 @@ const torrents = useTorrentsStore()
     <CloudOff v-if="torrents.connectionState === 'disconnected'" :size="17" aria-hidden="true" />
     <LoaderCircle v-else class="spin" :size="17" aria-hidden="true" />
     <span v-if="torrents.connectionState === 'disconnected'">
-      Connection lost. Showing the last good data while NeoTorrent reconnects.
+      Connection lost. Showing the last good data while Bitwake reconnects.
     </span>
     <span v-else>Connecting to qBittorrent…</span>
     <button

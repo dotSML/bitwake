@@ -83,7 +83,7 @@ async function logout(): Promise<void> {
 <template>
   <aside class="sidebar" :class="{ collapsed }">
     <header class="sidebar-brand">
-      <div class="brand-mark" aria-hidden="true">N</div>
+      <div class="brand-mark" aria-hidden="true">B</div>
       <div v-if="!collapsed" class="brand-copy">
         <strong>{{ t('app.name') }}</strong>
         <span>{{ transfer.connected ? t('transfer.connected') : t('transfer.disconnected') }}</span>

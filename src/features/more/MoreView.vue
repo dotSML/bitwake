@@ -289,8 +289,8 @@ function cycleTheme(): void {
 
 async function installApp(): Promise<void> {
   const outcome = await pwa.install()
-  if (outcome === 'accepted') notifications.push('NeoTorrent installation accepted.', 'success')
-  else if (outcome === 'dismissed') notifications.push('NeoTorrent installation dismissed.', 'info')
+  if (outcome === 'accepted') notifications.push('Bitwake installation accepted.', 'success')
+  else if (outcome === 'dismissed') notifications.push('Bitwake installation dismissed.', 'info')
 }
 </script>
 
@@ -337,7 +337,7 @@ async function installApp(): Promise<void> {
       <h2>Interface and session</h2>
       <button v-if="pwa.canInstall" type="button" @click="installApp">
         <Download :size="19" /><span
-          ><strong>Install NeoTorrent</strong><small>Add this WebUI to your device</small></span
+          ><strong>Install Bitwake</strong><small>Add this WebUI to your device</small></span
         ><ChevronRight :size="17" />
       </button>
       <div v-else-if="pwa.standalone" class="info-row">

@@ -40,4 +40,30 @@ describe('PWA lifecycle state', () => {
     expect(update).toHaveBeenCalledWith(true)
     expect(pwa.applyingUpdate).toBe(false)
   })
+
+  it('blocks reload for an explicitly dirty dialog and clears the guard across close and reopen', async () => {
+    const pwa = usePwaStore()
+    const update = vi.fn().mockResolvedValue(undefined)
+    pwa.setUpdater(update)
+    pwa.markUpdateAvailable()
+
+    pwa.trackUnsavedDialog('add-torrent', true)
+    await expect(pwa.applyUpdate()).resolves.toBe(false)
+    expect(update).not.toHaveBeenCalled()
+    expect(pwa.updateBlocked).toBe(true)
+
+    // Closing must clear the token even though the dialog component is removed.
+    pwa.trackUnsavedDialog('add-torrent', false)
+    expect(pwa.hasUnsavedDialog).toBe(false)
+    expect(pwa.updateBlocked).toBe(false)
+
+    // A clean reopen is not sticky; a later edit is tracked independently.
+    pwa.trackUnsavedDialog('add-torrent', false)
+    await expect(pwa.applyUpdate()).resolves.toBe(true)
+    expect(update).toHaveBeenCalledOnce()
+    pwa.trackUnsavedDialog('add-torrent', true)
+    expect(pwa.hasUnsavedDialog).toBe(true)
+    pwa.trackUnsavedDialog('add-torrent', false)
+    expect(pwa.hasUnsavedDialog).toBe(false)
+  })
 })

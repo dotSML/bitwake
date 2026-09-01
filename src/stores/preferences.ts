@@ -13,6 +13,8 @@ import {
 } from '@/domains/torrents/tableColumns'
 import { useSessionStore } from './session'
 import { setApplicationLocale, type ApplicationLocalePreference } from '@/i18n'
+import { appStorageKeys } from '@/config/appIdentity'
+import { readMigratedBrowserStorage } from '@/utils/migrateBrowserStorage'
 
 export type ThemePreference = 'system' | 'light' | 'dark'
 export type DensityPreference = 'comfortable' | 'compact' | 'extra-compact'
@@ -61,9 +63,31 @@ export const defaultUiPreferences: UiPreferences = {
   confirmStop: false
 }
 
-const storageKey = 'neotorrent:ui-preferences'
-const clientDataKey = 'neotorrent.ui-preferences.v2'
+const storageKeys = appStorageKeys.uiPreferences
 const persistenceDelayMs = 150
+
+const recognizedPreferenceKeys = new Set([
+  'schemaVersion',
+  'compactMode',
+  'theme',
+  'locale',
+  'density',
+  'mobileDensity',
+  'sidebarCollapsed',
+  'sidebarWidth',
+  'inspectorWidth',
+  'inspectorOpen',
+  'visibleColumns',
+  'columnOrder',
+  'columnWidths',
+  'sort',
+  'graphRange',
+  'dateDisplay',
+  'speedUnit',
+  'detailTab',
+  'pollingInterval',
+  'confirmStop'
+])
 
 function sanitizeColumnIds(value: unknown): TorrentTableColumnId[] {
   if (!Array.isArray(value)) return []
@@ -184,16 +208,30 @@ export function migrateUiPreferences(value: unknown): UiPreferences {
   }
 }
 
+export function parsePersistedUiPreferences(value: unknown): UiPreferences | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const record = value as Record<string, unknown>
+  if (!Object.keys(record).some((key) => recognizedPreferenceKeys.has(key))) return null
+  if (
+    record.schemaVersion !== undefined &&
+    record.schemaVersion !== 1 &&
+    record.schemaVersion !== 2
+  ) {
+    return null
+  }
+  return migrateUiPreferences(record)
+}
+
 function readLocal(): UiPreferences {
   if (typeof localStorage === 'undefined') return structuredClone(defaultUiPreferences)
-  try {
-    const value = localStorage.getItem(storageKey)
-    return value
-      ? migrateUiPreferences(JSON.parse(value) as unknown)
-      : structuredClone(defaultUiPreferences)
-  } catch {
-    return structuredClone(defaultUiPreferences)
-  }
+  return (
+    readMigratedBrowserStorage(
+      localStorage,
+      storageKeys.browser,
+      storageKeys.legacyBrowser,
+      parsePersistedUiPreferences
+    ).value ?? structuredClone(defaultUiPreferences)
+  )
 }
 
 export const usePreferencesStore = defineStore('preferences', () => {
@@ -207,11 +245,17 @@ export const usePreferencesStore = defineStore('preferences', () => {
   let queuedSerialized: string | null = null
   let activePersistence: Promise<void> | null = null
   let loadGeneration = 0
+  let loadController: AbortController | null = null
+  let writeController: AbortController | null = null
   const colorSchemeMedia =
     typeof matchMedia === 'function' ? matchMedia('(prefers-color-scheme: dark)') : null
 
   async function load(): Promise<void> {
     const generation = ++loadGeneration
+    const privateStateEpoch = session.privateStateEpoch
+    loadController?.abort()
+    const controller = new AbortController()
+    loadController = controller
     suppressSave = true
     if (persistenceTimer) clearTimeout(persistenceTimer)
     persistenceTimer = null
@@ -221,26 +265,56 @@ export const usePreferencesStore = defineStore('preferences', () => {
     if (generation !== loadGeneration) return
     try {
       if (session.capabilities?.has('clientData')) {
-        const loadedData = await api.clientData.load([clientDataKey])
-        if (generation !== loadGeneration) return
-        value.value =
-          clientDataKey in loadedData
-            ? migrateUiPreferences(loadedData[clientDataKey])
-            : readLocal()
+        const loadedData = await api.clientData.load(
+          [storageKeys.clientData, storageKeys.legacyClientData],
+          controller.signal
+        )
+        if (
+          controller.signal.aborted ||
+          generation !== loadGeneration ||
+          privateStateEpoch !== session.privateStateEpoch
+        )
+          return
+        const canonical = parsePersistedUiPreferences(loadedData[storageKeys.clientData])
+        const legacy = parsePersistedUiPreferences(loadedData[storageKeys.legacyClientData])
+        value.value = canonical ?? legacy ?? readLocal()
+        if (!canonical && legacy) {
+          try {
+            await api.clientData.store({ [storageKeys.clientData]: legacy }, controller.signal)
+          } catch {
+            // A valid legacy value remains active; a later save can retry migration.
+          }
+          if (
+            controller.signal.aborted ||
+            generation !== loadGeneration ||
+            privateStateEpoch !== session.privateStateEpoch
+          )
+            return
+        }
       } else {
         value.value = readLocal()
       }
     } catch {
-      if (generation !== loadGeneration) return
+      if (
+        controller.signal.aborted ||
+        generation !== loadGeneration ||
+        privateStateEpoch !== session.privateStateEpoch
+      )
+        return
       value.value = readLocal()
     } finally {
-      if (generation === loadGeneration) {
+      if (
+        !controller.signal.aborted &&
+        generation === loadGeneration &&
+        privateStateEpoch === session.privateStateEpoch
+      ) {
         loaded.value = true
         applyTheme()
         setApplicationLocale(value.value.locale)
         await nextTick()
         if (generation === loadGeneration) suppressSave = false
       }
+      if (loadController === controller) loadController = null
     }
   }
 
@@ -255,18 +329,25 @@ export const usePreferencesStore = defineStore('preferences', () => {
   async function writeSnapshot(serialized: string): Promise<void> {
     if (typeof localStorage !== 'undefined') {
       try {
-        localStorage.setItem(storageKey, serialized)
+        localStorage.setItem(storageKeys.browser, serialized)
       } catch {
         // A blocked or full localStorage must not prevent the server-side fallback.
       }
     }
     if (!session.capabilities?.has('clientData')) return
+    const privateStateEpoch = session.privateStateEpoch
+    const controller = new AbortController()
+    writeController = controller
     try {
-      await api.clientData.store({
-        [clientDataKey]: JSON.parse(serialized) as UiPreferences
-      })
+      await api.clientData.store(
+        { [storageKeys.clientData]: JSON.parse(serialized) as UiPreferences },
+        controller.signal
+      )
     } catch {
       // Persistence is best-effort. The next preference change can retry safely.
+    } finally {
+      if (writeController === controller) writeController = null
+      if (privateStateEpoch !== session.privateStateEpoch) controller.abort()
     }
   }
 
@@ -350,6 +431,19 @@ export const usePreferencesStore = defineStore('preferences', () => {
   watch(() => value.value.theme, applyTheme)
   watch(() => value.value.locale, setApplicationLocale)
   watch(
+    () => session.privateStateEpoch,
+    () => {
+      loadGeneration += 1
+      loadController?.abort()
+      writeController?.abort()
+      loadController = null
+      writeController = null
+      queuedSerialized = null
+      scheduledSerialized = null
+    },
+    { flush: 'sync' }
+  )
+  watch(
     value,
     () => {
       if (!suppressSave) schedulePersistence()
@@ -359,6 +453,8 @@ export const usePreferencesStore = defineStore('preferences', () => {
   colorSchemeMedia?.addEventListener('change', onColorSchemeChange)
   onScopeDispose(() => {
     colorSchemeMedia?.removeEventListener('change', onColorSchemeChange)
+    loadController?.abort()
+    writeController?.abort()
     if (persistenceTimer) clearTimeout(persistenceTimer)
     persistenceTimer = null
   })

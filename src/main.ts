@@ -9,6 +9,7 @@ import { mockBackendEnabled } from '@/config/deployment'
 import { i18n, readBootstrapLocalePreference, setApplicationLocale } from '@/i18n'
 import { useOperationsHistoryStore } from '@/stores/operationsHistory'
 import { usePwaStore } from '@/stores/pwa'
+import { appEvents } from '@/config/appIdentity'
 import '@/styles/main.css'
 
 async function bootstrap(): Promise<void> {
@@ -27,7 +28,7 @@ async function bootstrap(): Promise<void> {
   const pwa = usePwaStore(pinia)
   pwa.initialize()
   const api = createQbittorrentApi({
-    onAuthenticationExpired: () => window.dispatchEvent(new Event('neotorrent:auth-expired')),
+    onAuthenticationExpired: () => window.dispatchEvent(new Event(appEvents.authenticationExpired)),
     onOperation: operationsHistory.record
   })
   app.use(pinia)

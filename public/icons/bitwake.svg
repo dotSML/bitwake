@@ -1,4 +1,3 @@
-<!-- Legacy path alias for one Bitwake upgrade window. -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Bitwake">
   <rect width="128" height="128" rx="28" fill="#2563eb"/>
   <path d="M30 29h35c20 0 31 8 31 22 0 8-4 14-12 18 10 4 15 11 15 21 0 17-12 26-34 26H30zm18 16v18h16c9 0 14-3 14-9s-5-9-14-9zm0 33v22h18c10 0 15-4 15-11s-5-11-15-11z" fill="#fff"/>

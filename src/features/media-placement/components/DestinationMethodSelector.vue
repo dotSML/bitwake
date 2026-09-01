@@ -7,7 +7,7 @@ const model = defineModel<DestinationMethod>({ required: true })
 
 <template>
   <fieldset class="method-selector">
-    <legend>How should NeoTorrent choose the destination?</legend>
+    <legend>How should Bitwake choose the destination?</legend>
     <div class="method-options">
       <label v-if="kind === 'tv' || kind === 'movie'">
         <input v-model="model" type="radio" value="suggested" />

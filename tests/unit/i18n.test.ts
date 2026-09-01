@@ -6,6 +6,7 @@ import {
   setApplicationLocale
 } from '@/i18n'
 import { formatBytes, formatTimestamp } from '@/utils/format'
+import { appStorageKeys } from '@/config/appIdentity'
 
 function messageKeys(value: unknown, prefix = ''): string[] {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return [prefix]
@@ -35,12 +36,28 @@ describe('internationalization catalog', () => {
   })
 
   it('restores only a valid persisted locale before public or private bootstrap', () => {
-    const storage = { getItem: () => JSON.stringify({ locale: 'et', privateValue: 'ignored' }) }
+    const storage = {
+      getItem: (key: string) =>
+        key === appStorageKeys.uiPreferences.browser
+          ? JSON.stringify({ locale: 'et', privateValue: 'ignored' })
+          : null
+    }
     expect(readBootstrapLocalePreference(storage)).toBe('et')
     expect(readBootstrapLocalePreference({ getItem: () => '{broken' })).toBe('system')
     expect(
       readBootstrapLocalePreference({ getItem: () => JSON.stringify({ locale: 'future' }) })
     ).toBe('system')
+  })
+
+  it('uses canonical locale first, then a valid legacy locale when canonical data is malformed', () => {
+    const values = new Map<string, string>([
+      [appStorageKeys.uiPreferences.browser, JSON.stringify({ locale: 'en' })],
+      [appStorageKeys.uiPreferences.legacyBrowser, JSON.stringify({ locale: 'et' })]
+    ])
+    expect(readBootstrapLocalePreference({ getItem: (key) => values.get(key) ?? null })).toBe('en')
+
+    values.set(appStorageKeys.uiPreferences.browser, '{broken')
+    expect(readBootstrapLocalePreference({ getItem: (key) => values.get(key) ?? null })).toBe('et')
   })
 
   it('keeps native number and date formatting aligned with the selected language', () => {

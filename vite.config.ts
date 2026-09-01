@@ -4,6 +4,7 @@ import vue from '@vitejs/plugin-vue'
 import { defineConfig, loadEnv } from 'vite'
 import { VitePWA } from 'vite-plugin-pwa'
 import type { DeploymentMode } from './src/config/deployment'
+import { appIdentity } from './src/config/appIdentity'
 import packageMetadata from './package.json' with { type: 'json' }
 
 function deploymentModeForViteMode(mode: string): DeploymentMode {
@@ -54,14 +55,18 @@ export default defineConfig(({ mode }) => {
         disable: alternativePublic,
         registerType: 'prompt',
         includeAssets: [
+          'icons/bitwake.svg',
+          'icons/bitwake-192.png',
+          'icons/bitwake-512.png',
+          // Legacy icon paths remain aliases for one upgrade window.
           'icons/neotorrent.svg',
           'icons/neotorrent-192.png',
           'icons/neotorrent-512.png'
         ],
         manifest: {
           id: './',
-          name: 'NeoTorrent',
-          short_name: 'NeoTorrent',
+          name: appIdentity.name,
+          short_name: appIdentity.name,
           description: 'A focused, responsive qBittorrent WebUI',
           theme_color: '#111827',
           background_color: '#0b0f17',
@@ -70,19 +75,19 @@ export default defineConfig(({ mode }) => {
           scope: './',
           icons: [
             {
-              src: 'icons/neotorrent-192.png',
+              src: 'icons/bitwake-192.png',
               sizes: '192x192',
               type: 'image/png',
               purpose: 'any'
             },
             {
-              src: 'icons/neotorrent-512.png',
+              src: 'icons/bitwake-512.png',
               sizes: '512x512',
               type: 'image/png',
               purpose: 'any maskable'
             },
             {
-              src: 'icons/neotorrent.svg',
+              src: 'icons/bitwake.svg',
               sizes: 'any',
               type: 'image/svg+xml',
               purpose: 'any maskable'
@@ -100,12 +105,14 @@ export default defineConfig(({ mode }) => {
           globPatterns: alternativePrivate
             ? ['**/*.{js,css,svg,png,woff2}']
             : ['**/*.{html,js,css,svg,png,woff2}'],
-          globIgnores: ['**/_neotorrent/**', '**/runtime-config.json'],
+          globIgnores: ['**/_bitwake/**', '**/_neotorrent/**', '**/runtime-config.json'],
           runtimeCaching: [
             {
               // Match the runtime resource relative to any deployment scope;
-              // a root-only equality check misses reverse-proxy subpaths.
-              urlPattern: ({ url }) => url.pathname.endsWith('/_neotorrent/runtime-config.json'),
+              // a root-only equality check misses reverse-proxy subpaths. The
+              // NeoTorrent path is a one-release NetworkOnly compatibility alias.
+              urlPattern: ({ url }) =>
+                /\/_(?:bitwake|neotorrent)\/runtime-config\.json$/u.test(url.pathname),
               handler: 'NetworkOnly',
               method: 'GET'
             },
@@ -143,13 +150,18 @@ export default defineConfig(({ mode }) => {
     define: {
       __DEPLOYMENT_MODE__: JSON.stringify(deploymentMode),
       __MOCK_BACKEND__: JSON.stringify(mockBackendEnabled),
-      __NEOTORRENT_VERSION__: JSON.stringify(
-        env.NEOTORRENT_BUILD_VERSION || packageMetadata.version
+      __BITWAKE_VERSION__: JSON.stringify(
+        env.BITWAKE_BUILD_VERSION ?? env.NEOTORRENT_BUILD_VERSION ?? packageMetadata.version
       ),
-      __NEOTORRENT_REVISION__: JSON.stringify(
-        env.NEOTORRENT_BUILD_REVISION || env.GITHUB_SHA || 'development'
+      __BITWAKE_REVISION__: JSON.stringify(
+        env.BITWAKE_BUILD_REVISION ??
+          env.NEOTORRENT_BUILD_REVISION ??
+          env.GITHUB_SHA ??
+          'development'
       ),
-      __NEOTORRENT_BUILD_DATE__: JSON.stringify(env.NEOTORRENT_BUILD_DATE || '')
+      __BITWAKE_BUILD_DATE__: JSON.stringify(
+        env.BITWAKE_BUILD_DATE ?? env.NEOTORRENT_BUILD_DATE ?? ''
+      )
     },
     ...(proxyTarget
       ? {

@@ -29,7 +29,7 @@ export function assessSystemHealth(input: SystemHealthInput): SystemHealthAssess
 
   if (!input.browserOnline) reasons.push('This browser reports that it is offline.')
   if (input.sessionStatus === 'disconnected') {
-    reasons.push('NeoTorrent cannot reach the qBittorrent Web API.')
+    reasons.push('Bitwake cannot reach the qBittorrent Web API.')
   } else if (input.sessionStatus !== 'authenticated') {
     reasons.push('There is no active authenticated qBittorrent session.')
   }
@@ -56,7 +56,7 @@ export function assessSystemHealth(input: SystemHealthInput): SystemHealthAssess
     return {
       level: 'unavailable',
       title: 'qBittorrent unavailable',
-      summary: 'NeoTorrent is preserving the last good data while connectivity recovers.',
+      summary: 'Bitwake is preserving the last good data while connectivity recovers.',
       staleForMs,
       reasons
     }

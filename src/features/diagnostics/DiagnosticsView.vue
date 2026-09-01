@@ -13,8 +13,10 @@ import {
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useApi } from '@/app/providers/api'
-import { neotorrentBuild } from '@/config/build'
+import { bitwakeBuild } from '@/config/build'
+import { appIdentity } from '@/config/appIdentity'
 import { assessSystemHealth } from '@/domains/diagnostics/systemHealth'
+import { supportSnapshotSchema } from '@/domains/diagnostics/supportSnapshotSchema'
 import { useMediaPlacementStore } from '@/features/media-placement/stores/mediaPlacement'
 import { useNotificationsStore } from '@/stores/notifications'
 import { useOperationsHistoryStore } from '@/stores/operationsHistory'
@@ -157,8 +159,10 @@ async function refreshDiagnostics(): Promise<void> {
 function supportSnapshot() {
   const build = session.buildInfo
   return {
+    schema: supportSnapshotSchema.id,
+    schemaVersion: supportSnapshotSchema.version,
     generatedAt: new Date().toISOString(),
-    neotorrent: neotorrentBuild,
+    bitwake: bitwakeBuild,
     qbittorrent: {
       version: session.appVersion,
       webApiVersion: session.apiVersion,
@@ -232,7 +236,7 @@ function downloadDiagnostics(): void {
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
   link.href = url
-  link.download = `neotorrent-diagnostics-${new Date().toISOString().slice(0, 10)}.json`
+  link.download = `${appIdentity.slug}-diagnostics-${new Date().toISOString().slice(0, 10)}.json`
   link.click()
   globalThis.setTimeout(() => URL.revokeObjectURL(url), 0)
 }
@@ -309,12 +313,14 @@ onBeforeUnmount(() => {
       <section class="diagnostic-panel panel">
         <h2><HardDrive :size="17" />{{ t('diagnostics.versions') }}</h2>
         <dl>
-          <dt>NeoTorrent</dt>
-          <dd>{{ neotorrentBuild.version }}</dd>
+          <dt>{{ appIdentity.name }}</dt>
+          <dd>{{ bitwakeBuild.version }}</dd>
           <dt>Revision</dt>
-          <dd class="monospace">{{ neotorrentBuild.revision }}</dd>
+          <dd class="monospace">{{ bitwakeBuild.revision }}</dd>
+          <dt>Built</dt>
+          <dd>{{ bitwakeBuild.created || 'Unknown' }}</dd>
           <dt>Deployment</dt>
-          <dd>{{ neotorrentBuild.deploymentMode }}</dd>
+          <dd>{{ bitwakeBuild.deploymentMode }}</dd>
           <dt>qBittorrent</dt>
           <dd>{{ session.appVersion || 'Unknown' }}</dd>
           <dt>Web API</dt>

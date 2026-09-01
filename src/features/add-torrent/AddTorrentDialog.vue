@@ -61,7 +61,10 @@ interface AddSummary {
 }
 
 const props = defineProps<{ open: boolean; initialFiles?: File[] }>()
-const emit = defineEmits<{ 'update:open': [value: boolean] }>()
+const emit = defineEmits<{
+  'update:open': [value: boolean]
+  'update:dirty': [value: boolean]
+}>()
 const api = useApi()
 const torrents = useTorrentsStore()
 const notifications = useNotificationsStore()
@@ -111,6 +114,15 @@ const sources = computed(() =>
     .filter(Boolean)
 )
 const hasInput = computed(() => sources.value.length > 0 || files.value.length > 0)
+const dirty = computed(
+  () =>
+    hasInput.value ||
+    Boolean(savePath.value || category.value || tags.value) ||
+    !startImmediately.value ||
+    autoManagement.value ||
+    sequential.value ||
+    firstLast.value
+)
 const assistMode = computed(() => placement.config.mode === 'assist')
 const categoryNames = computed(() => [...torrents.categories.keys()])
 const categoryPaths = computed(() =>
@@ -145,6 +157,8 @@ const evaluations = computed(() =>
   )
 )
 const retrying = computed(() => plans.value.some((plan) => plan.status === 'failed'))
+
+watch(dirty, (value) => emit('update:dirty', value), { immediate: true })
 
 watch(
   () => props.open,
@@ -673,7 +687,7 @@ function submit(): void {
   <AppDialog
     :open="open"
     title="Add torrents"
-    description="Add files, magnet links, or torrent URLs. Sources are not saved by NeoTorrent."
+    description="Add files, magnet links, or torrent URLs. Sources are not saved by Bitwake."
     wide
     fullscreen-mobile
     :dismissible="!submitting"
@@ -779,8 +793,8 @@ function submit(): void {
             >The configured categor{{
               missingConfiguredCategories.length === 1 ? 'y is' : 'ies are'
             }}
-            not available in qBittorrent: {{ missingConfiguredCategories.join(', ') }}. NeoTorrent
-            will not create or apply
+            not available in qBittorrent: {{ missingConfiguredCategories.join(', ') }}. Bitwake will
+            not create or apply
             {{ missingConfiguredCategories.length === 1 ? 'it' : 'them' }} automatically.</span
           >
         </div>

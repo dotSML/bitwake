@@ -611,7 +611,7 @@ onMounted(() => void load())
           <details v-if="activeSection === 'Advanced' && !search" class="unknown-settings">
             <summary>Future or unknown preference keys ({{ unknownKeys.length }})</summary>
             <p>
-              Shown read-only because NeoTorrent has no validated editor for these values. Sensitive
+              Shown read-only because Bitwake has no validated editor for these values. Sensitive
               keys are omitted.
             </p>
             <dl>

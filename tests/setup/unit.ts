@@ -7,9 +7,9 @@ const dom = new JSDOM('<!doctype html><html><head></head><body></body></html>', 
 
 vi.stubGlobal('__DEPLOYMENT_MODE__', 'mock')
 vi.stubGlobal('__MOCK_BACKEND__', true)
-vi.stubGlobal('__NEOTORRENT_VERSION__', 'test')
-vi.stubGlobal('__NEOTORRENT_REVISION__', 'test')
-vi.stubGlobal('__NEOTORRENT_BUILD_DATE__', '')
+vi.stubGlobal('__BITWAKE_VERSION__', 'test')
+vi.stubGlobal('__BITWAKE_REVISION__', 'test')
+vi.stubGlobal('__BITWAKE_BUILD_DATE__', '')
 
 Object.defineProperties(globalThis, {
   window: { configurable: true, value: dom.window },

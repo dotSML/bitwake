@@ -180,7 +180,7 @@ export function validateManualPath(
         ? warning(
             'outside-media-roots',
             'This destination is outside the configured media libraries.',
-            'NeoTorrent cannot verify its Jellyfin folder structure. qBittorrent will validate filesystem access.',
+            'Bitwake cannot verify its Jellyfin folder structure. qBittorrent will validate filesystem access.',
             false
           )
         : warning(

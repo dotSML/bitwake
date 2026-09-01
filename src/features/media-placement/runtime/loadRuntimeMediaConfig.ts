@@ -5,6 +5,7 @@ import {
   mediaLibraryRootsOverlap
 } from '@/features/media-placement/domain/pathUtils'
 import { containsControlCharacters } from '@/features/media-placement/domain/textSafety'
+import { appRuntimeUrls } from '@/config/appIdentity'
 
 export type MediaPlacementMode = 'off' | 'assist'
 
@@ -32,7 +33,7 @@ export interface LoadRuntimeMediaConfigOptions {
   timeoutMs?: number
 }
 
-export const RUNTIME_MEDIA_CONFIG_URL = '/_neotorrent/runtime-config.json'
+export const RUNTIME_MEDIA_CONFIG_URL = appRuntimeUrls.mediaPlacement
 
 export const OFF_RUNTIME_MEDIA_CONFIG: Readonly<RuntimeMediaPlacementConfig> = Object.freeze({
   mode: 'off',

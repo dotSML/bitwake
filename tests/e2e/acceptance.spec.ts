@@ -181,7 +181,7 @@ test.describe('desktop acceptance workflows', () => {
     await expect
       .poll(() =>
         page.evaluate(() => {
-          const raw = localStorage.getItem('neotorrent:ui-preferences')
+          const raw = localStorage.getItem('bitwake:ui-preferences')
           if (!raw) return null
           const value = JSON.parse(raw) as {
             columnOrder?: string[]
@@ -331,7 +331,7 @@ test.describe('desktop acceptance workflows', () => {
     await setFetchControl(page, { failMainData: true })
 
     const banner = page.getByText(
-      'Connection lost. Showing the last good data while NeoTorrent reconnects.'
+      'Connection lost. Showing the last good data while Bitwake reconnects.'
     )
     await expect(banner).toBeVisible({ timeout: 6_000 })
     await expect(page.getByRole('grid', { name: 'Torrents' })).toHaveAttribute(

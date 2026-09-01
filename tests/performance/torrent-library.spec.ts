@@ -18,10 +18,11 @@ interface PerformanceSample {
 
 function positiveInteger(
   name: string,
+  legacyName: string,
   fallback: number,
   maximum = Number.MAX_SAFE_INTEGER
 ): number {
-  const raw = process.env[name]
+  const raw = process.env[name] ?? process.env[legacyName]
   if (raw === undefined) return fallback
   const value = Number(raw)
   if (!Number.isInteger(value) || value <= 0 || value > maximum) {
@@ -45,9 +46,9 @@ function median(values: readonly number[]): number {
 async function installProductionApiFixture(page: Page, torrentCount: number): Promise<void> {
   await page.addInitScript((count) => {
     const measuredGlobal = globalThis as typeof globalThis & {
-      __neotorrentPerformanceStartedAt: number
+      __bitwakePerformanceStartedAt: number
     }
-    measuredGlobal.__neotorrentPerformanceStartedAt = performance.now()
+    measuredGlobal.__bitwakePerformanceStartedAt = performance.now()
     const originalFetch = globalThis.fetch.bind(globalThis)
     globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(
@@ -56,7 +57,7 @@ async function installProductionApiFixture(page: Page, torrentCount: number): Pr
       )
       const path = url.pathname
 
-      if (path.endsWith('/_neotorrent/runtime-config.json')) {
+      if (path.endsWith('/_bitwake/runtime-config.json')) {
         return Response.json(
           {
             mediaPlacement: {
@@ -153,9 +154,9 @@ async function measure(
     await settleRendering(page)
     const startupMs = await page.evaluate(() => {
       const measuredGlobal = globalThis as typeof globalThis & {
-        __neotorrentPerformanceStartedAt: number
+        __bitwakePerformanceStartedAt: number
       }
-      return performance.now() - measuredGlobal.__neotorrentPerformanceStartedAt
+      return performance.now() - measuredGlobal.__bitwakePerformanceStartedAt
     })
 
     const filter = page.getByRole('searchbox', { name: /Filter torrents/u }).first()
@@ -203,15 +204,43 @@ test('measures calibrated torrent-library timing and retained browser memory', a
 }, testInfo) => {
   test.slow()
   const scales = [10, 500, 5_000] as const
-  const iterations = positiveInteger('NEOTORRENT_PERF_ITERATIONS', 3, 10)
+  const iterations = positiveInteger('BITWAKE_PERF_ITERATIONS', 'NEOTORRENT_PERF_ITERATIONS', 3, 10)
   const budgets = {
-    startupP95Ms: positiveInteger('NEOTORRENT_PERF_STARTUP_P95_MS', 15_000),
-    filterP95Ms: positiveInteger('NEOTORRENT_PERF_FILTER_P95_MS', 3_000),
-    heapUsedMaxBytes: positiveInteger('NEOTORRENT_PERF_HEAP_MAX_MB', 256) * 1024 * 1024,
-    heapGrowthMaxBytes: positiveInteger('NEOTORRENT_PERF_HEAP_GROWTH_MAX_MB', 160) * 1024 * 1024,
-    domNodesMax: positiveInteger('NEOTORRENT_PERF_DOM_NODES_MAX', 10_000),
-    renderedRowsMax: positiveInteger('NEOTORRENT_PERF_RENDERED_ROWS_MAX', 100),
-    startupScaleRatioMax: positiveInteger('NEOTORRENT_PERF_STARTUP_SCALE_RATIO_MAX', 12)
+    startupP95Ms: positiveInteger(
+      'BITWAKE_PERF_STARTUP_P95_MS',
+      'NEOTORRENT_PERF_STARTUP_P95_MS',
+      15_000
+    ),
+    filterP95Ms: positiveInteger(
+      'BITWAKE_PERF_FILTER_P95_MS',
+      'NEOTORRENT_PERF_FILTER_P95_MS',
+      3_000
+    ),
+    heapUsedMaxBytes:
+      positiveInteger('BITWAKE_PERF_HEAP_MAX_MB', 'NEOTORRENT_PERF_HEAP_MAX_MB', 256) * 1024 * 1024,
+    heapGrowthMaxBytes:
+      positiveInteger(
+        'BITWAKE_PERF_HEAP_GROWTH_MAX_MB',
+        'NEOTORRENT_PERF_HEAP_GROWTH_MAX_MB',
+        160
+      ) *
+      1024 *
+      1024,
+    domNodesMax: positiveInteger(
+      'BITWAKE_PERF_DOM_NODES_MAX',
+      'NEOTORRENT_PERF_DOM_NODES_MAX',
+      10_000
+    ),
+    renderedRowsMax: positiveInteger(
+      'BITWAKE_PERF_RENDERED_ROWS_MAX',
+      'NEOTORRENT_PERF_RENDERED_ROWS_MAX',
+      100
+    ),
+    startupScaleRatioMax: positiveInteger(
+      'BITWAKE_PERF_STARTUP_SCALE_RATIO_MAX',
+      'NEOTORRENT_PERF_STARTUP_SCALE_RATIO_MAX',
+      12
+    )
   }
 
   for (const scale of scales) await measure(browser, scale, -1)
@@ -267,7 +296,9 @@ test('measures calibrated torrent-library timing and retained browser memory', a
     samples
   }
   const reportPath = resolve(
-    process.env.NEOTORRENT_PERFORMANCE_OUTPUT ?? 'test-results/performance/metrics.json'
+    process.env.BITWAKE_PERFORMANCE_OUTPUT ??
+      process.env.NEOTORRENT_PERFORMANCE_OUTPUT ??
+      'test-results/performance/metrics.json'
   )
   await mkdir(dirname(reportPath), { recursive: true })
   await writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`)

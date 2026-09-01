@@ -7,6 +7,7 @@ import { useMediaPlacementStore } from '@/features/media-placement/stores/mediaP
 import { useSessionStore } from '@/stores/session'
 import { useTorrentsStore } from '@/stores/torrents'
 import { useOperationsHistoryStore } from '@/stores/operationsHistory'
+import { appEvents } from '@/config/appIdentity'
 
 const session = useSessionStore()
 const torrents = useTorrentsStore()
@@ -103,7 +104,7 @@ watch(
 
 onMounted(() => {
   active = true
-  window.addEventListener('neotorrent:auth-expired', onExpired)
+  window.addEventListener(appEvents.authenticationExpired, onExpired)
   document.addEventListener('visibilitychange', onVisibility)
   void initialize()
 })
@@ -111,14 +112,14 @@ onBeforeUnmount(() => {
   active = false
   clearRetryTimers()
   torrents.stopSync()
-  window.removeEventListener('neotorrent:auth-expired', onExpired)
+  window.removeEventListener(appEvents.authenticationExpired, onExpired)
   document.removeEventListener('visibilitychange', onVisibility)
 })
 </script>
 
 <template>
   <div v-if="session.status === 'checking'" class="startup-screen" role="status">
-    <div class="startup-mark">N</div>
+    <div class="startup-mark">B</div>
     <span>Connecting to qBittorrent…</span>
   </div>
   <div

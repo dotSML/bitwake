@@ -1,12 +1,13 @@
 import { delay, http, HttpResponse } from 'msw'
 import { createFiles, createTorrents } from './fixtures'
+import { appStorageKeys } from '@/config/appIdentity'
 
 const api = (path: string) => new RegExp(`/api/v2/${path.replace('/', '\\/')}(?:\\?.*)?$`)
 const torrents = createTorrents(24)
 const files = createFiles()
 let rid = 0
 let searchId = 1
-const clientDataStorageKey = 'neotorrent:mock-client-data'
+const clientDataStorageKey = appStorageKeys.mockClientData
 
 function readClientData(): Record<string, unknown> {
   try {

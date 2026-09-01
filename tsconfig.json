@@ -36,6 +36,7 @@
     "playwright.config.ts",
     "playwright.performance.config.ts",
     "playwright.pwa.config.ts",
+    "playwright.pwa-upgrade.config.ts",
     "playwright.alt-pwa.config.ts",
     "tailwind.config.ts"
   ],

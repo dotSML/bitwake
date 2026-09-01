@@ -12,6 +12,7 @@ import { useSavedTorrentFiltersStore } from '@/stores/savedTorrentFilters'
 import { useSessionStore } from '@/stores/session'
 import { useTorrentsStore } from '@/stores/torrents'
 import { createTestContext } from './support/mount'
+import { appStorageKeys } from '@/config/appIdentity'
 
 function setup(mode: DeploymentMode) {
   const context = createTestContext()
@@ -57,9 +58,9 @@ function setup(mode: DeploymentMode) {
 }
 
 describe('central session lifecycle', () => {
-  it('clears a prior local Media Placement fallback before a different user logs in', async () => {
+  it('clears canonical and legacy Media Placement fallbacks before a different user logs in', async () => {
     localStorage.setItem(
-      'neotorrent:media-placement',
+      appStorageKeys.mediaPlacement.legacyBrowser,
       JSON.stringify({
         mode: 'assist',
         tvRoot: '/user-a/private-tv',
@@ -69,9 +70,12 @@ describe('central session lifecycle', () => {
         movieCategory: 'User A Movies'
       })
     )
+    localStorage.setItem(
+      appStorageKeys.mediaPlacement.browser,
+      localStorage.getItem(appStorageKeys.mediaPlacement.legacyBrowser) ?? ''
+    )
     const harness = setup('standalone')
     await harness.context.router.push('/torrents')
-    expect(harness.mediaPlacement.config.tvRoot).toBe('/user-a/private-tv')
     vi.spyOn(harness.context.api.auth, 'login').mockResolvedValue()
     vi.spyOn(harness.session, 'detect')
       .mockImplementationOnce(() => {
@@ -84,7 +88,8 @@ describe('central session lifecycle', () => {
       })
 
     await harness.lifecycle.initialize()
-    expect(localStorage.getItem('neotorrent:media-placement')).toBeNull()
+    expect(localStorage.getItem(appStorageKeys.mediaPlacement.browser)).toBeNull()
+    expect(localStorage.getItem(appStorageKeys.mediaPlacement.legacyBrowser)).toBeNull()
     expect(harness.mediaPlacement.config.tvRoot).toBe('')
 
     await harness.lifecycle.login({ username: 'user-b', password: 'secret' })

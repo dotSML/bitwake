@@ -7,6 +7,7 @@ import { createTorrent } from '@/mocks/fixtures'
 import { useSavedTorrentFiltersStore } from '@/stores/savedTorrentFilters'
 import { useSessionStore } from '@/stores/session'
 import { useTorrentsStore } from '@/stores/torrents'
+import { usePwaStore } from '@/stores/pwa'
 import { createTestContext, mountWithContext } from './support/mount'
 
 function element<T extends Element>(selector: string): DOMWrapper<T> {
@@ -62,6 +63,23 @@ async function setup() {
 }
 
 describe('advanced torrent filters', () => {
+  it('tracks an edited draft for PWA reload protection and clears it on close and clean reopen', async () => {
+    const { context, wrapper } = await setup()
+    const pwa = context.run(() => usePwaStore(context.pinia))
+
+    await wrapper.get('.advanced-filter-button').trigger('click')
+    await element<HTMLInputElement>('#advanced-filter-text').setValue('unsaved')
+    expect(pwa.hasUnsavedDialog).toBe(true)
+
+    await dialogButton('Cancel').trigger('click')
+    await nextTick()
+    expect(pwa.hasUnsavedDialog).toBe(false)
+
+    await wrapper.get('.advanced-filter-button').trigger('click')
+    await nextTick()
+    expect(pwa.hasUnsavedDialog).toBe(false)
+  })
+
   it('does not save into a collection that is still loading', async () => {
     const context = createTestContext()
     const savedFilters = context.run(() => useSavedTorrentFiltersStore(context.pinia))

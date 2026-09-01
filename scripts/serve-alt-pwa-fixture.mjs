@@ -7,11 +7,13 @@ import { fileURLToPath, URL } from 'node:url'
 const root = resolve(fileURLToPath(new URL('../dist/alt-webui/', import.meta.url)))
 const publicRoot = join(root, 'public')
 const privateRoot = join(root, 'private')
-const port = Number(process.env.NEOTORRENT_ALT_PWA_PORT ?? '4191')
+const port = Number(
+  process.env.BITWAKE_ALT_PWA_PORT ?? process.env.NEOTORRENT_ALT_PWA_PORT ?? '4191'
+)
 const sessionCookie = 'SID=alternative-pwa-fixture'
 
 if (!Number.isSafeInteger(port) || port < 1 || port > 65_535) {
-  throw new Error('NEOTORRENT_ALT_PWA_PORT must be a valid TCP port')
+  throw new Error('BITWAKE_ALT_PWA_PORT must be a valid TCP port')
 }
 
 const contentTypes = new Map([
@@ -141,7 +143,11 @@ const server = createServer(async (request, response) => {
     serveApi(request, response, url)
     return
   }
-  if (url.pathname === '/_neotorrent/runtime-config.json') {
+  // Keep the legacy runtime URL live and NetworkOnly during the rename window.
+  if (
+    url.pathname === '/_bitwake/runtime-config.json' ||
+    url.pathname === '/_neotorrent/runtime-config.json'
+  ) {
     sendJson(response, {
       mediaPlacement: {
         mode: 'off',

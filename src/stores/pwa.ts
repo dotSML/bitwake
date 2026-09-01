@@ -13,11 +13,14 @@ export const usePwaStore = defineStore('pwa', () => {
   const updateAvailable = ref(false)
   const offlineReady = ref(false)
   const applyingUpdate = ref(false)
+  const updateBlocked = ref(false)
   const installed = ref(false)
+  const unsavedDialogs = ref<Set<string>>(new Set())
   let updater: ServiceWorkerUpdater | null = null
   let listening = false
 
   const canInstall = computed(() => installPrompt.value !== null && !installed.value)
+  const hasUnsavedDialog = computed(() => unsavedDialogs.value.size > 0)
   const standalone = computed(
     () =>
       typeof window !== 'undefined' &&
@@ -56,6 +59,15 @@ export const usePwaStore = defineStore('pwa', () => {
 
   function dismissUpdate(): void {
     updateAvailable.value = false
+    updateBlocked.value = false
+  }
+
+  function trackUnsavedDialog(id: string, unsaved: boolean): void {
+    const next = new Set(unsavedDialogs.value)
+    if (unsaved) next.add(id)
+    else next.delete(id)
+    unsavedDialogs.value = next
+    if (!next.size) updateBlocked.value = false
   }
 
   async function install(): Promise<'accepted' | 'dismissed' | 'unavailable'> {
@@ -68,11 +80,17 @@ export const usePwaStore = defineStore('pwa', () => {
     return choice.outcome
   }
 
-  async function applyUpdate(): Promise<void> {
-    if (!updater || applyingUpdate.value) return
+  async function applyUpdate(): Promise<boolean> {
+    if (hasUnsavedDialog.value) {
+      updateBlocked.value = true
+      return false
+    }
+    if (!updater || applyingUpdate.value) return false
+    updateBlocked.value = false
     applyingUpdate.value = true
     try {
       await updater(true)
+      return true
     } finally {
       applyingUpdate.value = false
     }
@@ -84,6 +102,8 @@ export const usePwaStore = defineStore('pwa', () => {
     updateAvailable,
     offlineReady,
     applyingUpdate,
+    updateBlocked,
+    hasUnsavedDialog,
     installed,
     initialize,
     captureInstallPrompt,
@@ -92,6 +112,7 @@ export const usePwaStore = defineStore('pwa', () => {
     markUpdateAvailable,
     markOfflineReady,
     dismissUpdate,
+    trackUnsavedDialog,
     install,
     applyUpdate
   }

@@ -71,7 +71,7 @@ test('drags and persists a desktop torrent column width', async ({ page }, testI
   await expect
     .poll(() =>
       page.evaluate(() => {
-        const raw = localStorage.getItem('neotorrent:ui-preferences')
+        const raw = localStorage.getItem('bitwake:ui-preferences')
         if (!raw) return null
         return (JSON.parse(raw) as { columnWidths?: { name?: number } }).columnWidths?.name ?? null
       })
@@ -145,7 +145,7 @@ test('cycles light and dark themes and persists the preference', async ({ page }
   await expect
     .poll(() =>
       page.evaluate(() => {
-        const raw = localStorage.getItem('neotorrent:ui-preferences')
+        const raw = localStorage.getItem('bitwake:ui-preferences')
         if (!raw) return null
         const stored: unknown = JSON.parse(raw) as unknown
         if (!stored || typeof stored !== 'object') return null
@@ -165,12 +165,12 @@ test('switches translated shell titles, settings labels, and document language',
   await page.locator('#interface-language').selectOption('et')
 
   await expect(page.locator('html')).toHaveAttribute('lang', 'et')
-  await expect(page).toHaveTitle('Seaded · NeoTorrent')
-  await expect(page.getByRole('heading', { name: 'NeoTorrenti kasutajaliides' })).toBeVisible()
+  await expect(page).toHaveTitle('Seaded · Bitwake')
+  await expect(page.getByRole('heading', { name: 'Bitwake’i kasutajaliides' })).toBeVisible()
   await expect(page.getByText('Töölaua tihedus')).toBeVisible()
 
   await page.getByRole('link', { name: 'Diagnostika' }).click()
-  await expect(page).toHaveTitle('Diagnostika · NeoTorrent')
+  await expect(page).toHaveTitle('Diagnostika · Bitwake')
   await expect(page.getByRole('heading', { name: 'Diagnostika ja süsteemi seisund' })).toBeVisible()
 })
 

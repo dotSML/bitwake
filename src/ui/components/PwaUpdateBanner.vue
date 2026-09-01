@@ -48,7 +48,7 @@ async function dismissUpdate(): Promise<void> {
     <Download :size="18" aria-hidden="true" />
     <span
       ><strong>{{ t('pwa.updateAvailable') }}</strong
-      ><small>{{ t('pwa.updateHint') }}</small></span
+      ><small>{{ t(pwa.updateBlocked ? 'pwa.updateBlocked' : 'pwa.updateHint') }}</small></span
     >
     <button
       class="btn btn-primary"

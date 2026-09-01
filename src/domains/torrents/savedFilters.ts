@@ -117,3 +117,13 @@ export function sanitizeSavedTorrentFilters(value: unknown): PersistedSavedTorre
 
   return { schemaVersion: 1, items }
 }
+
+/** Returns null for an invalid persistence envelope so migration can try another key. */
+export function parsePersistedSavedTorrentFilters(
+  value: unknown
+): PersistedSavedTorrentFilters | null {
+  const candidate = record(value)
+  if (!candidate || !Array.isArray(candidate.items)) return null
+  if (candidate.schemaVersion !== undefined && candidate.schemaVersion !== 1) return null
+  return sanitizeSavedTorrentFilters(candidate)
+}

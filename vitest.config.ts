@@ -8,9 +8,9 @@ const shared = {
   define: {
     __DEPLOYMENT_MODE__: JSON.stringify('mock'),
     __MOCK_BACKEND__: JSON.stringify(true),
-    __NEOTORRENT_VERSION__: JSON.stringify('test'),
-    __NEOTORRENT_REVISION__: JSON.stringify('test'),
-    __NEOTORRENT_BUILD_DATE__: JSON.stringify('')
+    __BITWAKE_VERSION__: JSON.stringify('test'),
+    __BITWAKE_REVISION__: JSON.stringify('test'),
+    __BITWAKE_BUILD_DATE__: JSON.stringify('')
   }
 }
 

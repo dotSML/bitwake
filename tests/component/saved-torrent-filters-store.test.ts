@@ -4,9 +4,12 @@ import { defaultTorrentFilters } from '@/domains/torrents/filtering'
 import { useSavedTorrentFiltersStore } from '@/stores/savedTorrentFilters'
 import { useSessionStore } from '@/stores/session'
 import { createTestContext } from './support/mount'
+import { appStorageKeys } from '@/config/appIdentity'
 
-const clientDataKey = 'neotorrent.saved-filters.v1'
-const fallbackKey = 'neotorrent:saved-filters'
+const clientDataKey = appStorageKeys.savedFilters.clientData
+const legacyNeoTorrentClientDataKey = appStorageKeys.savedFilters.legacyClientData
+const fallbackKey = appStorageKeys.savedFilters.browser
+const legacyNeoTorrentFallbackKey = appStorageKeys.savedFilters.legacyBrowser
 
 function setup(clientData: boolean) {
   const context = createTestContext()
@@ -25,6 +28,10 @@ describe('saved torrent filter store', () => {
         schemaVersion: 1,
         items: [{ id: 'local', name: 'Old local path', filters: { savePath: '/old-user' } }]
       })
+    )
+    window.sessionStorage.setItem(
+      legacyNeoTorrentFallbackKey,
+      window.sessionStorage.getItem(fallbackKey)!
     )
     vi.spyOn(context.api.clientData, 'load').mockResolvedValue({
       [clientDataKey]: {
@@ -48,7 +55,7 @@ describe('saved torrent filter store', () => {
     await store.load()
 
     expect(context.api.clientData.load).toHaveBeenCalledWith(
-      [clientDataKey],
+      [clientDataKey, legacyNeoTorrentClientDataKey],
       expect.any(AbortSignal)
     )
     expect(store.items).toEqual([
@@ -64,6 +71,28 @@ describe('saved torrent filter store', () => {
       }
     ])
     expect(window.sessionStorage.getItem(fallbackKey)).toBeNull()
+    expect(window.sessionStorage.getItem(legacyNeoTorrentFallbackKey)).toBeNull()
+  })
+
+  it('migrates a valid legacy NeoTorrent envelope after rejecting malformed canonical data', async () => {
+    const { context, store } = setup(true)
+    const legacy = {
+      schemaVersion: 1 as const,
+      items: [{ id: 'legacy', name: 'Legacy filter', filters: { text: 'wake' } }]
+    }
+    vi.spyOn(context.api.clientData, 'load').mockResolvedValue({
+      [clientDataKey]: { schemaVersion: 9, items: [] },
+      [legacyNeoTorrentClientDataKey]: legacy
+    })
+    const persist = vi.spyOn(context.api.clientData, 'store').mockResolvedValue()
+
+    await store.load()
+
+    expect(store.items.map((item) => item.name)).toEqual(['Legacy filter'])
+    expect(persist).toHaveBeenCalledOnce()
+    expect(persist.mock.calls[0]?.[0][clientDataKey]).toMatchObject({ schemaVersion: 1 })
+    expect(persist.mock.calls[0]?.[1]).toBeInstanceOf(AbortSignal)
+    expect(persist.mock.calls[0]?.[0]).not.toHaveProperty(legacyNeoTorrentClientDataKey)
   })
 
   it('creates, renames, and deletes bounded snapshots without duplicate names', async () => {
@@ -138,6 +167,29 @@ describe('saved torrent filter store', () => {
     expect(window.sessionStorage.getItem(fallbackKey)).toBeNull()
   })
 
+  it('migrates a valid legacy NeoTorrent browser-session fallback and retains it', async () => {
+    window.sessionStorage.setItem(
+      legacyNeoTorrentFallbackKey,
+      JSON.stringify({
+        schemaVersion: 1,
+        items: [{ id: 'legacy', name: 'Legacy browser filter', filters: { text: 'archive' } }]
+      })
+    )
+    const { store } = setup(false)
+
+    await store.load()
+
+    expect(store.items.map((item) => item.name)).toEqual(['Legacy browser filter'])
+    expect(JSON.parse(window.sessionStorage.getItem(fallbackKey) ?? '{}')).toMatchObject({
+      items: [{ name: 'Legacy browser filter' }]
+    })
+    expect(window.sessionStorage.getItem(legacyNeoTorrentFallbackKey)).not.toBeNull()
+
+    store.resetPrivateState()
+    expect(window.sessionStorage.getItem(fallbackKey)).toBeNull()
+    expect(window.sessionStorage.getItem(legacyNeoTorrentFallbackKey)).toBeNull()
+  })
+
   it('keeps a failed client-data save usable in memory but reports that it is not durable', async () => {
     const { context, store } = setup(true)
     vi.spyOn(context.api.clientData, 'load').mockResolvedValue({})
@@ -197,5 +249,31 @@ describe('saved torrent filter store', () => {
     await oldLoad
 
     expect(store.items.map((item) => item.name)).toEqual(['New session'])
+  })
+
+  it('does not repopulate filters when a legacy NeoTorrent migration settles after reset', async () => {
+    const { context, store } = setup(true)
+    vi.spyOn(context.api.clientData, 'load').mockResolvedValue({
+      [legacyNeoTorrentClientDataKey]: {
+        schemaVersion: 1,
+        items: [{ id: 'old', name: 'Old private path', filters: { savePath: '/old/private' } }]
+      }
+    })
+    let finishMigration!: () => void
+    vi.spyOn(context.api.clientData, 'store').mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          finishMigration = resolve
+        })
+    )
+
+    const oldLoad = store.load()
+    await vi.waitFor(() => expect(context.api.clientData.store).toHaveBeenCalledOnce())
+    store.resetPrivateState()
+    finishMigration()
+    await oldLoad
+
+    expect(store.items).toEqual([])
+    expect(store.loaded).toBe(false)
   })
 })

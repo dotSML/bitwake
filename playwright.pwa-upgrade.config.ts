@@ -1,20 +1,15 @@
 import { defineConfig, devices } from '@playwright/test'
 
-const outputDirectory =
-  process.env.BITWAKE_ALT_PWA_TEST_OUTPUT ??
-  process.env.NEOTORRENT_ALT_PWA_TEST_OUTPUT ??
-  './test-results/alt-pwa'
+const outputDirectory = process.env.BITWAKE_PWA_UPGRADE_TEST_OUTPUT ?? './test-results/pwa-upgrade'
 const reportDirectory =
-  process.env.BITWAKE_ALT_PWA_REPORT_OUTPUT ??
-  process.env.NEOTORRENT_ALT_PWA_REPORT_OUTPUT ??
-  'playwright-report/alt-pwa'
+  process.env.BITWAKE_PWA_UPGRADE_REPORT_OUTPUT ?? 'playwright-report/pwa-upgrade'
 
 export default defineConfig({
   testDir: './tests/pwa',
-  testMatch: 'alternative-pwa.spec.ts',
+  testMatch: 'rename-upgrade.spec.ts',
   outputDir: outputDirectory,
-  timeout: 90_000,
-  expect: { timeout: 15_000 },
+  timeout: 120_000,
+  expect: { timeout: 20_000 },
   fullyParallel: false,
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 1 : 0,
@@ -22,7 +17,7 @@ export default defineConfig({
   reporter: [['list'], ['html', { outputFolder: reportDirectory, open: 'never' }]],
   use: {
     ...devices['Desktop Chrome'],
-    baseURL: 'http://127.0.0.1:4191',
+    baseURL: 'http://127.0.0.1:4192',
     viewport: { width: 1440, height: 900 },
     serviceWorkers: 'allow',
     trace: 'retain-on-failure',
@@ -32,10 +27,10 @@ export default defineConfig({
       : {})
   },
   webServer: {
-    command: 'corepack pnpm build:alt-webui && node scripts/serve-alt-pwa-fixture.mjs',
-    url: 'http://127.0.0.1:4191',
+    command: 'corepack pnpm build:standalone && node scripts/serve-pwa-rename-upgrade-fixture.mjs',
+    url: 'http://127.0.0.1:4192/__bitwake_upgrade__/state',
     reuseExistingServer: false,
     timeout: 180_000
   },
-  projects: [{ name: 'chromium-alt-pwa' }]
+  projects: [{ name: 'chromium-pwa-rename-upgrade' }]
 })

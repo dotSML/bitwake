@@ -1,9 +1,13 @@
 import { defineConfig, devices } from '@playwright/test'
 
 const outputDirectory =
-  process.env.NEOTORRENT_PERFORMANCE_TEST_OUTPUT ?? './test-results/performance/playwright'
+  process.env.BITWAKE_PERFORMANCE_TEST_OUTPUT ??
+  process.env.NEOTORRENT_PERFORMANCE_TEST_OUTPUT ??
+  './test-results/performance/playwright'
 const reportDirectory =
-  process.env.NEOTORRENT_PERFORMANCE_REPORT_OUTPUT ?? 'playwright-report/performance'
+  process.env.BITWAKE_PERFORMANCE_REPORT_OUTPUT ??
+  process.env.NEOTORRENT_PERFORMANCE_REPORT_OUTPUT ??
+  'playwright-report/performance'
 
 export default defineConfig({
   testDir: './tests/performance',

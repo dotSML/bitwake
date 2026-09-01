@@ -2,6 +2,8 @@ import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import { useApi } from '@/app/providers/api'
 import { useSessionStore } from '@/stores/session'
+import { appStorageKeys } from '@/config/appIdentity'
+import { readMigratedBrowserStorage } from '@/utils/migrateBrowserStorage'
 import { isAbsoluteMediaPath, mediaLibraryRootsOverlap } from '../domain/pathUtils'
 import { containsControlCharacters } from '../domain/textSafety'
 import {
@@ -35,8 +37,7 @@ export const defaultMediaPlacementSettings: MediaPlacementSettings = {
   movieCategory: ''
 }
 
-const clientDataKey = 'neotorrent.media-placement.v1'
-const localStorageKey = 'neotorrent:media-placement'
+const storageKeys = appStorageKeys.mediaPlacement
 
 function cleanText(value: unknown): string {
   if (typeof value !== 'string') return ''
@@ -98,16 +99,15 @@ function readLocalSettings(): { value: MediaPlacementSettings; present: boolean 
   if (typeof localStorage === 'undefined') {
     return { value: { ...defaultMediaPlacementSettings }, present: false }
   }
-  try {
-    const raw = localStorage.getItem(localStorageKey)
-    if (!raw) return { value: { ...defaultMediaPlacementSettings }, present: false }
-    const parsed = parsePersistedSettings(JSON.parse(raw) as unknown)
-    return parsed
-      ? { value: parsed, present: true }
-      : { value: { ...defaultMediaPlacementSettings }, present: false }
-  } catch {
-    return { value: { ...defaultMediaPlacementSettings }, present: false }
-  }
+  const migrated = readMigratedBrowserStorage(
+    localStorage,
+    storageKeys.browser,
+    storageKeys.legacyBrowser,
+    parsePersistedSettings
+  )
+  return migrated.value
+    ? { value: migrated.value, present: true }
+    : { value: { ...defaultMediaPlacementSettings }, present: false }
 }
 
 function runtimeSettings(config: RuntimeMediaPlacementConfig): MediaPlacementSettings {
@@ -117,10 +117,9 @@ function runtimeSettings(config: RuntimeMediaPlacementConfig): MediaPlacementSet
 export const useMediaPlacementStore = defineStore('media-placement', () => {
   const api = useApi()
   const session = useSessionStore()
-  const local = readLocalSettings()
-  const saved = ref<MediaPlacementSettings>(local.value)
-  const hasSavedSettings = ref(local.present)
-  const savedFromLocalFallback = ref(local.present)
+  const saved = ref<MediaPlacementSettings>({ ...defaultMediaPlacementSettings })
+  const hasSavedSettings = ref(false)
+  const savedFromLocalFallback = ref(false)
   const runtime = ref<RuntimeMediaPlacementConfig | null>(null)
   const runtimeSource = ref<RuntimeMediaConfigSource>('none')
   const warning = ref<string | null>(null)
@@ -130,6 +129,8 @@ export const useMediaPlacementStore = defineStore('media-placement', () => {
   const clientDataReady = ref(false)
   let activeLoad: Promise<void> | null = null
   let loadGeneration = 0
+  let loadController: AbortController | null = null
+  let saveController: AbortController | null = null
 
   const config = computed<EffectiveMediaPlacementConfig>(() => {
     if (runtimeSource.value === 'invalid') {
@@ -168,6 +169,9 @@ export const useMediaPlacementStore = defineStore('media-placement', () => {
     if (loaded.value && runtimeSource.value !== 'invalid' && !savedLoadError.value) return
     if (activeLoad) return activeLoad
     const generation = loadGeneration
+    loadController?.abort()
+    const controller = new AbortController()
+    loadController = controller
     const task = (async () => {
       loading.value = true
       savedLoadError.value = null
@@ -186,18 +190,25 @@ export const useMediaPlacementStore = defineStore('media-placement', () => {
 
       if (session.capabilities?.has('clientData')) {
         try {
-          const values = await api.clientData.load([clientDataKey])
-          if (generation !== loadGeneration) return
-          if (clientDataKey in values) {
-            const persisted = parsePersistedSettings(values[clientDataKey])
-            if (persisted) {
-              saved.value = persisted
-              hasSavedSettings.value = true
-              savedFromLocalFallback.value = false
-            } else {
-              saved.value = { ...defaultMediaPlacementSettings }
-              hasSavedSettings.value = false
-              savedFromLocalFallback.value = false
+          const values = await api.clientData.load(
+            [storageKeys.clientData, storageKeys.legacyClientData],
+            controller.signal
+          )
+          if (controller.signal.aborted || generation !== loadGeneration) return
+          const canonical = parsePersistedSettings(values[storageKeys.clientData])
+          const legacy = parsePersistedSettings(values[storageKeys.legacyClientData])
+          const persisted = canonical ?? legacy
+          if (persisted) {
+            saved.value = persisted
+            hasSavedSettings.value = true
+            savedFromLocalFallback.value = false
+            if (!canonical && legacy) {
+              try {
+                await api.clientData.store({ [storageKeys.clientData]: legacy }, controller.signal)
+              } catch {
+                // Keep the valid legacy value active; a later save can retry migration.
+              }
+              if (controller.signal.aborted || generation !== loadGeneration) return
             }
           } else {
             saved.value = { ...defaultMediaPlacementSettings }
@@ -206,6 +217,7 @@ export const useMediaPlacementStore = defineStore('media-placement', () => {
           }
           clientDataReady.value = true
         } catch {
+          if (controller.signal.aborted || generation !== loadGeneration) return
           // Once qBittorrent advertises per-session client data, an unscoped
           // browser fallback is not reused across accounts. Keep writes blocked
           // so a transient read failure cannot overwrite an unseen value.
@@ -217,12 +229,17 @@ export const useMediaPlacementStore = defineStore('media-placement', () => {
             'Saved Media Placement settings could not be loaded from qBittorrent. Retry before changing them.'
         }
       } else {
+        const local = readLocalSettings()
+        saved.value = local.value
+        hasSavedSettings.value = local.present
+        savedFromLocalFallback.value = local.present
         clientDataReady.value = false
       }
       if (generation !== loadGeneration) return
       loaded.value = true
     })().finally(() => {
       if (generation === loadGeneration) loading.value = false
+      if (loadController === controller) loadController = null
       if (activeLoad === task) activeLoad = null
     })
     activeLoad = task
@@ -242,7 +259,14 @@ export const useMediaPlacementStore = defineStore('media-placement', () => {
           'Media Placement settings must load successfully before they can be changed.'
         )
       }
-      await api.clientData.store({ [clientDataKey]: sanitized })
+      saveController?.abort()
+      const controller = new AbortController()
+      saveController = controller
+      try {
+        await api.clientData.store({ [storageKeys.clientData]: sanitized }, controller.signal)
+      } finally {
+        if (saveController === controller) saveController = null
+      }
     }
     if (generation !== loadGeneration) return
     saved.value = sanitized
@@ -250,7 +274,7 @@ export const useMediaPlacementStore = defineStore('media-placement', () => {
     savedFromLocalFallback.value = false
     if (typeof localStorage !== 'undefined') {
       try {
-        localStorage.setItem(localStorageKey, JSON.stringify(sanitized))
+        localStorage.setItem(storageKeys.browser, JSON.stringify(sanitized))
       } catch {
         // Server-side client data remains available when browser storage is blocked.
       }
@@ -271,6 +295,10 @@ export const useMediaPlacementStore = defineStore('media-placement', () => {
   /** Clears user-scoped paths/categories before another qBittorrent login can reuse the SPA. */
   function resetPrivateState(): void {
     loadGeneration += 1
+    loadController?.abort()
+    saveController?.abort()
+    loadController = null
+    saveController = null
     activeLoad = null
     saved.value = { ...defaultMediaPlacementSettings }
     hasSavedSettings.value = false
@@ -284,7 +312,8 @@ export const useMediaPlacementStore = defineStore('media-placement', () => {
     clientDataReady.value = false
     if (typeof localStorage !== 'undefined') {
       try {
-        localStorage.removeItem(localStorageKey)
+        localStorage.removeItem(storageKeys.browser)
+        localStorage.removeItem(storageKeys.legacyBrowser)
       } catch {
         // The in-memory reset still prevents cross-session reuse.
       }

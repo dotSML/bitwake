@@ -95,7 +95,7 @@ test('keeps hash routing intact while skipping and moves focus after navigation'
   await expect(page.locator('main')).toBeFocused()
 
   await page.getByRole('link', { name: 'Diagnostics', exact: true }).click()
-  await expect(page).toHaveTitle('Diagnostics · NeoTorrent')
+  await expect(page).toHaveTitle('Diagnostics · Bitwake')
   await expect(page.locator('main')).toBeFocused()
 })
 

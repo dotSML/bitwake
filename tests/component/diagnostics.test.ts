@@ -64,11 +64,43 @@ describe('diagnostics and system health', () => {
     await flushPromises()
 
     const snapshot = String(writeText.mock.calls[0]?.[0])
-    expect(snapshot).toContain('"webApiVersion": "2.15.1"')
+    const parsed = JSON.parse(snapshot) as Record<string, unknown>
+    expect(parsed).toMatchObject({
+      schema: 'bitwake.support-diagnostics',
+      schemaVersion: 1,
+      bitwake: {
+        version: 'test',
+        revision: 'test',
+        created: '',
+        deploymentMode: 'mock'
+      },
+      qbittorrent: { webApiVersion: '2.15.1' }
+    })
+    // Pre-rename schema v0 readers may accept the documented legacy property,
+    // but canonical schema v1 exports intentionally never emit it.
+    expect(parsed).not.toHaveProperty('neotorrent')
     expect(snapshot).toContain('"endpoint": "torrents/setLocation"')
     expect(snapshot).not.toContain('Private Torrent Name')
     expect(snapshot).not.toContain('private-hash')
     expect(snapshot).not.toContain('/private/')
+  })
+
+  it('downloads the canonical versioned snapshot with a Bitwake filename', async () => {
+    const createObjectURL = vi.fn().mockReturnValue('blob:diagnostics')
+    const revokeObjectURL = vi.fn()
+    vi.stubGlobal('URL', Object.assign(URL, { createObjectURL, revokeObjectURL }))
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+    const context = createTestContext()
+    const wrapper = await mountWithContext(DiagnosticsView, context)
+    await flushPromises()
+    const download = wrapper.findAll('button').find((button) => button.text().includes('Download'))
+
+    await download!.trigger('click')
+
+    expect(click).toHaveBeenCalledOnce()
+    const link = click.mock.instances[0] as HTMLAnchorElement | undefined
+    expect(link?.download).toMatch(/^bitwake-diagnostics-\d{4}-\d{2}-\d{2}\.json$/u)
+    expect(createObjectURL).toHaveBeenCalledWith(expect.any(Blob))
   })
 
   it('keeps the operations list bounded and user-clearable', async () => {

@@ -60,7 +60,7 @@ export const defaultMediaPlacementRuntime: Readonly<MediaPlacementRuntimeConfig>
 })
 
 /**
- * Installs a narrow fetch shim before NeoTorrent creates its HttpClient.
+ * Installs a narrow fetch shim before Bitwake creates its HttpClient.
  * Requests not selected by the test continue to the browser MSW worker.
  */
 export async function installFetchControl(
@@ -70,18 +70,18 @@ export async function installFetchControl(
   await page.addInitScript(
     (initial: FetchControl) => {
       const controlledGlobal = globalThis as typeof globalThis & {
-        __neotorrentE2eFetchControl: FetchControl
+        __bitwakeE2eFetchControl: FetchControl
       }
       const originalFetch = globalThis.fetch.bind(globalThis)
-      controlledGlobal.__neotorrentE2eFetchControl = structuredClone(initial)
+      controlledGlobal.__bitwakeE2eFetchControl = structuredClone(initial)
       globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = new URL(
           input instanceof Request ? input.url : String(input),
           globalThis.location.href
         )
-        const control = controlledGlobal.__neotorrentE2eFetchControl
+        const control = controlledGlobal.__bitwakeE2eFetchControl
 
-        if (url.pathname === '/_neotorrent/runtime-config.json' && control.runtimeMediaPlacement) {
+        if (url.pathname === '/_bitwake/runtime-config.json' && control.runtimeMediaPlacement) {
           return Response.json(
             { mediaPlacement: control.runtimeMediaPlacement },
             { headers: { 'Cache-Control': 'no-store' } }
@@ -198,9 +198,9 @@ export async function installFetchControl(
 export async function setFetchControl(page: Page, update: Partial<FetchControl>): Promise<void> {
   await page.evaluate((next: Partial<FetchControl>) => {
     const controlledGlobal = globalThis as typeof globalThis & {
-      __neotorrentE2eFetchControl: FetchControl
+      __bitwakeE2eFetchControl: FetchControl
     }
-    Object.assign(controlledGlobal.__neotorrentE2eFetchControl, next)
+    Object.assign(controlledGlobal.__bitwakeE2eFetchControl, next)
   }, update)
 }
 
@@ -210,9 +210,9 @@ export async function capturedApiRequests(
 ): Promise<CapturedApiRequest[]> {
   return page.evaluate((suffix) => {
     const controlledGlobal = globalThis as typeof globalThis & {
-      __neotorrentE2eFetchControl: FetchControl
+      __bitwakeE2eFetchControl: FetchControl
     }
-    const requests = controlledGlobal.__neotorrentE2eFetchControl.requests
+    const requests = controlledGlobal.__bitwakeE2eFetchControl.requests
     return structuredClone(
       suffix ? requests.filter((request) => request.path.endsWith(suffix)) : requests
     )
@@ -224,11 +224,11 @@ export async function installStandaloneSession(
   options: { authenticated: boolean; anonymousProbeOnce?: boolean }
 ): Promise<void> {
   await page.addInitScript((initial) => {
-    const authenticationKey = 'neotorrent:e2e-authenticated'
-    const loadCountKey = 'neotorrent:e2e-load-count'
-    const anonymousProbeKey = 'neotorrent:e2e-anonymous-probe-complete'
+    const authenticationKey = 'bitwake:e2e-authenticated'
+    const loadCountKey = 'bitwake:e2e-load-count'
+    const anonymousProbeKey = 'bitwake:e2e-anonymous-probe-complete'
     const controlledGlobal = globalThis as typeof globalThis & {
-      __neotorrentStandaloneSession: StandaloneSessionControl
+      __bitwakeStandaloneSession: StandaloneSessionControl
     }
     const existingAuthentication = sessionStorage.getItem(authenticationKey)
     const authenticated =
@@ -240,7 +240,7 @@ export async function installStandaloneSession(
       loadCountKey,
       String(Number(sessionStorage.getItem(loadCountKey) ?? '0') + 1)
     )
-    controlledGlobal.__neotorrentStandaloneSession = {
+    controlledGlobal.__bitwakeStandaloneSession = {
       authenticated,
       expireMainDataOnce: false
     }
@@ -251,7 +251,7 @@ export async function installStandaloneSession(
         input instanceof Request ? input.url : String(input),
         globalThis.location.href
       )
-      const control = controlledGlobal.__neotorrentStandaloneSession
+      const control = controlledGlobal.__bitwakeStandaloneSession
       const isSessionProbe = [
         '/api/v2/app/version',
         '/api/v2/app/webapiVersion',
@@ -301,14 +301,14 @@ export async function installStandaloneSession(
 export async function expireStandaloneSession(page: Page): Promise<void> {
   await page.evaluate(() => {
     const controlledGlobal = globalThis as typeof globalThis & {
-      __neotorrentStandaloneSession: StandaloneSessionControl
+      __bitwakeStandaloneSession: StandaloneSessionControl
     }
-    controlledGlobal.__neotorrentStandaloneSession.expireMainDataOnce = true
+    controlledGlobal.__bitwakeStandaloneSession.expireMainDataOnce = true
   })
 }
 
 export async function standaloneLoadCount(page: Page): Promise<number> {
-  return page.evaluate(() => Number(sessionStorage.getItem('neotorrent:e2e-load-count') ?? '0'))
+  return page.evaluate(() => Number(sessionStorage.getItem('bitwake:e2e-load-count') ?? '0'))
 }
 
 export async function installLargeMainDataFixture(page: Page, count: number): Promise<void> {

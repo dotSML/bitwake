@@ -4,6 +4,7 @@ import { useApi } from '@/app/providers/api'
 import { countActiveTorrentFilters, type TorrentFilters } from '@/domains/torrents/filtering'
 import {
   maximumSavedTorrentFilters,
+  parsePersistedSavedTorrentFilters,
   sanitizeSavedTorrentFilterName,
   sanitizeSavedTorrentFilters,
   sanitizeTorrentFilters,
@@ -11,9 +12,10 @@ import {
   type SavedTorrentFilter
 } from '@/domains/torrents/savedFilters'
 import { useSessionStore } from './session'
+import { appStorageKeys } from '@/config/appIdentity'
+import { readMigratedBrowserStorage } from '@/utils/migrateBrowserStorage'
 
-const clientDataKey = 'neotorrent.saved-filters.v1'
-const sessionStorageKey = 'neotorrent:saved-filters'
+const storageKeys = appStorageKeys.savedFilters
 
 let fallbackId = 0
 
@@ -25,23 +27,35 @@ function createId(): string {
 
 function readSessionFallback(): PersistedSavedTorrentFilters {
   if (typeof window === 'undefined') return sanitizeSavedTorrentFilters(null)
-  try {
-    const raw = window.sessionStorage.getItem(sessionStorageKey)
-    return sanitizeSavedTorrentFilters(raw ? (JSON.parse(raw) as unknown) : null)
-  } catch {
-    return sanitizeSavedTorrentFilters(null)
-  }
+  return (
+    readMigratedBrowserStorage(
+      window.sessionStorage,
+      storageKeys.browser,
+      storageKeys.legacyBrowser,
+      parsePersistedSavedTorrentFilters
+    ).value ?? sanitizeSavedTorrentFilters(null)
+  )
 }
 
 function writeSessionFallback(value: PersistedSavedTorrentFilters | null): boolean {
   if (typeof window === 'undefined') return false
   try {
-    if (value) window.sessionStorage.setItem(sessionStorageKey, JSON.stringify(value))
-    else window.sessionStorage.removeItem(sessionStorageKey)
+    if (value) window.sessionStorage.setItem(storageKeys.browser, JSON.stringify(value))
+    else window.sessionStorage.removeItem(storageKeys.browser)
     return true
   } catch {
     // The in-memory collection remains usable when browser storage is unavailable.
     return false
+  }
+}
+
+function clearSessionFallbacks(): void {
+  if (typeof window === 'undefined') return
+  try {
+    window.sessionStorage.removeItem(storageKeys.browser)
+    window.sessionStorage.removeItem(storageKeys.legacyBrowser)
+  } catch {
+    // The in-memory reset still prevents cross-session reuse.
   }
 }
 
@@ -77,10 +91,25 @@ export const useSavedTorrentFiltersStore = defineStore('saved-torrent-filters', 
       if (session.capabilities?.has('clientData')) {
         // Never reuse an unscoped browser fallback after the daemon advertises
         // authenticated client data: it may belong to an earlier account/session.
-        writeSessionFallback(null)
+        clearSessionFallbacks()
         try {
-          const loadedData = await api.clientData.load([clientDataKey], controller.signal)
-          value = sanitizeSavedTorrentFilters(loadedData[clientDataKey])
+          const loadedData = await api.clientData.load(
+            [storageKeys.clientData, storageKeys.legacyClientData],
+            controller.signal
+          )
+          if (controller.signal.aborted || requestGeneration !== generation) return
+          const canonical = parsePersistedSavedTorrentFilters(loadedData[storageKeys.clientData])
+          const legacy = parsePersistedSavedTorrentFilters(loadedData[storageKeys.legacyClientData])
+          value = canonical ?? legacy ?? sanitizeSavedTorrentFilters(null)
+          if (!canonical && legacy) {
+            try {
+              await api.clientData.store({ [storageKeys.clientData]: legacy }, controller.signal)
+            } catch {
+              if (controller.signal.aborted || requestGeneration !== generation) return
+              persistenceWarning.value =
+                'Saved filters were restored from a legacy key, but qBittorrent client data could not be migrated. A later change can retry.'
+            }
+          }
         } catch {
           if (controller.signal.aborted || requestGeneration !== generation) return
           // Do not treat a transient read failure as an empty collection. That
@@ -117,8 +146,8 @@ export const useSavedTorrentFiltersStore = defineStore('saved-torrent-filters', 
         writeController = controller
         try {
           if (session.capabilities?.has('clientData')) {
-            writeSessionFallback(null)
-            await api.clientData.store({ [clientDataKey]: write.value }, controller.signal)
+            clearSessionFallbacks()
+            await api.clientData.store({ [storageKeys.clientData]: write.value }, controller.signal)
           } else {
             if (!writeSessionFallback(write.value)) {
               throw new Error('Browser session storage is unavailable.')
@@ -222,7 +251,7 @@ export const useSavedTorrentFiltersStore = defineStore('saved-torrent-filters', 
     loading.value = false
     loadError.value = null
     persistenceWarning.value = null
-    writeSessionFallback(null)
+    clearSessionFallbacks()
   }
 
   return {

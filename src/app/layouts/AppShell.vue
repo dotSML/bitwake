@@ -1,6 +1,14 @@
 <script setup lang="ts">
 import { Plus } from 'lucide-vue-next'
-import { computed, defineAsyncComponent, nextTick, ref, watch, type Component } from 'vue'
+import {
+  computed,
+  defineAsyncComponent,
+  nextTick,
+  onBeforeUnmount,
+  ref,
+  watch,
+  type Component
+} from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 import AppSidebar from './AppSidebar.vue'
@@ -11,6 +19,7 @@ import ToastRegion from '@/ui/components/ToastRegion.vue'
 import PwaUpdateBanner from '@/ui/components/PwaUpdateBanner.vue'
 import { MOBILE_MEDIA_QUERY, useMediaQuery } from '@/ui/composables/useMediaQuery'
 import { useWindowPointerDrag } from '@/ui/composables/useWindowPointerDrag'
+import { usePwaStore } from '@/stores/pwa'
 
 const AddTorrentDialog = defineAsyncComponent(async () => {
   const module: unknown = await import('@/features/add-torrent/AddTorrentDialog.vue')
@@ -18,6 +27,7 @@ const AddTorrentDialog = defineAsyncComponent(async () => {
 })
 
 const preferences = usePreferencesStore()
+const pwa = usePwaStore()
 const route = useRoute()
 const { t } = useI18n()
 const isMobile = useMediaQuery(MOBILE_MEDIA_QUERY)
@@ -40,7 +50,14 @@ function openAddTorrent(files?: File[]): void {
 
 function updateAddOpen(open: boolean): void {
   addOpen.value = open
-  if (!open) pendingFiles.value = []
+  if (!open) {
+    pendingFiles.value = []
+    pwa.trackUnsavedDialog('add-torrent', false)
+  }
+}
+
+function updateAddDirty(dirty: boolean): void {
+  pwa.trackUnsavedDialog('add-torrent', dirty)
 }
 
 function setSidebarWidth(width: number): void {
@@ -79,6 +96,8 @@ watch(
   },
   { immediate: true }
 )
+
+onBeforeUnmount(() => pwa.trackUnsavedDialog('add-torrent', false))
 </script>
 
 <template>
@@ -132,6 +151,7 @@ watch(
       :open="addOpen"
       :initial-files="pendingFiles"
       @update:open="updateAddOpen"
+      @update:dirty="updateAddDirty"
     />
     <ToastRegion />
     <PwaUpdateBanner />
