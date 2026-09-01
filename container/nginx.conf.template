@@ -36,7 +36,7 @@ http {
     gzip_vary on;
     gzip_types application/javascript application/json application/manifest+json application/xml image/svg+xml text/css text/plain text/xml;
 
-    map $http_x_forwarded_proto $neotorrent_forwarded_proto {
+    map $http_x_forwarded_proto $bitwake_forwarded_proto {
         default $scheme;
         http http;
         https https;
@@ -51,7 +51,7 @@ http {
         index index.html;
         client_max_body_size ${MAX_UPLOAD_SIZE};
 
-        include /etc/nginx/neotorrent-security-headers.conf;
+        include /etc/nginx/bitwake-security-headers.conf;
 
         location = /healthz {
             access_log off;
@@ -70,13 +70,28 @@ http {
             return 404 'Not Found\n';
         }
 
-        location = /_neotorrent/runtime-config.json {
+        location = /_bitwake/runtime-config.json {
             access_log off;
-            alias /tmp/neotorrent-runtime-config.json;
+            alias /tmp/bitwake-runtime-config.json;
             default_type application/json;
             etag off;
             add_header Cache-Control "no-store" always;
-            include /etc/nginx/neotorrent-security-headers.conf;
+            include /etc/nginx/bitwake-security-headers.conf;
+        }
+
+        # Deprecated compatibility endpoint retained for in-place upgrades.
+        location = /_neotorrent/runtime-config.json {
+            access_log off;
+            alias /tmp/bitwake-runtime-config.json;
+            default_type application/json;
+            etag off;
+            add_header Cache-Control "no-store" always;
+            include /etc/nginx/bitwake-security-headers.conf;
+        }
+
+        location ^~ /_bitwake/ {
+            default_type text/plain;
+            return 404 'Not Found\n';
         }
 
         location ^~ /_neotorrent/ {
@@ -99,7 +114,7 @@ http {
             # clients.
             proxy_set_header X-Forwarded-For $remote_addr;
             proxy_set_header X-Forwarded-Host $http_host;
-            proxy_set_header X-Forwarded-Proto $neotorrent_forwarded_proto;
+            proxy_set_header X-Forwarded-Proto $bitwake_forwarded_proto;
 
             proxy_ssl_server_name on;
             proxy_ssl_verify ${PROXY_SSL_VERIFY};
@@ -116,7 +131,7 @@ http {
             proxy_hide_header Expires;
             proxy_hide_header X-Accel-Expires;
             add_header Cache-Control "no-store" always;
-            include /etc/nginx/neotorrent-security-headers.conf;
+            include /etc/nginx/bitwake-security-headers.conf;
         }
 
         location = /index.html {
@@ -142,7 +157,7 @@ http {
         location ^~ /assets/ {
             expires 1y;
             add_header Cache-Control "public, max-age=31536000, immutable";
-            include /etc/nginx/neotorrent-security-headers.conf;
+            include /etc/nginx/bitwake-security-headers.conf;
             try_files $uri =404;
         }
 

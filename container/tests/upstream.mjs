@@ -33,7 +33,7 @@ const server = http.createServer(async (request, response) => {
     response.writeHead(200, {
       ...headers,
       'content-type': 'application/octet-stream',
-      'content-disposition': 'attachment; filename="neotorrent-test.txt"'
+      'content-disposition': 'attachment; filename="bitwake-test.txt"'
     })
     response.end('legal local test download\n')
     return

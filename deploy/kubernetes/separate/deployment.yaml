@@ -1,25 +1,25 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: neotorrent
+  name: bitwake
   namespace: media
   labels:
-    app: neotorrent
+    app: bitwake
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: neotorrent
+      app: bitwake
   template:
     metadata:
       labels:
-        app: neotorrent
+        app: bitwake
     spec:
       automountServiceAccountToken: false
       enableServiceLinks: false
       containers:
-        - name: neotorrent
-          image: ghcr.io/dotsml/neotorrent@sha256:REPLACE_WITH_PUBLISHED_DIGEST
+        - name: bitwake
+          image: ghcr.io/dotsml/bitwake@sha256:REPLACE_WITH_PUBLISHED_DIGEST
           imagePullPolicy: IfNotPresent
           env:
             - name: QBITTORRENT_URL
@@ -77,10 +77,10 @@ spec:
             seccompProfile:
               type: RuntimeDefault
           volumeMounts:
-            - name: neotorrent-tmp
+            - name: bitwake-tmp
               mountPath: /tmp
       volumes:
-        - name: neotorrent-tmp
+        - name: bitwake-tmp
           emptyDir:
             medium: Memory
             sizeLimit: 32Mi

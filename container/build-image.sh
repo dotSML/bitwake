@@ -2,7 +2,16 @@
 set -eu
 
 repository_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-image=${NEOTORRENT_IMAGE:-neotorrent:test}
+if [ "${BITWAKE_IMAGE+x}" = x ]; then
+  image=$BITWAKE_IMAGE
+  if [ "${NEOTORRENT_IMAGE+x}" = x ] && [ "$BITWAKE_IMAGE" != "$NEOTORRENT_IMAGE" ]; then
+    printf '%s\n' 'BITWAKE_IMAGE overrides deprecated NEOTORRENT_IMAGE' >&2
+  fi
+elif [ "${NEOTORRENT_IMAGE+x}" = x ]; then
+  image=$NEOTORRENT_IMAGE
+else
+  image=bitwake:test
+fi
 version=${BUILD_VERSION:-0.1.0-preview}
 
 if [ -n "${BUILD_REVISION:-}" ]; then

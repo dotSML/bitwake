@@ -2,7 +2,7 @@
 set -eu
 
 fail() {
-    printf 'NeoTorrent configuration error: %s\n' "$1" >&2
+    printf 'Bitwake configuration error: %s\n' "$1" >&2
     exit 64
 }
 
@@ -225,19 +225,65 @@ json_escape() {
     printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
 }
 
+# Resolve product-prefixed settings without treating an empty-but-explicit value
+# as unset. This keeps legacy deployments working while ensuring the canonical
+# name always wins. Warnings intentionally contain variable names only because
+# media paths and category names can be private.
+resolve_prefixed_setting() {
+    canonical_name=$1
+    canonical_is_set=$2
+    canonical_value=$3
+    legacy_name=$4
+    legacy_is_set=$5
+    legacy_value=$6
+    default_value=$7
+
+    if [ "$canonical_is_set" = x ]; then
+        resolved_setting=$canonical_value
+        if [ "$legacy_is_set" = x ] && [ "$canonical_value" != "$legacy_value" ]; then
+            printf '%s overrides deprecated %s\n' "$canonical_name" "$legacy_name" >&2
+        fi
+    elif [ "$legacy_is_set" = x ]; then
+        resolved_setting=$legacy_value
+    else
+        resolved_setting=$default_value
+    fi
+}
+
 LISTEN_PORT=${LISTEN_PORT:-8081}
 MAX_UPLOAD_SIZE=${MAX_UPLOAD_SIZE:-100m}
 PROXY_CONNECT_TIMEOUT=${PROXY_CONNECT_TIMEOUT:-10s}
 PROXY_READ_TIMEOUT=${PROXY_READ_TIMEOUT:-300s}
 PROXY_SEND_TIMEOUT=${PROXY_SEND_TIMEOUT:-300s}
 PROXY_SSL_VERIFY=${PROXY_SSL_VERIFY:-on}
-NEOTORRENT_MEDIA_MODE=${NEOTORRENT_MEDIA_MODE:-off}
-NEOTORRENT_TV_ROOT=${NEOTORRENT_TV_ROOT:-}
-NEOTORRENT_MOVIES_ROOT=${NEOTORRENT_MOVIES_ROOT:-}
-NEOTORRENT_MEDIA_BROWSE_ROOT=${NEOTORRENT_MEDIA_BROWSE_ROOT:-}
-NEOTORRENT_MEDIA_CONFIG_LOCKED=${NEOTORRENT_MEDIA_CONFIG_LOCKED:-false}
-NEOTORRENT_TV_CATEGORY=${NEOTORRENT_TV_CATEGORY:-}
-NEOTORRENT_MOVIE_CATEGORY=${NEOTORRENT_MOVIE_CATEGORY:-}
+resolve_prefixed_setting BITWAKE_MEDIA_MODE "${BITWAKE_MEDIA_MODE+x}" \
+    "${BITWAKE_MEDIA_MODE-}" NEOTORRENT_MEDIA_MODE "${NEOTORRENT_MEDIA_MODE+x}" \
+    "${NEOTORRENT_MEDIA_MODE-}" off
+BITWAKE_MEDIA_MODE=$resolved_setting
+resolve_prefixed_setting BITWAKE_TV_ROOT "${BITWAKE_TV_ROOT+x}" \
+    "${BITWAKE_TV_ROOT-}" NEOTORRENT_TV_ROOT "${NEOTORRENT_TV_ROOT+x}" \
+    "${NEOTORRENT_TV_ROOT-}" ''
+BITWAKE_TV_ROOT=$resolved_setting
+resolve_prefixed_setting BITWAKE_MOVIES_ROOT "${BITWAKE_MOVIES_ROOT+x}" \
+    "${BITWAKE_MOVIES_ROOT-}" NEOTORRENT_MOVIES_ROOT "${NEOTORRENT_MOVIES_ROOT+x}" \
+    "${NEOTORRENT_MOVIES_ROOT-}" ''
+BITWAKE_MOVIES_ROOT=$resolved_setting
+resolve_prefixed_setting BITWAKE_MEDIA_BROWSE_ROOT "${BITWAKE_MEDIA_BROWSE_ROOT+x}" \
+    "${BITWAKE_MEDIA_BROWSE_ROOT-}" NEOTORRENT_MEDIA_BROWSE_ROOT \
+    "${NEOTORRENT_MEDIA_BROWSE_ROOT+x}" "${NEOTORRENT_MEDIA_BROWSE_ROOT-}" ''
+BITWAKE_MEDIA_BROWSE_ROOT=$resolved_setting
+resolve_prefixed_setting BITWAKE_MEDIA_CONFIG_LOCKED "${BITWAKE_MEDIA_CONFIG_LOCKED+x}" \
+    "${BITWAKE_MEDIA_CONFIG_LOCKED-}" NEOTORRENT_MEDIA_CONFIG_LOCKED \
+    "${NEOTORRENT_MEDIA_CONFIG_LOCKED+x}" "${NEOTORRENT_MEDIA_CONFIG_LOCKED-}" false
+BITWAKE_MEDIA_CONFIG_LOCKED=$resolved_setting
+resolve_prefixed_setting BITWAKE_TV_CATEGORY "${BITWAKE_TV_CATEGORY+x}" \
+    "${BITWAKE_TV_CATEGORY-}" NEOTORRENT_TV_CATEGORY "${NEOTORRENT_TV_CATEGORY+x}" \
+    "${NEOTORRENT_TV_CATEGORY-}" ''
+BITWAKE_TV_CATEGORY=$resolved_setting
+resolve_prefixed_setting BITWAKE_MOVIE_CATEGORY "${BITWAKE_MOVIE_CATEGORY+x}" \
+    "${BITWAKE_MOVIE_CATEGORY-}" NEOTORRENT_MOVIE_CATEGORY \
+    "${NEOTORRENT_MOVIE_CATEGORY+x}" "${NEOTORRENT_MOVIE_CATEGORY-}" ''
+BITWAKE_MOVIE_CATEGORY=$resolved_setting
 
 printf '%s' "$LISTEN_PORT" | grep -Eq '^[0-9]+$' \
     || fail 'LISTEN_PORT must be an integer from 1024 through 65535'
@@ -252,34 +298,34 @@ case "$PROXY_SSL_VERIFY" in
     *) fail 'PROXY_SSL_VERIFY must be on or off' ;;
 esac
 
-case "$NEOTORRENT_MEDIA_MODE" in
+case "$BITWAKE_MEDIA_MODE" in
     off|assist) ;;
     *) invalidate_media_configuration ;;
 esac
-case "$NEOTORRENT_MEDIA_CONFIG_LOCKED" in
+case "$BITWAKE_MEDIA_CONFIG_LOCKED" in
     true|false) ;;
     *) invalidate_media_configuration ;;
 esac
 
-validate_runtime_text "$NEOTORRENT_MEDIA_MODE" NEOTORRENT_MEDIA_MODE
-validate_runtime_text "$NEOTORRENT_TV_ROOT" NEOTORRENT_TV_ROOT
-validate_runtime_text "$NEOTORRENT_MOVIES_ROOT" NEOTORRENT_MOVIES_ROOT
-validate_runtime_text "$NEOTORRENT_MEDIA_BROWSE_ROOT" NEOTORRENT_MEDIA_BROWSE_ROOT
-validate_runtime_text "$NEOTORRENT_MEDIA_CONFIG_LOCKED" NEOTORRENT_MEDIA_CONFIG_LOCKED
-validate_runtime_text "$NEOTORRENT_TV_CATEGORY" NEOTORRENT_TV_CATEGORY
-validate_runtime_text "$NEOTORRENT_MOVIE_CATEGORY" NEOTORRENT_MOVIE_CATEGORY
+validate_runtime_text "$BITWAKE_MEDIA_MODE" BITWAKE_MEDIA_MODE
+validate_runtime_text "$BITWAKE_TV_ROOT" BITWAKE_TV_ROOT
+validate_runtime_text "$BITWAKE_MOVIES_ROOT" BITWAKE_MOVIES_ROOT
+validate_runtime_text "$BITWAKE_MEDIA_BROWSE_ROOT" BITWAKE_MEDIA_BROWSE_ROOT
+validate_runtime_text "$BITWAKE_MEDIA_CONFIG_LOCKED" BITWAKE_MEDIA_CONFIG_LOCKED
+validate_runtime_text "$BITWAKE_TV_CATEGORY" BITWAKE_TV_CATEGORY
+validate_runtime_text "$BITWAKE_MOVIE_CATEGORY" BITWAKE_MOVIE_CATEGORY
 
-validate_optional_runtime_path "$NEOTORRENT_TV_ROOT"
-validate_optional_runtime_path "$NEOTORRENT_MOVIES_ROOT"
-validate_optional_runtime_path "$NEOTORRENT_MEDIA_BROWSE_ROOT"
+validate_optional_runtime_path "$BITWAKE_TV_ROOT"
+validate_optional_runtime_path "$BITWAKE_MOVIES_ROOT"
+validate_optional_runtime_path "$BITWAKE_MEDIA_BROWSE_ROOT"
 
-if runtime_media_roots_overlap "$NEOTORRENT_TV_ROOT" "$NEOTORRENT_MOVIES_ROOT"; then
+if runtime_media_roots_overlap "$BITWAKE_TV_ROOT" "$BITWAKE_MOVIES_ROOT"; then
     invalidate_media_configuration
 fi
 
-if [ "$NEOTORRENT_MEDIA_MODE" = 'assist' ] \
-    && [ "$NEOTORRENT_MEDIA_CONFIG_LOCKED" = 'true' ]; then
-    [ -n "$NEOTORRENT_TV_ROOT" ] && [ -n "$NEOTORRENT_MOVIES_ROOT" ] \
+if [ "$BITWAKE_MEDIA_MODE" = 'assist' ] \
+    && [ "$BITWAKE_MEDIA_CONFIG_LOCKED" = 'true' ]; then
+    [ -n "$BITWAKE_TV_ROOT" ] && [ -n "$BITWAKE_MOVIES_ROOT" ] \
         || invalidate_media_configuration
 fi
 
@@ -339,11 +385,11 @@ QBITTORRENT_API_URL="${QBITTORRENT_URL}/api/"
 export LISTEN_PORT MAX_UPLOAD_SIZE PROXY_CONNECT_TIMEOUT PROXY_READ_TIMEOUT
 export PROXY_SEND_TIMEOUT PROXY_SSL_VERIFY QBITTORRENT_API_URL
 
-runtime_config_file=/tmp/neotorrent-runtime-config.json
-runtime_config_temporary_file=/tmp/neotorrent-runtime-config.json.tmp
+runtime_config_file=/tmp/bitwake-runtime-config.json
+runtime_config_temporary_file=/tmp/bitwake-runtime-config.json.tmp
 umask 077
 if [ "$media_configuration_invalid" = 'true' ]; then
-    printf '%s\n' 'NeoTorrent media configuration warning: invalid standalone media settings; Media Placement will start off.' >&2
+    printf '%s\n' 'Bitwake media configuration warning: invalid standalone media settings; Media Placement will start off.' >&2
     {
         printf '{\n'
         printf '  "mediaPlacement": null,\n'
@@ -354,13 +400,13 @@ else
     {
         printf '{\n'
         printf '  "mediaPlacement": {\n'
-        printf '    "mode": "%s",\n' "$(json_escape "$NEOTORRENT_MEDIA_MODE")"
-        printf '    "locked": %s,\n' "$NEOTORRENT_MEDIA_CONFIG_LOCKED"
-        printf '    "tvRoot": "%s",\n' "$(json_escape "$NEOTORRENT_TV_ROOT")"
-        printf '    "moviesRoot": "%s",\n' "$(json_escape "$NEOTORRENT_MOVIES_ROOT")"
-        printf '    "browseRoot": "%s",\n' "$(json_escape "$NEOTORRENT_MEDIA_BROWSE_ROOT")"
-        printf '    "tvCategory": "%s",\n' "$(json_escape "$NEOTORRENT_TV_CATEGORY")"
-        printf '    "movieCategory": "%s"\n' "$(json_escape "$NEOTORRENT_MOVIE_CATEGORY")"
+        printf '    "mode": "%s",\n' "$(json_escape "$BITWAKE_MEDIA_MODE")"
+        printf '    "locked": %s,\n' "$BITWAKE_MEDIA_CONFIG_LOCKED"
+        printf '    "tvRoot": "%s",\n' "$(json_escape "$BITWAKE_TV_ROOT")"
+        printf '    "moviesRoot": "%s",\n' "$(json_escape "$BITWAKE_MOVIES_ROOT")"
+        printf '    "browseRoot": "%s",\n' "$(json_escape "$BITWAKE_MEDIA_BROWSE_ROOT")"
+        printf '    "tvCategory": "%s",\n' "$(json_escape "$BITWAKE_TV_CATEGORY")"
+        printf '    "movieCategory": "%s"\n' "$(json_escape "$BITWAKE_MOVIE_CATEGORY")"
         printf '  }\n'
         printf '}\n'
     } > "$runtime_config_temporary_file"
@@ -371,7 +417,7 @@ mv "$runtime_config_temporary_file" "$runtime_config_file"
     || fail 'standalone frontend index.html is missing or unreadable'
 
 envsubst '${LISTEN_PORT} ${MAX_UPLOAD_SIZE} ${PROXY_CONNECT_TIMEOUT} ${PROXY_READ_TIMEOUT} ${PROXY_SEND_TIMEOUT} ${PROXY_SSL_VERIFY} ${QBITTORRENT_API_URL}' \
-    < /etc/nginx/templates/neotorrent.conf.template \
+    < /etc/nginx/templates/bitwake.conf.template \
     > /tmp/nginx.conf
 
 nginx -t -c /tmp/nginx.conf

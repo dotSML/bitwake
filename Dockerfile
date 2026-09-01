@@ -11,9 +11,9 @@ ARG BUILD_CREATED=unspecified
 ARG BUILD_REVISION=unknown
 ARG BUILD_VERSION=0.1.0-preview
 ARG BUILD_LICENSE=NOASSERTION
-ENV NEOTORRENT_BUILD_DATE=${BUILD_CREATED} \
-    NEOTORRENT_BUILD_REVISION=${BUILD_REVISION} \
-    NEOTORRENT_BUILD_VERSION=${BUILD_VERSION}
+ENV BITWAKE_BUILD_DATE=${BUILD_CREATED} \
+    BITWAKE_BUILD_REVISION=${BUILD_REVISION} \
+    BITWAKE_BUILD_VERSION=${BUILD_VERSION}
 
 WORKDIR /app
 
@@ -35,11 +35,11 @@ ARG BUILD_REVISION=unknown
 ARG BUILD_VERSION=0.1.0-preview
 ARG BUILD_LICENSE=NOASSERTION
 
-LABEL org.opencontainers.image.title="NeoTorrent" \
-      org.opencontainers.image.description="Standalone qBittorrent WebUI reverse proxy" \
-      org.opencontainers.image.source="https://github.com/dotSML/neotorrent" \
-      org.opencontainers.image.url="https://github.com/dotSML/neotorrent" \
-      org.opencontainers.image.documentation="https://github.com/dotSML/neotorrent/blob/main/docs/deployment.md" \
+LABEL org.opencontainers.image.title="Bitwake" \
+      org.opencontainers.image.description="Bitwake standalone qBittorrent WebUI reverse proxy" \
+      org.opencontainers.image.source="https://github.com/dotSML/bitwake" \
+      org.opencontainers.image.url="https://github.com/dotSML/bitwake" \
+      org.opencontainers.image.documentation="https://github.com/dotSML/bitwake/blob/main/docs/deployment.md" \
       org.opencontainers.image.created="${BUILD_CREATED}" \
       org.opencontainers.image.revision="${BUILD_REVISION}" \
       org.opencontainers.image.version="${BUILD_VERSION}" \
@@ -50,22 +50,15 @@ ENV LISTEN_PORT=8081 \
     PROXY_CONNECT_TIMEOUT=10s \
     PROXY_READ_TIMEOUT=300s \
     PROXY_SEND_TIMEOUT=300s \
-    PROXY_SSL_VERIFY=on \
-    NEOTORRENT_MEDIA_MODE=off \
-    NEOTORRENT_TV_ROOT= \
-    NEOTORRENT_MOVIES_ROOT= \
-    NEOTORRENT_MEDIA_BROWSE_ROOT= \
-    NEOTORRENT_MEDIA_CONFIG_LOCKED=false \
-    NEOTORRENT_TV_CATEGORY= \
-    NEOTORRENT_MOVIE_CATEGORY=
+    PROXY_SSL_VERIFY=on
 
 COPY --from=build --chown=101:101 /app/dist/standalone/ /usr/share/nginx/html/
-COPY --chown=101:101 container/nginx.conf.template /etc/nginx/templates/neotorrent.conf.template
-COPY --chown=101:101 container/security-headers.conf /etc/nginx/neotorrent-security-headers.conf
-COPY --chown=101:101 container/entrypoint.sh /usr/local/bin/neotorrent-entrypoint
+COPY --chown=101:101 container/nginx.conf.template /etc/nginx/templates/bitwake.conf.template
+COPY --chown=101:101 container/security-headers.conf /etc/nginx/bitwake-security-headers.conf
+COPY --chown=101:101 container/entrypoint.sh /usr/local/bin/bitwake-entrypoint
 
 USER 101:101
 EXPOSE 8081
 STOPSIGNAL SIGQUIT
-ENTRYPOINT ["/usr/local/bin/neotorrent-entrypoint"]
+ENTRYPOINT ["/usr/local/bin/bitwake-entrypoint"]
 CMD ["nginx", "-c", "/tmp/nginx.conf", "-g", "daemon off;"]

@@ -2,12 +2,18 @@
 set -eu
 
 repository_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-image=${NEOTORRENT_IMAGE:-neotorrent:test}
+if [ "${BITWAKE_IMAGE+x}" = x ]; then
+  image=$BITWAKE_IMAGE
+elif [ "${NEOTORRENT_IMAGE+x}" = x ]; then
+  image=$NEOTORRENT_IMAGE
+else
+  image=bitwake:test
+fi
 qbit_image=${QBITTORRENT_IMAGE:-ghcr.io/qbittorrent/docker-qbittorrent-nox@sha256:9ebb534fe30bab98622cb84a8c3acecfd88319b2d540f52ecdec7b9f866374d7}
 expected_qbit_version=${QBITTORRENT_EXPECTED_VERSION:-v5.2.3}
 expected_webapi_version=${QBITTORRENT_EXPECTED_WEBAPI_VERSION:-2.15.1}
 node_image='node:22.23.2-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32'
-run_id="neotorrent-qbit-$$"
+run_id="bitwake-qbit-$$"
 pod_name="$run_id-pod"
 qbit_name="$run_id-qbittorrent"
 proxy_name="$run_id-proxy"
@@ -44,7 +50,7 @@ docker run --rm \
   'mkdir -p /config/qBittorrent/config && cp /fixture/qBittorrent.conf /config/qBittorrent/config/qBittorrent.conf'
 
 # This container owns the shared network namespace, mirroring a Kubernetes Pod
-# sandbox. qBittorrent and NeoTorrent both reach each other over loopback.
+# sandbox. qBittorrent and Bitwake both reach each other over loopback.
 docker run -d --name "$pod_name" \
   --read-only --tmpfs /tmp:rw,noexec,nosuid,size=8m \
   -p 127.0.0.1::8081 \
@@ -72,7 +78,7 @@ for attempt in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
 done
 
 # These are legal, disposable test-library roots in the named download volume.
-# NeoTorrent itself never mounts this volume; only qBittorrent can access it.
+# Bitwake itself never mounts this volume; only qBittorrent can access it.
 docker exec "$qbit_name" mkdir -p /data/tv-shows /data/movies /data/manual-review
 docker exec "$qbit_name" chown 1000:1000 /data /data/tv-shows /data/movies /data/manual-review
 
@@ -86,13 +92,13 @@ docker run -d --name "$proxy_name" --network "container:$pod_name" \
   --read-only --cap-drop ALL --security-opt no-new-privileges:true \
   --tmpfs /tmp:rw,noexec,nosuid,size=32m \
   -e QBITTORRENT_URL=http://127.0.0.1:8080 \
-  -e NEOTORRENT_MEDIA_MODE=assist \
-  -e NEOTORRENT_TV_ROOT=/data/tv-shows \
-  -e NEOTORRENT_MOVIES_ROOT=/data/movies \
-  -e NEOTORRENT_MEDIA_BROWSE_ROOT=/data \
-  -e NEOTORRENT_MEDIA_CONFIG_LOCKED=true \
-  -e 'NEOTORRENT_TV_CATEGORY=TV Shows' \
-  -e NEOTORRENT_MOVIE_CATEGORY=Movies \
+  -e BITWAKE_MEDIA_MODE=assist \
+  -e BITWAKE_TV_ROOT=/data/tv-shows \
+  -e BITWAKE_MOVIES_ROOT=/data/movies \
+  -e BITWAKE_MEDIA_BROWSE_ROOT=/data \
+  -e BITWAKE_MEDIA_CONFIG_LOCKED=true \
+  -e 'BITWAKE_TV_CATEGORY=TV Shows' \
+  -e BITWAKE_MOVIE_CATEGORY=Movies \
   "$image" >/dev/null
 
 host_port=$(docker port "$pod_name" 8081/tcp | sed -n '1s/.*://p')
@@ -142,7 +148,7 @@ if [ -z "${PLAYWRIGHT_CHROME_PATH:-}" ] && command -v google-chrome >/dev/null 2
   PLAYWRIGHT_CHROME_PATH=$(command -v google-chrome)
 fi
 
-NEOTORRENT_TEST_URL="$base_url" \
+BITWAKE_TEST_URL="$base_url" \
 QBITTORRENT_TEST_PASSWORD="$password" \
 QBITTORRENT_TEST_CONTAINER="$qbit_name" \
 QBITTORRENT_EXPECTED_VERSION="$expected_qbit_version" \

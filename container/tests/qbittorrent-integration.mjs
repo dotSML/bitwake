@@ -7,7 +7,7 @@ import { dirname, join } from 'node:path'
 import { URL } from 'node:url'
 import { chromium } from '@playwright/test'
 
-const baseUrl = process.env.NEOTORRENT_TEST_URL
+const baseUrl = process.env.BITWAKE_TEST_URL ?? process.env.NEOTORRENT_TEST_URL
 const initialPassword = process.env.QBITTORRENT_TEST_PASSWORD
 const qbitContainer = process.env.QBITTORRENT_TEST_CONTAINER
 const chromePath = process.env.PLAYWRIGHT_CHROME_PATH
@@ -16,7 +16,7 @@ const expectedWebApiVersion = process.env.QBITTORRENT_EXPECTED_WEBAPI_VERSION ??
 
 if (!baseUrl || !initialPassword || !qbitContainer) {
   throw new Error(
-    'NEOTORRENT_TEST_URL, QBITTORRENT_TEST_PASSWORD, and QBITTORRENT_TEST_CONTAINER are required'
+    'BITWAKE_TEST_URL (or deprecated NEOTORRENT_TEST_URL), QBITTORRENT_TEST_PASSWORD, and QBITTORRENT_TEST_CONTAINER are required'
   )
 }
 
@@ -287,7 +287,7 @@ async function exerciseContentLayouts(page) {
     const slug = layout.toLowerCase()
     const single = createTorrent(
       `layout-single-${slug}.txt`,
-      Buffer.from(`NeoTorrent qBittorrent ${layout} single-file layout fixture\n`)
+      Buffer.from(`Bitwake qBittorrent ${layout} single-file layout fixture\n`)
     )
     const singleSavePath = `/data/layout/single/${slug}`
     const singleContentPath =
@@ -318,11 +318,11 @@ async function exerciseContentLayouts(page) {
     const multi = createMultiFileTorrent(`layout-multi-${slug}`, [
       {
         path: 'episode-one.txt',
-        content: Buffer.from(`NeoTorrent qBittorrent ${layout} multi-file fixture one\n`)
+        content: Buffer.from(`Bitwake qBittorrent ${layout} multi-file fixture one\n`)
       },
       {
         path: 'extras/episode-two.txt',
-        content: Buffer.from(`NeoTorrent qBittorrent ${layout} multi-file fixture two\n`)
+        content: Buffer.from(`Bitwake qBittorrent ${layout} multi-file fixture two\n`)
       }
     ])
     const multiSavePath = `/data/layout/multi/${slug}`
@@ -373,49 +373,49 @@ function latestTemporaryPassword() {
   return matches.at(-1)[1]
 }
 
-const fixtureDirectory = mkdtempSync(join(tmpdir(), 'neotorrent-qbit-fixtures-'))
-const contentA = Buffer.from('NeoTorrent legal local integration fixture A\n')
-const contentB = Buffer.from('NeoTorrent legal local integration fixture B\n')
-const contentC = Buffer.from('NeoTorrent legal local active-download fixture\n')
-const torrentA = createTorrent('neotorrent-keep-content.txt', contentA)
-const torrentB = createTorrent('neotorrent-delete-content.txt', contentB)
-const torrentC = createTorrent('neotorrent-active-location.txt', contentC)
+const fixtureDirectory = mkdtempSync(join(tmpdir(), 'bitwake-qbit-fixtures-'))
+const contentA = Buffer.from('Bitwake legal local integration fixture A\n')
+const contentB = Buffer.from('Bitwake legal local integration fixture B\n')
+const contentC = Buffer.from('Bitwake legal local active-download fixture\n')
+const torrentA = createTorrent('bitwake-keep-content.txt', contentA)
+const torrentB = createTorrent('bitwake-delete-content.txt', contentB)
+const torrentC = createTorrent('bitwake-active-location.txt', contentC)
 const suggestedTvTorrent = createTorrent(
   'Test.Series.2026.S01E01.mkv',
-  Buffer.from('NeoTorrent legal suggested TV episode fixture\n')
+  Buffer.from('Bitwake legal suggested TV episode fixture\n')
 )
 const suggestedMovieTorrent = createTorrent(
   'Test.Movie.2026.mkv',
-  Buffer.from('NeoTorrent legal suggested movie fixture\n')
+  Buffer.from('Bitwake legal suggested movie fixture\n')
 )
 const manualTvTorrent = createTorrent(
   'Manual.Series.2026.S04E01.mkv',
-  Buffer.from('NeoTorrent legal manually placed TV episode fixture\n')
+  Buffer.from('Bitwake legal manually placed TV episode fixture\n')
 )
 const manualMovieTorrent = createTorrent(
   'Manual.Test.Movie.2026.mkv',
-  Buffer.from('NeoTorrent legal manually placed movie fixture\n')
+  Buffer.from('Bitwake legal manually placed movie fixture\n')
 )
 const tvRootWarningTorrent = createTorrent(
   'TV.Root.Warning.S01E01.mkv',
-  Buffer.from('NeoTorrent legal exact TV root warning fixture\n')
+  Buffer.from('Bitwake legal exact TV root warning fixture\n')
 )
 const moviesRootWarningTorrent = createTorrent(
   'Movies.Root.Warning.2026.mkv',
-  Buffer.from('NeoTorrent legal exact Movies root warning fixture\n')
+  Buffer.from('Bitwake legal exact Movies root warning fixture\n')
 )
 const setLocationTorrent = createTorrent(
   'Set.Location.Series.2026.S02E01.mkv',
-  Buffer.from('NeoTorrent legal Set Location fixture\n')
+  Buffer.from('Bitwake legal Set Location fixture\n')
 )
-const parityContentTorrent = createMultiFileTorrent('neotorrent-parity-content', [
+const parityContentTorrent = createMultiFileTorrent('bitwake-parity-content', [
   {
     path: 'Season 01/episode-one.txt',
-    content: Buffer.from('NeoTorrent legal content-rename fixture episode\n')
+    content: Buffer.from('Bitwake legal content-rename fixture episode\n')
   },
   {
     path: 'poster.txt',
-    content: Buffer.from('NeoTorrent legal content-rename fixture poster\n')
+    content: Buffer.from('Bitwake legal content-rename fixture poster\n')
   }
 ])
 installLegalContent(fixtureDirectory, torrentA, contentA)
@@ -1015,7 +1015,7 @@ async function startMoveCompletionOrderingProbe(hash, target) {
     }
     state.observer = new globalThis.MutationObserver(inspect)
     state.observer.observe(document.body, { childList: true, subtree: true, characterData: true })
-    globalThis.__neotorrentMoveOrderingProbe = state
+    globalThis.__bitwakeMoveOrderingProbe = state
     inspect()
   }, target)
 
@@ -1023,9 +1023,9 @@ async function startMoveCompletionOrderingProbe(hash, target) {
     active = false
     page.off('response', onResponse)
     const completionAt = await page.evaluate(() => {
-      const state = globalThis.__neotorrentMoveOrderingProbe
+      const state = globalThis.__bitwakeMoveOrderingProbe
       state?.observer?.disconnect()
-      delete globalThis.__neotorrentMoveOrderingProbe
+      delete globalThis.__bitwakeMoveOrderingProbe
       return state?.completionAt ?? null
     })
     invariant(
@@ -1077,7 +1077,7 @@ async function exerciseSetLocation() {
     .getByText('Move requested. qBittorrent is updating the save location.', { exact: true })
     .waitFor()
   await waitForMovedTorrent(setLocationTorrent, suggestedSavePath, suggestedContentPath)
-  await waitFor('NeoTorrent to report the observed suggested move completion', async () => {
+  await waitFor('Bitwake to report the observed suggested move completion', async () => {
     const count = await completionToast.count()
     return count > completedMessages
   })
@@ -1106,7 +1106,7 @@ async function exerciseSetLocation() {
   )
   await requestSetLocation(dialog)
   await waitForMovedTorrent(setLocationTorrent, manualSavePath, manualContentPath)
-  await waitFor('NeoTorrent to report the observed manual move completion', async () => {
+  await waitFor('Bitwake to report the observed manual move completion', async () => {
     const count = await completionToast.count()
     return count > completedMessages
   })
@@ -1250,7 +1250,7 @@ try {
   await form(page, 'torrents/start', { hashes: torrentA.hash })
   await form(page, 'torrents/stop', { hashes: torrentA.hash })
 
-  const renamedA = 'neotorrent-keep-content-renamed.txt'
+  const renamedA = 'bitwake-keep-content-renamed.txt'
   await form(page, 'torrents/rename', { hash: torrentA.hash, name: renamedA })
   await waitFor(
     'torrent rename',
@@ -1408,7 +1408,7 @@ try {
     'proxy did not expose outage'
   )
   await page
-    .getByText('Connection lost. Showing the last good data while NeoTorrent reconnects.')
+    .getByText('Connection lost. Showing the last good data while Bitwake reconnects.')
     .waitFor({
       timeout: 20_000
     })

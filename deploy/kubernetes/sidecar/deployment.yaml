@@ -1,6 +1,7 @@
-# Migration template: copy the neotorrent container and neotorrent-tmp volume
-# into the existing torrent Deployment. Keep the existing qBittorrent container,
-# volumes, VPN sidecars, ports, environment, resources, and security settings.
+# Migration template for a new installation: copy the Bitwake container and
+# bitwake-tmp volume into the existing torrent Deployment. During an in-place
+# upgrade, keep existing object, container, and volume names; change only the
+# image and canonical environment values needed by the deployment.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -29,8 +30,8 @@ spec:
         # qBittorrent container. Do not deploy the placeholder image.
         - name: qbittorrent
           image: replace-with-your-existing-qbittorrent-image
-        - name: neotorrent
-          image: ghcr.io/dotsml/neotorrent@sha256:REPLACE_WITH_PUBLISHED_DIGEST
+        - name: bitwake
+          image: ghcr.io/dotsml/bitwake@sha256:REPLACE_WITH_PUBLISHED_DIGEST
           imagePullPolicy: IfNotPresent
           env:
             - name: QBITTORRENT_URL
@@ -47,19 +48,19 @@ spec:
               value: 300s
             - name: PROXY_SSL_VERIFY
               value: 'on'
-            - name: NEOTORRENT_MEDIA_MODE
+            - name: BITWAKE_MEDIA_MODE
               value: assist
-            - name: NEOTORRENT_TV_ROOT
+            - name: BITWAKE_TV_ROOT
               value: /data/tv-shows
-            - name: NEOTORRENT_MOVIES_ROOT
+            - name: BITWAKE_MOVIES_ROOT
               value: /data/movies
-            - name: NEOTORRENT_MEDIA_BROWSE_ROOT
+            - name: BITWAKE_MEDIA_BROWSE_ROOT
               value: /data
-            - name: NEOTORRENT_MEDIA_CONFIG_LOCKED
+            - name: BITWAKE_MEDIA_CONFIG_LOCKED
               value: 'true'
-            - name: NEOTORRENT_TV_CATEGORY
+            - name: BITWAKE_TV_CATEGORY
               value: TV Shows
-            - name: NEOTORRENT_MOVIE_CATEGORY
+            - name: BITWAKE_MOVIE_CATEGORY
               value: Movies
           ports:
             - name: webui
@@ -102,10 +103,10 @@ spec:
             seccompProfile:
               type: RuntimeDefault
           volumeMounts:
-            - name: neotorrent-tmp
+            - name: bitwake-tmp
               mountPath: /tmp
       volumes:
-        - name: neotorrent-tmp
+        - name: bitwake-tmp
           emptyDir:
             medium: Memory
             sizeLimit: 32Mi

@@ -2,9 +2,15 @@
 set -eu
 
 repository_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-image=${NEOTORRENT_IMAGE:-neotorrent:test}
+if [ "${BITWAKE_IMAGE+x}" = x ]; then
+  image=$BITWAKE_IMAGE
+elif [ "${NEOTORRENT_IMAGE+x}" = x ]; then
+  image=$NEOTORRENT_IMAGE
+else
+  image=bitwake:test
+fi
 node_image='node:22.23.2-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32'
-run_id="neotorrent-contract-$$"
+run_id="bitwake-contract-$$"
 pod_name="$run_id-pod"
 upstream_name="$run_id-upstream"
 proxy_name="$run_id-proxy"
@@ -79,7 +85,7 @@ for attempt in 1 2 3 4 5 6 7 8 9 10; do
   fi
   [ "$attempt" -lt 10 ] || {
     docker logs "$proxy_name" >&2
-    fail 'NeoTorrent did not become ready'
+    fail 'Bitwake did not become ready'
   }
   sleep 1
 done
@@ -92,21 +98,21 @@ docker inspect --format '{{json .HostConfig.CapDrop}}' "$proxy_name" | grep -q '
   || fail 'capabilities were not dropped'
 docker exec "$proxy_name" awk '$1 == "Seccomp:" { found = 1; enabled = ($2 == 2) } END { exit !(found && enabled) }' \
   /proc/1/status || fail 'runtime-default seccomp filtering is not active'
-docker exec "$proxy_name" sh -c 'touch /tmp/neotorrent-write-test && rm /tmp/neotorrent-write-test' \
+docker exec "$proxy_name" sh -c 'touch /tmp/bitwake-write-test && rm /tmp/bitwake-write-test' \
   || fail '/tmp is not writable'
-if docker exec "$proxy_name" sh -c 'touch /etc/neotorrent-must-fail' >/dev/null 2>&1; then
+if docker exec "$proxy_name" sh -c 'touch /etc/bitwake-must-fail' >/dev/null 2>&1; then
   fail 'read-only root filesystem accepted a write outside /tmp'
 fi
 if docker run --rm --entrypoint sh "$image" -c 'command -v node' >/dev/null 2>&1; then
   fail 'final image contains a Node.js runtime'
 fi
 docker run --rm --entrypoint sh "$image" -c \
-  'test ! -e /app/src && test -s /usr/share/nginx/html/THIRD_PARTY_NOTICES.txt && test ! -e /usr/share/nginx/html/mockServiceWorker.js && test ! -e /usr/share/nginx/html/_neotorrent/runtime-config.json && ! find /usr/share/nginx/html -name "*.map" -print -quit | grep -q .'
+  'test ! -e /app/src && test -s /usr/share/nginx/html/THIRD_PARTY_NOTICES.txt && test ! -e /usr/share/nginx/html/mockServiceWorker.js && test ! -e /usr/share/nginx/html/_bitwake/runtime-config.json && test ! -e /usr/share/nginx/html/_neotorrent/runtime-config.json && ! find /usr/share/nginx/html -name "*.map" -print -quit | grep -q .'
 docker run --rm --entrypoint sh "$image" -c '
   worker=/usr/share/nginx/html/sw.js
   test -f "$worker"
-  test "$(grep -o "_neotorrent/runtime-config.json" "$worker" | wc -l | tr -d "[:space:]")" = 1
-  grep -Eq "runtime-config\\.json.*NetworkOnly,?\\\"GET\\\"" "$worker"
+  grep -Eq "bitwake.{0,20}neotorrent.{0,40}runtime-config|runtime-config.{0,40}bitwake.{0,20}neotorrent" "$worker"
+  grep -Eq "runtime-config.{0,100}NetworkOnly.{0,20}GET" "$worker"
 ' || fail 'service worker did not exclude runtime configuration from precaching and use NetworkOnly'
 
 assert_status 200 "$base_url/healthz"
@@ -115,16 +121,23 @@ curl -fsS "$base_url/" | grep -q '<div id="app"></div>' || fail 'SPA index did n
 curl -fsSI "$base_url/" | grep -qi "content-security-policy: .*script-src 'self'" \
   || fail 'compatible CSP header is missing'
 
-runtime_headers="$temporary_directory/runtime-headers"
-runtime_body="$temporary_directory/runtime-config.json"
-curl -fsS -D "$runtime_headers" -o "$runtime_body" \
-  "$base_url/_neotorrent/runtime-config.json"
-[ "$(grep -ci '^cache-control:' "$runtime_headers")" = '1' ] \
-  || fail 'runtime configuration contained conflicting Cache-Control headers'
-grep -qi '^cache-control: no-store' "$runtime_headers" \
-  || fail 'runtime configuration was not marked no-store'
-grep -qi '^content-type: application/json' "$runtime_headers" \
-  || fail 'runtime configuration did not use the JSON content type'
+canonical_runtime_body="$temporary_directory/_bitwake-runtime-config.json"
+legacy_runtime_body="$temporary_directory/_neotorrent-runtime-config.json"
+for runtime_namespace in _bitwake _neotorrent; do
+  runtime_headers="$temporary_directory/${runtime_namespace}-headers"
+  runtime_body="$temporary_directory/${runtime_namespace}-runtime-config.json"
+  curl -fsS -D "$runtime_headers" -o "$runtime_body" \
+    "$base_url/$runtime_namespace/runtime-config.json"
+  [ "$(grep -ci '^cache-control:' "$runtime_headers")" = '1' ] \
+    || fail "$runtime_namespace runtime configuration contained conflicting Cache-Control headers"
+  grep -qi '^cache-control: no-store' "$runtime_headers" \
+    || fail "$runtime_namespace runtime configuration was not marked no-store"
+  grep -qi '^content-type: application/json' "$runtime_headers" \
+    || fail "$runtime_namespace runtime configuration did not use the JSON content type"
+done
+cmp "$canonical_runtime_body" "$legacy_runtime_body" \
+  || fail 'canonical and legacy runtime endpoints returned different data'
+runtime_body=$canonical_runtime_body
 node -e '
   const assert = require("node:assert/strict")
   const fs = require("node:fs")
@@ -140,9 +153,11 @@ node -e '
     }
   })
 ' "$runtime_body" || fail 'existing deployments did not receive the safe off defaults'
-assert_status 404 "$base_url/_neotorrent/not-a-resource"
-! grep -q '<div id="app"></div>' "$temporary_directory/response" \
-  || fail 'unknown runtime resource fell back to the SPA'
+for runtime_namespace in _bitwake _neotorrent; do
+  assert_status 404 "$base_url/$runtime_namespace/not-a-resource"
+  ! grep -q '<div id="app"></div>' "$temporary_directory/response" \
+    || fail "$runtime_namespace unknown runtime resource fell back to the SPA"
+done
 
 headers="$temporary_directory/headers"
 curl -sS -D "$headers" -o "$temporary_directory/get" \
@@ -173,7 +188,7 @@ grep -qi '^x-upstream-referer: https://torrent.example.test:8443/' "$headers" \
 grep -qi '^cache-control: no-store' "$headers" \
   || fail 'API response was not marked no-store'
 
-private_query_marker="neotorrent-private-path-$run_id"
+private_query_marker="bitwake-private-path-$run_id"
 curl -fsS "$base_url/api/echo?dirPath=%2Fdata%2F$private_query_marker" >/dev/null
 if docker logs "$proxy_name" 2>&1 | grep -F -q "$private_query_marker"; then
   fail 'API query values containing private paths or torrent metadata reached the access log'
@@ -210,7 +225,7 @@ grep -qi '^set-cookie: SID=proxy-contract; Path=/; HttpOnly; SameSite=Strict' "$
 
 curl -fsS -D "$headers" -o "$temporary_directory/download" "$base_url/api/download"
 grep -qi '^content-type: application/octet-stream' "$headers" || fail 'blob MIME type changed'
-grep -qi '^content-disposition: attachment; filename="neotorrent-test.txt"' "$headers" \
+grep -qi '^content-disposition: attachment; filename="bitwake-test.txt"' "$headers" \
   || fail 'Content-Disposition changed'
 [ "$(cat "$temporary_directory/download")" = 'legal local test download' ] \
   || fail 'download body changed'
@@ -275,16 +290,17 @@ fi
 grep -q 'QBITTORRENT_URL port must be an integer from 1 through 65535' "$invalid_log" \
   || fail 'out-of-range upstream port error was not clear'
 
-escaped_runtime="$temporary_directory/escaped-runtime-config.json"
+# Deprecated aliases must continue to produce the same validated runtime data.
+legacy_runtime="$temporary_directory/legacy-runtime-config.json"
 docker run --rm --read-only --tmpfs /tmp:rw,noexec,nosuid,size=8m \
   -e 'NEOTORRENT_MEDIA_MODE=assist' \
   -e 'NEOTORRENT_MEDIA_CONFIG_LOCKED=true' \
-  -e 'NEOTORRENT_TV_ROOT=/runtime/neotorrent-runtime-only-tv-9f31c2 "quoted"\shows' \
-  -e 'NEOTORRENT_MOVIES_ROOT=/runtime/neotorrent-runtime-only-movies-7a84d6/Français' \
+  -e 'NEOTORRENT_TV_ROOT=/runtime/bitwake-legacy-only-tv-9f31c2 "quoted"\shows' \
+  -e 'NEOTORRENT_MOVIES_ROOT=/runtime/bitwake-legacy-only-movies-7a84d6/Français' \
   -e 'NEOTORRENT_MEDIA_BROWSE_ROOT=/data' \
   -e 'NEOTORRENT_TV_CATEGORY=TV "Prime"\Archive' \
   -e 'NEOTORRENT_MOVIE_CATEGORY=Movies & more' \
-  "$image" sh -c 'cat /tmp/neotorrent-runtime-config.json' > "$escaped_runtime"
+  "$image" sh -c 'cat /tmp/bitwake-runtime-config.json' > "$legacy_runtime"
 node -e '
   const assert = require("node:assert/strict")
   const fs = require("node:fs")
@@ -293,8 +309,8 @@ node -e '
     mediaPlacement: {
       mode: "assist",
       locked: true,
-      tvRoot: "/runtime/neotorrent-runtime-only-tv-9f31c2 \"quoted\"\\shows",
-      moviesRoot: "/runtime/neotorrent-runtime-only-movies-7a84d6/Français",
+      tvRoot: "/runtime/bitwake-legacy-only-tv-9f31c2 \"quoted\"\\shows",
+      moviesRoot: "/runtime/bitwake-legacy-only-movies-7a84d6/Français",
       browseRoot: "/data",
       tvCategory: "TV \"Prime\"\\Archive",
       movieCategory: "Movies & more"
@@ -302,10 +318,73 @@ node -e '
   })
   assert.equal("QBITTORRENT_URL" in value, false)
   assert.equal("credentials" in value, false)
-' "$escaped_runtime" || fail 'runtime configuration was not valid, escaped JSON'
+' "$legacy_runtime" || fail 'legacy environment aliases did not produce valid, escaped JSON'
+
+canonical_runtime="$temporary_directory/canonical-runtime-config.json"
+docker run --rm --read-only --tmpfs /tmp:rw,noexec,nosuid,size=8m \
+  -e 'BITWAKE_MEDIA_MODE=assist' \
+  -e 'BITWAKE_MEDIA_CONFIG_LOCKED=true' \
+  -e 'BITWAKE_TV_ROOT=/runtime/bitwake-canonical-tv' \
+  -e 'BITWAKE_MOVIES_ROOT=/runtime/bitwake-canonical-movies' \
+  -e 'BITWAKE_MEDIA_BROWSE_ROOT=/runtime' \
+  -e 'BITWAKE_TV_CATEGORY=Canonical TV' \
+  -e 'BITWAKE_MOVIE_CATEGORY=Canonical Movies' \
+  "$image" sh -c 'cat /tmp/bitwake-runtime-config.json' > "$canonical_runtime"
+node -e '
+  const assert = require("node:assert/strict")
+  const fs = require("node:fs")
+  assert.deepStrictEqual(JSON.parse(fs.readFileSync(process.argv[1], "utf8")), {
+    mediaPlacement: {
+      mode: "assist",
+      locked: true,
+      tvRoot: "/runtime/bitwake-canonical-tv",
+      moviesRoot: "/runtime/bitwake-canonical-movies",
+      browseRoot: "/runtime",
+      tvCategory: "Canonical TV",
+      movieCategory: "Canonical Movies"
+    }
+  })
+' "$canonical_runtime" || fail 'canonical environment settings did not produce runtime JSON'
+
+conflict_runtime="$temporary_directory/conflict-runtime-config.json"
+conflict_runtime_log="$temporary_directory/conflict-runtime.log"
+docker run --rm --read-only --tmpfs /tmp:rw,noexec,nosuid,size=8m \
+  -e 'BITWAKE_MEDIA_MODE=assist' -e 'NEOTORRENT_MEDIA_MODE=off' \
+  -e 'BITWAKE_MEDIA_CONFIG_LOCKED=true' -e 'NEOTORRENT_MEDIA_CONFIG_LOCKED=false' \
+  -e 'BITWAKE_TV_ROOT=/canonical/tv' -e 'NEOTORRENT_TV_ROOT=/private/legacy-tv-root' \
+  -e 'BITWAKE_MOVIES_ROOT=/canonical/movies' -e 'NEOTORRENT_MOVIES_ROOT=/private/legacy-movies-root' \
+  -e 'BITWAKE_MEDIA_BROWSE_ROOT=/canonical' -e 'NEOTORRENT_MEDIA_BROWSE_ROOT=/private/legacy-browse-root' \
+  -e 'BITWAKE_TV_CATEGORY=' -e 'NEOTORRENT_TV_CATEGORY=private legacy TV category' \
+  -e 'BITWAKE_MOVIE_CATEGORY=Canonical Movies' -e 'NEOTORRENT_MOVIE_CATEGORY=private legacy movie category' \
+  "$image" sh -c 'cat /tmp/bitwake-runtime-config.json' \
+  > "$conflict_runtime" 2> "$conflict_runtime_log"
+node -e '
+  const assert = require("node:assert/strict")
+  const fs = require("node:fs")
+  assert.deepStrictEqual(JSON.parse(fs.readFileSync(process.argv[1], "utf8")), {
+    mediaPlacement: {
+      mode: "assist",
+      locked: true,
+      tvRoot: "/canonical/tv",
+      moviesRoot: "/canonical/movies",
+      browseRoot: "/canonical",
+      tvCategory: "",
+      movieCategory: "Canonical Movies"
+    }
+  })
+' "$conflict_runtime" || fail 'canonical settings did not win conflicts, including an explicit empty value'
+for setting in MEDIA_MODE MEDIA_CONFIG_LOCKED TV_ROOT MOVIES_ROOT MEDIA_BROWSE_ROOT TV_CATEGORY MOVIE_CATEGORY; do
+  grep -Fx "BITWAKE_$setting overrides deprecated NEOTORRENT_$setting" "$conflict_runtime_log" >/dev/null \
+    || fail "missing safe conflict warning for $setting"
+done
+if grep -F -q 'private legacy' "$conflict_runtime_log" \
+    || grep -F -q '/private/' "$conflict_runtime_log"; then
+  fail 'environment conflict warning disclosed a legacy path or category value'
+fi
+
 docker run --rm --entrypoint sh "$image" -c '
-  ! grep -R -F -q "neotorrent-runtime-only-tv-9f31c2" /usr/share/nginx/html/assets
-  ! grep -R -F -q "neotorrent-runtime-only-movies-7a84d6" /usr/share/nginx/html/assets
+  ! grep -R -F -q "bitwake-legacy-only-tv-9f31c2" /usr/share/nginx/html/assets
+  ! grep -R -F -q "bitwake-legacy-only-movies-7a84d6" /usr/share/nginx/html/assets
 ' || fail 'environment-specific media roots were compiled into frontend assets'
 
 invalid_runtime="$temporary_directory/invalid-runtime-config.json"
@@ -317,7 +396,7 @@ assert_invalid_media_runtime() {
 
   if ! docker run --rm --read-only --tmpfs /tmp:rw,noexec,nosuid,size=8m \
     "$@" "$image" sh -c \
-    'test -s /tmp/nginx.conf && cat /tmp/neotorrent-runtime-config.json' \
+    'test -s /tmp/nginx.conf && cat /tmp/bitwake-runtime-config.json' \
     >"$invalid_runtime" 2>"$invalid_runtime_log"; then
     fail "$invalid_case stopped the standalone container"
   fi
@@ -330,11 +409,14 @@ assert_invalid_media_runtime() {
       configurationError: true
     })
   ' "$invalid_runtime" || fail "$invalid_case did not emit the safe invalid-config sentinel"
-  grep -q 'NeoTorrent media configuration warning: .*Media Placement will start off' \
+  grep -q 'Bitwake media configuration warning: .*Media Placement will start off' \
     "$invalid_runtime_log" \
     || fail "$invalid_case did not log the generic fallback warning"
 }
 
+# Exercise the full validation matrix through the deprecated prefix as explicit
+# compatibility coverage; canonical-only validation is checked above and again
+# through the running invalid configuration case below.
 assert_invalid_media_runtime 'invalid media mode' \
   -e 'NEOTORRENT_MEDIA_MODE=enforce'
 assert_invalid_media_runtime 'invalid media configuration lock' \
@@ -387,7 +469,7 @@ assert_invalid_media_runtime 'normalized POSIX filesystem roots' \
 assert_invalid_media_runtime 'normalized nested POSIX TV and Movies roots' \
   -e 'NEOTORRENT_TV_ROOT=/data/media/series/../tv' \
   -e 'NEOTORRENT_MOVIES_ROOT=/data/./media'
-private_overlap_marker='neotorrent-private-root-4f9c7a'
+private_overlap_marker='bitwake-private-root-4f9c7a'
 assert_invalid_media_runtime 'private overlapping POSIX TV and Movies roots' \
   -e "NEOTORRENT_TV_ROOT=/data/$private_overlap_marker" \
   -e "NEOTORRENT_MOVIES_ROOT=/data/$private_overlap_marker/movies"
@@ -411,13 +493,13 @@ docker run -d --name "$invalid_runtime_name" \
   --read-only --cap-drop ALL --security-opt no-new-privileges:true \
   --tmpfs /tmp:rw,noexec,nosuid,size=8m \
   -p 127.0.0.1::8081 \
-  -e 'NEOTORRENT_TV_ROOT=relative/tv-shows' \
+  -e 'BITWAKE_TV_ROOT=relative/tv-shows' \
   "$image" >/dev/null
 invalid_runtime_port=$(docker port "$invalid_runtime_name" 8081/tcp | sed -n '1s/.*://p')
 [ -n "$invalid_runtime_port" ] || fail 'could not discover invalid-runtime test port'
 for attempt in 1 2 3 4 5 6 7 8 9 10; do
   if curl -fsS \
-    "http://127.0.0.1:$invalid_runtime_port/_neotorrent/runtime-config.json" \
+    "http://127.0.0.1:$invalid_runtime_port/_bitwake/runtime-config.json" \
     > "$invalid_runtime"; then
     break
   fi
@@ -439,12 +521,12 @@ docker rm -f "$invalid_runtime_name" >/dev/null
 
 windows_unc_runtime="$temporary_directory/windows-unc-runtime-config.json"
 docker run --rm --read-only --tmpfs /tmp:rw,noexec,nosuid,size=8m \
-  -e 'NEOTORRENT_MEDIA_MODE=assist' \
-  -e 'NEOTORRENT_MEDIA_CONFIG_LOCKED=true' \
-  -e 'NEOTORRENT_TV_ROOT=D:\Media\TV' \
-  -e 'NEOTORRENT_MOVIES_ROOT=\\nas.example\media\Movies' \
-  -e 'NEOTORRENT_MEDIA_BROWSE_ROOT=//nas.example/media' \
-  "$image" sh -c 'cat /tmp/neotorrent-runtime-config.json' > "$windows_unc_runtime"
+  -e 'BITWAKE_MEDIA_MODE=assist' \
+  -e 'BITWAKE_MEDIA_CONFIG_LOCKED=true' \
+  -e 'BITWAKE_TV_ROOT=D:\Media\TV' \
+  -e 'BITWAKE_MOVIES_ROOT=\\nas.example\media\Movies' \
+  -e 'BITWAKE_MEDIA_BROWSE_ROOT=//nas.example/media' \
+  "$image" sh -c 'cat /tmp/bitwake-runtime-config.json' > "$windows_unc_runtime"
 node -e '
   const assert = require("node:assert/strict")
   const fs = require("node:fs")
@@ -463,9 +545,9 @@ node -e '
 
 posix_sibling_runtime="$temporary_directory/posix-sibling-runtime-config.json"
 docker run --rm --read-only --tmpfs /tmp:rw,noexec,nosuid,size=8m \
-  -e 'NEOTORRENT_TV_ROOT=/data/media' \
-  -e 'NEOTORRENT_MOVIES_ROOT=/data/media-archive' \
-  "$image" sh -c 'cat /tmp/neotorrent-runtime-config.json' > "$posix_sibling_runtime"
+  -e 'BITWAKE_TV_ROOT=/data/media' \
+  -e 'BITWAKE_MOVIES_ROOT=/data/media-archive' \
+  "$image" sh -c 'cat /tmp/bitwake-runtime-config.json' > "$posix_sibling_runtime"
 node -e '
   const assert = require("node:assert/strict")
   const fs = require("node:fs")
