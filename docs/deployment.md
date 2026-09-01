@@ -1,8 +1,15 @@
 # Deployment and operations
 
-## Supported deployment shape
+## Supported deployment shapes
 
-NeoTorrent is installed as a qBittorrent Alternative WebUI. qBittorrent serves it and remains the only production backend. Do not deploy `dist/app` to a generic static host and point it cross-origin at qBittorrent; the production design assumes same-origin cookies, qBittorrent's public/private resource boundary, and relative `/api/v2` access.
+NeoTorrent has two production delivery modes. Neither adds an application API or database; qBittorrent remains the only application backend.
+
+| Shape                    | Browser-facing server                                                             | Authentication transition                                         | Best fit                                                                                     |
+| ------------------------ | --------------------------------------------------------------------------------- | ----------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| Standalone container     | NeoTorrent's unprivileged Nginx, which serves the SPA and reverse-proxies `/api/` | Login, logout, expiry, and intended routes remain in one document | Kubernetes, container platforms, or operators who do not want to replace qBittorrent's files |
+| Native Alternative WebUI | qBittorrent serves NeoTorrent's `public/` and `private/` trees                    | qBittorrent's resource boundary requires document reloads         | Direct installation on a qBittorrent host                                                    |
+
+Do not deploy static files on one browser origin and point them cross-origin at qBittorrent. Both modes rely on same-origin browser cookies and relative `api/v2/` requests.
 
 Pinned target:
 
@@ -12,7 +19,114 @@ Pinned target:
 
 qBittorrent 5.0+ is best-effort, not a blanket verified range.
 
-## Build prerequisites
+### Publication status
+
+The Kubernetes examples contain this deliberate placeholder:
+
+```text
+ghcr.io/dotsml/neotorrent@sha256:REPLACE_WITH_PUBLISHED_DIGEST
+```
+
+It is not deployable. The container workflow is uncommitted and has never run on GitHub. Anonymous inspection of `ghcr.io/dotsml/neotorrent:edge` failed during GHCR token acquisition with HTTP 403, which cannot distinguish an absent package from a private one. Therefore no public manifest or immutable registry digest is available or verified. Separate amd64 and arm64 images have passed locally, but their content IDs are not GHCR references and do not form a published multi-architecture manifest.
+
+Build and push your own reviewed image to a registry you control, or wait for a hosted workflow to publish a verifiable digest. In either case, replace the entire placeholder with an immutable digest and inspect that digest before deploying it.
+
+## Standalone container
+
+### Build and run locally
+
+The Dockerfile builds `dist/standalone` with pinned Node and Nginx base-image digests, then copies only the static runtime into `nginxinc/nginx-unprivileged`. The runtime pin is `nginxinc/nginx-unprivileged:1.30.4-alpine@sha256:45ce1e2e699234253d1def7baa96218a5d00b498d1ba0cbb1a17b6bdf73d1351` (Alpine 3.24.1). The final image runs as UID/GID `101:101` and contains no Node.js runtime, source tree, mock worker, or production source maps.
+
+```bash
+NEOTORRENT_IMAGE=neotorrent:local corepack pnpm container:build
+```
+
+An illustrative hardened invocation is:
+
+```bash
+docker run --rm --name neotorrent \
+  --network your-qbittorrent-network \
+  -p 127.0.0.1:8081:8081 \
+  --read-only \
+  --tmpfs /tmp:rw,noexec,nosuid,size=32m \
+  --cap-drop ALL \
+  --security-opt no-new-privileges:true \
+  -e QBITTORRENT_URL=http://qbittorrent:8080 \
+  neotorrent:local
+```
+
+`qbittorrent` above must resolve inside the selected container network. Do not use `127.0.0.1` for separate Docker containers; loopback works only when NeoTorrent and qBittorrent share a network namespace, as they do in the sidecar Pod example. Bind to a non-loopback host address only behind deliberate TLS and access control.
+
+### Runtime environment
+
+| Variable                | Default                          | Contract                                                                                                                                                          |
+| ----------------------- | -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `QBITTORRENT_URL`       | Derived from `QB_HOST`/`QB_PORT` | Preferred qBittorrent base HTTP(S) URL; an optional upstream path is allowed, but credentials, whitespace, query, fragment, and a trailing `/api/v2` are rejected |
+| `QB_HOST`               | `127.0.0.1`                      | Fallback host used only when `QBITTORRENT_URL` is unset                                                                                                           |
+| `QB_PORT`               | `8080`                           | Fallback port from 1 through 65535                                                                                                                                |
+| `LISTEN_PORT`           | `8081`                           | Unprivileged listen port from 1024 through 65535                                                                                                                  |
+| `MAX_UPLOAD_SIZE`       | `100m`                           | Positive Nginx size; must accommodate intended `.torrent` uploads                                                                                                 |
+| `PROXY_CONNECT_TIMEOUT` | `10s`                            | Positive Nginx duration                                                                                                                                           |
+| `PROXY_READ_TIMEOUT`    | `300s`                           | Positive Nginx duration                                                                                                                                           |
+| `PROXY_SEND_TIMEOUT`    | `300s`                           | Positive Nginx duration                                                                                                                                           |
+| `PROXY_SSL_VERIFY`      | `on`                             | `on` verifies an HTTPS qBittorrent upstream against the image CA bundle; `off` is an explicit security downgrade                                                  |
+
+`QBITTORRENT_URL` is routing configuration, not a secret. Never embed a username, password, cookie, token, or API key in it. The entrypoint validates values before rendering `/tmp/nginx.conf` and runs `nginx -t` before starting.
+
+The standalone server exposes `/healthz` and `/readyz`. Both report whether NeoTorrent's static proxy process is alive and configured; they intentionally remain 200 while qBittorrent is unavailable. API availability is represented by proxied 502/504 responses and the application's connection state, not these probes.
+
+### qBittorrent proxy settings
+
+Keep qBittorrent's Web UI/API and authentication enabled. The standalone mode does not require **Use alternative WebUI**. Configure qBittorrent's reverse-proxy support, allowed server domains, and trusted proxy list for the actual topology:
+
+- Sidecar Pod: trust only loopback/the precise local proxy source appropriate to the qBittorrent image.
+- Separate Deployment: trust only the NeoTorrent Pod/network source selected by cluster policy, not an entire broad private range without review.
+- Preserve CSRF, clickjacking, and Host-header validation.
+- When the external origin is HTTPS-only, configure secure cookies and correct forwarded scheme/host handling.
+
+The bundled Nginx preserves `Origin` and `Referer`, forwards the external host separately through `X-Forwarded-Host`, resets `X-Forwarded-For` to the immediate peer instead of trusting a caller-supplied chain, derives `X-Forwarded-Proto` only from `http`/`https`, disables proxy buffering for API responses, and sets API responses `no-store`. HTTPS upstream verification defaults on. Diagnose qBittorrent 401/403 logs rather than disabling these protections.
+
+### Kubernetes examples
+
+Two Kustomize bases are provided. They are examples to merge and customize, not universally deployable manifests.
+
+#### Sidecar: `deploy/kubernetes/sidecar`
+
+Use this when qBittorrent already runs in a Kubernetes Deployment and NeoTorrent should share its Pod network namespace. Copy the `neotorrent` container and `neotorrent-tmp` volume into the existing Pod template; keep the existing qBittorrent image, volumes, VPN sidecars, environment, ports, resources, security context, and scheduling rules. The checked-in `replace-with-your-existing-qbittorrent-image` entry is explanatory and must never be deployed.
+
+The sidecar uses `QBITTORRENT_URL=http://127.0.0.1:8080`. Change the existing Service to target NeoTorrent's named `webui` port at 8081, and route the Ingress to that Service. Do not expose the qBittorrent Web UI port through a second public Service.
+
+#### Separate Deployment: `deploy/kubernetes/separate`
+
+Use this when NeoTorrent should have an independent rollout/resource lifecycle. Set `QBITTORRENT_URL` to a cluster-internal qBittorrent Service DNS name. Add NetworkPolicies allowing Ingress-to-NeoTorrent on 8081 and NeoTorrent-to-qBittorrent on its Web UI/API port, while denying unintended direct access. Configure qBittorrent to trust the actual proxy source presented by this topology.
+
+Both examples run non-root as 101, drop all capabilities, disable privilege escalation, request `RuntimeDefault` seccomp, make the root filesystem read-only, mount a size-limited memory-backed `/tmp`, disable service-account token mounting, and disable service-link environment injection. Their liveness/readiness semantics are the process-only semantics described above.
+
+Official Kustomize v5.8.1 was downloaded and its release asset verified with SHA-256 `029a7f0f4e1932c52a0476cf02a0fd855c0bb85694b82c338fc648dcb53a819d`. `kustomize build` passed for both bases and confirmed the 8081 container port, Service `targetPort: webui`, no Ingress rewrite, security context, and `/tmp` `emptyDir`. This is render validation, not admission, rollout, NetworkPolicy, TLS, or live-cluster verification.
+
+Before applying either base:
+
+1. Replace namespaces, names, hostnames, TLS secret, resource limits, and qBittorrent address.
+2. Replace the image placeholder with an immutable digest that you can inspect.
+3. Render and review the complete overlay with your policy engine and cluster version.
+4. Confirm that only NeoTorrent, not qBittorrent's upstream port, is exposed.
+5. Verify login, upload, mutations, logout, expiry, outage behavior, and rollback in the actual cluster.
+
+### Migration from an existing qBittorrent Web UI
+
+1. Back up qBittorrent configuration and retain a desktop/config-file recovery path.
+2. Record the current Service, Ingress, volumes, VPN/network namespace, qBittorrent Web UI port, allowed domains, and proxy-trust settings.
+3. Build and locally test a specific NeoTorrent image; do not use the GHCR placeholder.
+4. Choose sidecar when shared loopback and one-Pod lifecycle are intended; choose a separate Deployment for independent rollout and explicit network policy.
+5. Configure qBittorrent proxy trust before switching public traffic, but keep its authentication, CSRF, clickjacking, and Host validation enabled.
+6. Route a test hostname to NeoTorrent and verify the real login/session and safe mutation flows.
+7. If replacing an older VueTorrent/Alternative-WebUI sidecar, keep qBittorrent, VPN, configuration, download volumes, and daemon settings unchanged; add NeoTorrent plus its 32 MiB `/tmp`, change the Service target to the named `webui` port, and remove any Ingress `rewrite-target` used by the old UI.
+8. Switch the production Service/Ingress to NeoTorrent while keeping the qBittorrent upstream private.
+9. After an observation period, disable or remove an old Alternative WebUI path only if it is no longer your rollback route. NeoTorrent's standalone mode does not require that qBittorrent setting.
+
+## Native Alternative WebUI package
+
+### Build prerequisites
 
 - Node.js 22 or newer.
 - Corepack with pnpm 10.15.0, or a matching standalone pnpm.
@@ -33,13 +147,15 @@ The packaging command performs two Vite builds, assembles qBittorrent's public/p
 Outputs:
 
 ```text
-dist/alt-webui/
-dist/qbittorrent-modern-webui.zip
+dist/alt-webui/                       1,041,432 bytes
+dist/qbittorrent-modern-webui.zip       375,293 bytes
 ```
 
-The ordinary `corepack pnpm build` output in `dist/app` is useful for static inspection but is not the directory configured as an Alternative WebUI.
+The current zip SHA-256 is `6e9318711a937b89cf8d5b936ebc4de00bcf2f256950b36f589672558c8e8e83`. The standalone build in `dist/standalone` is 746,801 bytes. Final artifact checks found no production source maps, MSW worker, or embedded upstream string.
 
-## Package layout
+The ordinary `corepack pnpm build` output in `dist/standalone` is the standalone SPA and is not the directory configured as an Alternative WebUI.
+
+### Package layout
 
 qBittorrent's **Alternative WebUI files location** must point to the directory containing both child roots:
 
@@ -57,11 +173,11 @@ alt-webui/
     └── app-assets/
 ```
 
-Do not point qBittorrent to `public/`, `private/`, the zip file, or `dist/app`.
+Do not point qBittorrent to `public/`, `private/`, the zip file, or `dist/standalone`.
 
 The archive contains `public/` and `private/` at its top level. Extract it into an otherwise dedicated directory so unrelated files do not become part of the WebUI root.
 
-## Install in qBittorrent
+### Install in qBittorrent
 
 1. Build or extract the package into a stable absolute path.
 2. Ensure the qBittorrent process can read every directory and file in that path. It does not need write access to NeoTorrent assets.
@@ -76,35 +192,26 @@ For headless qBittorrent, set the equivalent Alternative WebUI options using you
 
 ## Verification performed for the pinned target
 
-The generated `dist/alt-webui` package was installed into the official image:
+`corepack pnpm container:test` runs two local suites:
 
-```text
-ghcr.io/qbittorrent/docker-qbittorrent-nox:5.2.3-1
-```
+1. `container/test-container.sh` uses a deterministic upstream to verify the hardened runtime and byte/status/header fidelity of the proxy.
+2. `container/test-qbittorrent.sh` starts the pinned official qBittorrent container in a shared localhost Pod-style network namespace and drives `container/tests/qbittorrent-integration.mjs` through the NeoTorrent origin.
 
-The isolated run reported qBittorrent **v5.2.3** and Web API **2.15.1**. The following behaviors were observed:
+Both suites passed locally. The real suite observed qBittorrent **v5.2.3** and Web API **2.15.1** and verified:
 
-- Unauthenticated root served NeoTorrent's public login entry.
-- Authenticated root and private JavaScript served successfully.
-- Direct unauthenticated private JavaScript access was rejected by qBittorrent (HTTP 500 in this image).
-- An unauthenticated private API request returned HTTP 403.
-- Headless Chrome completed login, loaded the private shell and empty-library state, and opened the Add Torrent dialog.
-- Logging out produced the expected private-request 403 and the app recovered to the public login page.
-- The manifest, service worker, and packaged icon each returned HTTP 200.
-- Nine API requests were observed during the flow.
-- No page errors or unexpected console errors were recorded; the expected expiry 403 was excluded from the console-error check.
+- Anonymous startup, invalid login, valid login, deep-link restoration, authenticated refresh, logout, and expiry without standalone document reload loops.
+- A legal local multipart torrent add, start, stop, rename, category/tag assignment, recheck, reannounce, and file-priority changes.
+- Web Seed add/list/edit/remove with encoded path and query octets preserved.
+- Delete-without-content and delete-with-content semantics against two generated local fixtures.
+- Proxy 502 behavior, the last-good-data connection banner, and recovery after qBittorrent restart.
 
-This is a useful final-package authentication/resource smoke test. It does **not** establish full feature parity, mutation correctness, large-library performance, reverse-proxy behavior, PWA installation, or compatibility with every qBittorrent 5.x release. The tested zip was 360K with SHA-256 `2ed5ee36588a7144d5a629ad048e4074147060d91a6eb9ccc5af2ebb9808041`.
+Web Seed encoding deserves special care. The UI/API boundary accepts canonical URLs. qBittorrent 5.2.3 form-decodes the request and its Web Seed controller then calls `QUrl::fromPercentEncoding()`. NeoTorrent therefore protects only existing `%HH` octets as `%25HH` before the shared `URLSearchParams` form encoder runs. It does not `encodeURIComponent` the complete URL, because that would also obscure semantic `:`, `/`, `?`, `&`, and `=` delimiters. The real suite compares the added/edited URLs after qBittorrent returns them.
 
-The reproducible browser script is `scripts/verify-real-instance.mjs`. Pass secrets through the process environment, never a committed file:
+These tests do not establish Kubernetes behavior, outer-Ingress TLS, subpath serving, PWA install/update, every Vue mutation surface, large-library performance, or compatibility beyond the pinned version. They passed against the final local linux/amd64 `neotorrent:test` image, whose content ID is `sha256:686127d46d2539bd41c60b645d172a0352acfe3ab89e448f84c636d7d47a78ef`, revision label is `1ab285bb8dbd61b63ef6296790ff895eb918bb2d-dirty`, created label is `unspecified`, and runtime UID/GID is 101:101.
 
-```bash
-QBT_VERIFY_URL=http://127.0.0.1:PORT/ \
-QBT_VERIFY_PASSWORD='temporary-password' \
-node scripts/verify-real-instance.mjs
-```
+The previous runtime base failed a Trivy v0.74.0/current-database scan with 25 HIGH and 2 CRITICAL findings. The complete final linux/amd64 image and final linux/arm64 audit image (`sha256:42f9d35735bcedabfed6ac581a3ea1ec3dd724f8be023998f78fd479f152aefb`, UID/GID 101:101) each reported 0 HIGH/CRITICAL under the same current-database policy on Alpine 3.24.1. These local content IDs prove the scanned local images only; they are not registry digests, and no published NeoTorrent multi-architecture manifest has been inspected.
 
-Use an isolated test daemon with empty data. The script expects username `admin`, opens the add dialog, logs out, and verifies expiry recovery; it does not add a torrent.
+An earlier native Alternative WebUI authentication/resource smoke exists via `scripts/verify-real-instance.mjs`, but it predates current working-tree changes. The current package build and full browser matrix passed and the current zip identity is recorded above; the older smoke still must not be represented as live-daemon verification of this new zip.
 
 ## Development modes
 
@@ -133,20 +240,22 @@ The browser calls the Vite origin, and Vite proxies `/api` to qBittorrent. `secu
 
 Never embed credentials in `VITE_QBITTORRENT_URL`. Do not commit `.env.local`.
 
-### Ordinary production preview
+### Standalone production preview
 
 ```bash
 corepack pnpm build
 corepack pnpm exec vite preview
 ```
 
-This previews `dist/app`; it does not reproduce qBittorrent's public/private file selection. Use the official container smoke flow for that boundary.
+This previews `dist/standalone`; it does not run the bundled Nginx proxy or reproduce qBittorrent's native public/private file selection. Use the container suites for the standalone boundary and the Alternative WebUI package for the native boundary.
 
 ### Continuous integration
 
 `.github/workflows/ci.yml` runs on pushes to `main` and pull requests. It installs from the frozen lockfile, checks formatting, lint and types, runs all Vitest projects, builds the Alternative WebUI, installs Chromium and WebKit, runs the six Playwright projects, and uploads `dist/alt-webui` plus `dist/qbittorrent-modern-webui.zip`.
 
-The workflow is configured but no hosted run is recorded in this snapshot. The Playwright projects cover 1440×900, 320×700, 375×812, 430×932, 768×1024, and 1024×768. Locally, the full desktop suite passed 17 tests with 2 expected skips, and the full five-project Chromium-supported run discovered 95 tests with 49 passes and 46 intentional viewport/feature skips. The 375×812 WebKit project could not run because installing its host dependencies requires unavailable sudo/password access. CI installs Chromium and WebKit with dependencies, but a local pass is not a substitute for observing that hosted job and its uploaded artifact.
+GitHub Actions run #2 was green for committed HEAD `1ab285bb8dbd61b63ef6296790ff895eb918bb2d`. The current working tree contains uncommitted implementation/container changes, so that run is historical evidence only. Locally, the frozen install, format/lint/typecheck, 22-file/192-test Vitest run, all production builds, and full Playwright suite passed. Playwright ran in official `mcr.microsoft.com/playwright:v1.62.1-noble@sha256:dcc5531e97840b9b5e794f2814476b21571c5124a3fca2267d73041f56e7580e` with 63 passed and 81 intentional project skips across Chromium, WebKit, and 320/375/430 phones.
+
+The new `.github/workflows/container.yml` is uncommitted and unhosted. actionlint 1.7.7 passed locally. If committed, its verify job would build local images, run both container suites, and fail on HIGH/CRITICAL Trivy findings. Its push-only publish job declares multi-architecture Buildx, GHCR authentication, SBOM, maximum provenance, immutable digest inspection, and a job-summary reference. None of those hosted publication or supply-chain outputs exists yet.
 
 ## Reverse proxy and subpath behavior
 
@@ -156,7 +265,7 @@ NeoTorrent uses:
 - `api/v2/` relative to `document.baseURI` for API calls.
 - Hash history for routes.
 
-For a browser URL `https://downloads.example.test/qbt/`, NeoTorrent therefore requests assets and the API below `/qbt/`, while `#/torrents` never reaches the proxy as a path.
+For a browser URL `https://downloads.example.test/qbt/`, NeoTorrent therefore requests assets and the API below `/qbt/`, while `#/torrents` never reaches the proxy as a path. This has relative-URL unit coverage and fits the native Alternative WebUI mount, but no real subpath deployment has been run.
 
 ### Required properties
 
@@ -169,7 +278,7 @@ For a browser URL `https://downloads.example.test/qbt/`, NeoTorrent therefore re
 - Keep CSRF, clickjacking, and Host-header validation enabled.
 - Use HTTPS and enable the secure cookie setting for an HTTPS-only deployment.
 
-### Illustrative Nginx shape
+### Illustrative native Alternative WebUI proxy shape
 
 This is a pattern, not a drop-in security configuration:
 
@@ -189,7 +298,9 @@ location /qbt/ {
 
 The trailing slash on both `location` and `proxy_pass` is significant for prefix stripping. Your proxy, authentication layer, container network, and qBittorrent domain list may require additional controls. Verify login, logout, session expiry, all asset loads, and POST origin checks at the final external URL.
 
-The pinned real-instance smoke test was direct, not through this reverse-proxy example. Subpath/reverse-proxy deployment remains unverified.
+The pinned real-instance suites were direct, not through this reverse-proxy example. Subpath/reverse-proxy deployment remains unverified.
+
+The standalone container's bundled Nginx serves and proxies at root: its API location is `/api/`, and the checked-in Ingress examples use `/` with no rewrite annotation. To expose it at `/qbt/`, an outer proxy must consistently strip the prefix for the SPA, relative assets, manifest/service worker, and every `/qbt/api/` request. That shape has not been tested; prefer a dedicated host/root mount until it is.
 
 ## PWA deployment
 
@@ -226,19 +337,27 @@ NEOTORRENT_SCREENSHOT_URL=http://127.0.0.1:4173/ \
 node scripts/capture-screenshots.mjs
 ```
 
-The current screenshots were recaptured from the final mock implementation. The script defaults to `/usr/bin/google-chrome`; set `PLAYWRIGHT_CHROME_PATH` when needed. Screenshots contain deterministic mock data, not private torrents.
+The checked-in screenshots are mock-mode snapshots. The script defaults to `/usr/bin/google-chrome`; set `PLAYWRIGHT_CHROME_PATH` when needed. Screenshots contain deterministic mock data, not private torrents, and are not real-qBittorrent or live-deployment evidence; the separate current full browser result is recorded above.
 
 ## Upgrade procedure
 
+### Standalone image
+
 1. Read the implementation status and target-version notes for the new revision.
-2. Install dependencies from the lockfile and run the complete available verification suite.
-3. Build a new `dist/alt-webui` and archive.
-4. Inspect that the new root has both `public/` and `private/` and no mock worker.
-5. Copy the new package to a **new versioned directory** rather than overwriting the working one in place.
-6. Point qBittorrent's Alternative WebUI files location to the new parent directory.
-7. Test public login, private startup, actions, logout, and proxy/subpath behavior in a fresh browser session.
-8. Keep the previous directory until the new build has been observed through at least one session expiry and browser reload.
-9. Remove the previous directory only under your normal backup/retention policy.
+2. Build and run all available gates, including both container suites.
+3. Publish to a staging registry and record the immutable digest, platforms, scan result, SBOM, provenance, and source revision.
+4. Update the Deployment by digest, never by reusing a mutable tag.
+5. Roll out to a test hostname and verify login, refresh, representative mutations, logout, expiry, outage/recovery, upload size, and external TLS/proxy behavior.
+6. Promote the same digest and retain the previous digest/Deployment revision until the observation period ends.
+
+### Native Alternative WebUI
+
+1. Build a new `dist/alt-webui` and archive from the verified revision.
+2. Inspect that the root has both `public/` and `private/`, no mock worker/source maps, and a recorded checksum.
+3. Copy it to a **new versioned directory** rather than overwriting the working one in place.
+4. Point qBittorrent's Alternative WebUI files location to the new parent directory.
+5. Test public login, private startup, actions, logout, expiry, and proxy/subpath behavior in a fresh browser session.
+6. Keep the previous directory until the new build has survived a reload and session transition.
 
 Hashed asset names and uncached HTML reduce mixed-version risk. A registered older service worker may still need a browser reload or site-data cleanup when debugging an upgrade.
 
@@ -246,7 +365,7 @@ Interface preference schema migrations run when NeoTorrent loads. Current schema
 
 ## Rollback
 
-Point qBittorrent's Alternative WebUI path back to the previous complete directory, or disable Alternative WebUI using the desktop/configuration recovery path. Reload in a fresh tab. Do not combine `public/` from one revision with `private/` from another.
+For standalone deployment, roll back the Deployment to the previous immutable image digest and restore the previous Service/Ingress route if the migration changed it. For native installation, point qBittorrent's Alternative WebUI path back to the previous complete directory, or disable Alternative WebUI using the desktop/configuration recovery path. Reload in a fresh tab. Do not combine `public/` from one revision with `private/` from another.
 
 UI preferences are namespaced and generally safe to retain. If a preference migration itself is suspected, remove only NeoTorrent's `neotorrent:ui-preferences` browser key and the `neotorrent.ui-preferences.v2` client-data entry through an appropriate administrative path; do not clear qBittorrent cookies or unrelated browser storage as a first step.
 
@@ -254,8 +373,8 @@ UI preferences are namespaced and generally safe to retain. If a preference migr
 
 ### Blank page or missing chunks
 
-- Confirm qBittorrent points to the parent containing both roots.
-- Confirm the qBittorrent user can traverse directories and read files.
+- Native mode: confirm qBittorrent points to the parent containing both roots and can traverse/read them.
+- Standalone mode: confirm the Pod/container is running, `/tmp` is writable, `/healthz` returns 200, and the Ingress is not applying an unintended subpath rewrite.
 - Check that asset URLs are relative to the final trailing-slash mount.
 - Do not rename hashed asset files or mix build revisions.
 - Inspect browser network errors before clearing caches.
@@ -294,5 +413,9 @@ UI preferences are namespaced and generally safe to retain. If a preference migr
 - Keep qBittorrent authentication, CSRF, clickjacking, and Host-header validation enabled.
 - Trust only actual reverse-proxy addresses.
 - Use a strong unique password and an appropriate session timeout.
+- Deploy a reviewed immutable image digest; the checked-in placeholder is never valid.
+- Keep standalone qBittorrent upstream traffic cluster-internal and allow only the required proxy source.
+- Retain the non-root/read-only/capability-drop security context and a small writable `/tmp`.
+- Protect proxy access logs because API query strings can contain torrent hashes and other operational metadata.
 - Back up qBittorrent configuration before changing connectivity-critical settings.
 - Review [security.md](security.md) before deployment.

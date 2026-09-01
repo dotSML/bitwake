@@ -15,6 +15,7 @@ import { computed, onMounted, ref, toRaw } from 'vue'
 import type { RssArticle, RssItems } from '@/api/rss/rssApi'
 import { useApi } from '@/app/providers/api'
 import { useNotificationsStore } from '@/stores/notifications'
+import { useTorrentsStore } from '@/stores/torrents'
 import { safeExternalUrl } from '@/utils/safeUrl'
 import RouteScaffold from '@/ui/components/RouteScaffold.vue'
 import SanitizedHtml from '@/ui/components/SanitizedHtml.vue'
@@ -27,8 +28,11 @@ interface Feed {
   articles: RssArticle[]
   error: boolean
 }
+type RssItemAction = 'add-feed' | 'add-folder' | 'remove'
+
 const api = useApi()
 const notifications = useNotificationsStore()
+const torrents = useTorrentsStore()
 const rawItems = ref<RssItems>({})
 const feeds = ref<Feed[]>([])
 const selectedFeed = ref<string | null>(null)
@@ -37,6 +41,11 @@ const loading = ref(true)
 const error = ref<string | null>(null)
 const articleFilter = ref('')
 const articleScroller = ref<HTMLElement | null>(null)
+const rssItemDialog = ref<{ action: RssItemAction; target: string } | null>(null)
+const feedUrl = ref('')
+const itemPath = ref('')
+const rssItemError = ref<string | null>(null)
+const rssItemWorking = ref(false)
 const rulesOpen = ref(false)
 const rules = ref<Record<string, Record<string, unknown>>>({})
 const ruleName = ref('')
@@ -62,6 +71,34 @@ const articles = computed(() => {
   return (currentFeed.value?.articles ?? []).filter(
     (article) => !needle || article.title.toLocaleLowerCase().includes(needle)
   )
+})
+const rssItemDialogTitle = computed(() => {
+  if (rssItemDialog.value?.action === 'add-feed') return 'Add RSS feed'
+  if (rssItemDialog.value?.action === 'add-folder') return 'Add RSS folder'
+  return 'Remove RSS item'
+})
+const rssItemDialogDescription = computed(() => {
+  if (rssItemDialog.value?.action === 'add-feed') {
+    return 'Add an HTTP or HTTPS feed, optionally inside an existing folder path.'
+  }
+  if (rssItemDialog.value?.action === 'add-folder') {
+    return 'Create a folder for organizing RSS feeds.'
+  }
+  return 'This removes the selected feed or folder from qBittorrent.'
+})
+const rssItemSubmitLabel = computed(() => {
+  if (rssItemWorking.value) {
+    return rssItemDialog.value?.action === 'remove' ? 'Removing…' : 'Adding…'
+  }
+  if (rssItemDialog.value?.action === 'add-feed') return 'Add feed'
+  if (rssItemDialog.value?.action === 'add-folder') return 'Add folder'
+  return 'Remove item'
+})
+const rssItemSubmittable = computed(() => {
+  if (rssItemWorking.value) return false
+  if (rssItemDialog.value?.action === 'add-feed') return Boolean(feedUrl.value.trim())
+  if (rssItemDialog.value?.action === 'add-folder') return Boolean(itemPath.value.trim())
+  return Boolean(rssItemDialog.value?.target)
 })
 const articleVirtualizer = useVirtualizer({
   get count() {
@@ -114,35 +151,75 @@ async function load(): Promise<void> {
   }
 }
 
-async function addFeed(): Promise<void> {
-  const url = window.prompt('RSS feed URL')
-  if (!url) return
-  const safeUrl = safeExternalUrl(url)
-  if (!safeUrl || !['http:', 'https:'].includes(safeUrl.protocol)) {
-    notifications.push('RSS feeds must use an HTTP or HTTPS URL.', 'warning')
+function openRssItemDialog(action: RssItemAction): void {
+  const target = action === 'remove' ? (selectedFeed.value ?? '') : ''
+  if (action === 'remove' && !target) return
+  rssItemDialog.value = { action, target }
+  feedUrl.value = ''
+  itemPath.value = ''
+  rssItemError.value = null
+  rssItemWorking.value = false
+}
+
+function closeRssItemDialog(): void {
+  if (rssItemWorking.value) return
+  rssItemDialog.value = null
+  rssItemError.value = null
+}
+
+async function submitRssItemDialog(): Promise<void> {
+  const dialog = rssItemDialog.value
+  if (!dialog || rssItemWorking.value) return
+  let normalizedFeedUrl: string | null = null
+  if (dialog.action === 'add-feed') {
+    const safeUrl = safeExternalUrl(feedUrl.value.trim())
+    if (!safeUrl || !['http:', 'https:'].includes(safeUrl.protocol)) {
+      rssItemError.value = 'RSS feeds must use an HTTP or HTTPS URL.'
+      notifications.push(rssItemError.value, 'warning')
+      return
+    }
+    normalizedFeedUrl = safeUrl.toString()
+  }
+  const path = itemPath.value.trim()
+  if (dialog.action === 'add-folder' && !path) {
+    rssItemError.value = 'Enter a folder path.'
     return
   }
-  const path = window.prompt('Folder path (optional)', '') ?? ''
+
+  rssItemWorking.value = true
+  rssItemError.value = null
   try {
-    await api.rss.addFeed(safeUrl.toString(), path)
+    if (dialog.action === 'add-feed') {
+      if (!normalizedFeedUrl) return
+      await api.rss.addFeed(normalizedFeedUrl, path)
+    } else if (dialog.action === 'add-folder') await api.rss.addFolder(path)
+    else {
+      await api.rss.removeItem(dialog.target)
+      selectedFeed.value = null
+      selectedArticle.value = null
+    }
     await load()
-    notifications.push('RSS feed added.', 'success')
-  } catch (cause) {
-    notifications.push(cause instanceof Error ? cause.message : 'Feed could not be added.', 'error')
-  }
-}
-async function addFolder(): Promise<void> {
-  const path = window.prompt('New RSS folder path')
-  if (!path) return
-  try {
-    await api.rss.addFolder(path)
-    await load()
-    notifications.push('RSS folder added.', 'success')
-  } catch (cause) {
+    rssItemDialog.value = null
     notifications.push(
-      cause instanceof Error ? cause.message : 'Folder could not be added.',
-      'error'
+      dialog.action === 'add-feed'
+        ? 'RSS feed added.'
+        : dialog.action === 'add-folder'
+          ? 'RSS folder added.'
+          : 'RSS item removed.',
+      'success'
     )
+  } catch (cause) {
+    rssItemError.value =
+      cause instanceof Error
+        ? cause.message
+        : dialog.action === 'add-feed'
+          ? 'Feed could not be added.'
+          : dialog.action === 'add-folder'
+            ? 'Folder could not be added.'
+            : 'RSS item could not be removed.'
+    notifications.push(rssItemError.value, 'error')
+  } finally {
+    rssItemWorking.value = false
   }
 }
 async function refresh(): Promise<void> {
@@ -154,21 +231,6 @@ async function refresh(): Promise<void> {
   } catch (cause) {
     notifications.push(
       cause instanceof Error ? cause.message : 'Feed could not be refreshed.',
-      'error'
-    )
-  }
-}
-async function removeFeed(): Promise<void> {
-  if (!selectedFeed.value || !window.confirm(`Remove “${selectedFeed.value}”?`)) return
-  try {
-    await api.rss.removeItem(selectedFeed.value)
-    selectedFeed.value = null
-    selectedArticle.value = null
-    await load()
-    notifications.push('RSS item removed.', 'success')
-  } catch (cause) {
-    notifications.push(
-      cause instanceof Error ? cause.message : 'RSS item could not be removed.',
       'error'
     )
   }
@@ -193,6 +255,7 @@ async function downloadArticle(article: RssArticle): Promise<void> {
   }
   try {
     await api.torrents.add({ sources: [safeUrl.toString()] })
+    torrents.refreshNow()
     notifications.push('RSS article sent to qBittorrent.', 'success')
   } catch (cause) {
     notifications.push(
@@ -325,7 +388,7 @@ onMounted(() => void load())
   >
     <template #actions
       ><button class="btn" type="button" @click="openRules"><Settings2 :size="15" />Rules</button
-      ><button class="btn btn-primary" type="button" @click="addFeed">
+      ><button class="btn btn-primary" type="button" @click="openRssItemDialog('add-feed')">
         <Plus :size="15" />Add feed
       </button></template
     >
@@ -341,9 +404,9 @@ onMounted(() => void load())
         <header>
           <strong>Feeds</strong
           ><span
-            ><button type="button" aria-label="Add folder" @click="addFolder">
+            ><button type="button" aria-label="Add folder" @click="openRssItemDialog('add-folder')">
               <FolderPlus :size="16" /></button
-            ><button type="button" aria-label="Add feed" @click="addFeed">
+            ><button type="button" aria-label="Add feed" @click="openRssItemDialog('add-feed')">
               <Plus :size="16" /></button
           ></span>
         </header>
@@ -361,7 +424,9 @@ onMounted(() => void load())
         <p v-if="!feeds.length" class="empty-copy">No RSS feeds configured.</p>
         <footer v-if="selectedFeed">
           <button type="button" @click="refresh"><RefreshCw :size="14" />Refresh</button
-          ><button type="button" @click="removeFeed"><Trash2 :size="14" />Remove</button>
+          ><button type="button" @click="openRssItemDialog('remove')">
+            <Trash2 :size="14" />Remove
+          </button>
         </footer>
       </aside>
       <section ref="articleScroller" class="article-list panel" :data-total-count="articles.length">
@@ -419,6 +484,70 @@ onMounted(() => void load())
         </div>
       </article>
     </div>
+
+    <AppDialog
+      :open="rssItemDialog !== null"
+      :title="rssItemDialogTitle"
+      :description="rssItemDialogDescription"
+      fullscreen-mobile
+      @update:open="!$event && closeRssItemDialog()"
+    >
+      <form id="rss-item-form" class="rss-item-form" @submit.prevent="submitRssItemDialog">
+        <template v-if="rssItemDialog?.action === 'add-feed'">
+          <label for="rss-feed-url">
+            <span>Feed URL</span>
+            <input
+              id="rss-feed-url"
+              v-model="feedUrl"
+              class="field"
+              type="url"
+              inputmode="url"
+              autocomplete="url"
+              required
+              autofocus
+              :aria-describedby="rssItemError ? 'rss-item-error' : undefined"
+            />
+          </label>
+          <label for="rss-feed-folder">
+            <span>Folder path (optional)</span>
+            <input id="rss-feed-folder" v-model="itemPath" class="field" autocomplete="off" />
+          </label>
+        </template>
+        <label v-else-if="rssItemDialog?.action === 'add-folder'" for="rss-folder-path">
+          <span>Folder path</span>
+          <input
+            id="rss-folder-path"
+            v-model="itemPath"
+            class="field"
+            autocomplete="off"
+            required
+            autofocus
+            :aria-describedby="rssItemError ? 'rss-item-error' : undefined"
+          />
+        </label>
+        <div v-else class="rss-remove-copy">
+          <p>Remove this RSS item?</p>
+          <code>{{ rssItemDialog?.target }}</code>
+        </div>
+        <p v-if="rssItemError" id="rss-item-error" class="form-error" role="alert">
+          {{ rssItemError }}
+        </p>
+      </form>
+      <template #footer>
+        <button class="btn" type="button" :disabled="rssItemWorking" @click="closeRssItemDialog">
+          Cancel
+        </button>
+        <button
+          class="btn"
+          :class="rssItemDialog?.action === 'remove' ? 'btn-danger' : 'btn-primary'"
+          type="submit"
+          form="rss-item-form"
+          :disabled="!rssItemSubmittable"
+        >
+          <LoaderCircle v-if="rssItemWorking" class="spin" :size="16" />{{ rssItemSubmitLabel }}
+        </button>
+      </template>
+    </AppDialog>
 
     <AppDialog
       v-model:open="rulesOpen"
@@ -683,6 +812,33 @@ onMounted(() => void load())
   color: rgb(var(--color-muted));
   padding: 9px;
   font-size: 12px;
+}
+.rss-item-form,
+.rss-item-form label {
+  display: grid;
+  gap: 9px;
+}
+.rss-item-form {
+  gap: 14px;
+}
+.rss-item-form label > span {
+  font-size: 12px;
+  font-weight: 650;
+}
+.rss-item-form .form-error {
+  margin: 0;
+  color: rgb(var(--color-danger));
+}
+.rss-remove-copy p {
+  margin-top: 0;
+}
+.rss-remove-copy code {
+  display: block;
+  overflow-wrap: anywhere;
+  border-radius: 7px;
+  background: rgb(var(--color-surface-muted));
+  padding: 10px;
+  white-space: pre-wrap;
 }
 .spin {
   animation: spin 0.8s linear infinite;

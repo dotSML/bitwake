@@ -1,9 +1,11 @@
-import { flushPromises } from '@vue/test-utils'
+import { DOMWrapper, flushPromises } from '@vue/test-utils'
 import { describe, expect, it, vi } from 'vitest'
+import { createCapabilityRegistry } from '@/api/capabilities/capabilityRegistry'
 import type { TorrentProperties } from '@/api/types/models'
 import FileTreeView from '@/features/torrent-details/FileTreeView.vue'
 import TorrentDetailPanel from '@/features/torrent-details/TorrentDetailPanel.vue'
 import { createFiles, createTorrents } from '@/mocks/fixtures'
+import { useSessionStore } from '@/stores/session'
 import { useTorrentsStore } from '@/stores/torrents'
 import { createTestContext, mountWithContext } from './support/mount'
 
@@ -137,10 +139,101 @@ describe('torrent details', () => {
     expect(wrapper.text()).not.toContain('stale-old-hash-client')
   })
 
+  it('uses accessible endpoint dialogs and keeps removal failures actionable', async () => {
+    const context = createTestContext()
+    const torrent = createTorrents(1)[0]!
+    context
+      .run(() => useTorrentsStore(context.pinia))
+      .applyMainData({ rid: 1, full_update: true, torrents: { [torrent.hash]: torrent } })
+    context.run(() => {
+      useSessionStore(context.pinia).capabilities = createCapabilityRegistry('5.2.3', '2.15.1')
+    })
+    const tracker = {
+      url: 'https://tracker.example.test/announce?key=a%2Fb',
+      status: 2,
+      tier: 0,
+      num_peers: 4,
+      num_seeds: 10,
+      num_leeches: 2,
+      num_downloaded: 8,
+      msg: 'Working'
+    }
+    vi.spyOn(context.api.torrents, 'properties').mockResolvedValue({})
+    vi.spyOn(context.api.torrents, 'trackers').mockResolvedValue([tracker])
+    vi.spyOn(context.api.torrents, 'webSeeds').mockResolvedValue([
+      { url: 'https://cdn.example.test/files/a%2Fb?token=one%20two' }
+    ])
+    const addTrackers = vi.spyOn(context.api.torrents, 'addTrackers').mockResolvedValue()
+    const editTracker = vi.spyOn(context.api.torrents, 'editTracker').mockResolvedValue()
+    const removeWebSeeds = vi
+      .spyOn(context.api.torrents, 'removeWebSeeds')
+      .mockRejectedValueOnce(new Error('Web seed removal failed.'))
+      .mockResolvedValue()
+    const wrapper = await mountWithContext(TorrentDetailPanel, context, {
+      props: { hash: torrent.hash },
+      attachTo: document.body
+    })
+    await flushPromises()
+
+    await wrapper.get('[role="tab"]:nth-child(3)').trigger('click')
+    await flushPromises()
+    const addTrackerButton = wrapper
+      .findAll('button')
+      .find((button) => button.text().includes('Add tracker'))!
+    await addTrackerButton.trigger('click')
+    await flushPromises()
+    const endpointForm = () => document.querySelector<HTMLFormElement>('#torrent-endpoint-form')!
+    await new DOMWrapper(document.querySelector('#torrent-endpoint-value')).setValue(
+      'udp://tracker.example.test:80/announce\nhttps://backup.test/a%2Fb?q=one%20two'
+    )
+    await new DOMWrapper(endpointForm()).trigger('submit')
+    await flushPromises()
+    expect(addTrackers).toHaveBeenCalledWith(torrent.hash, [
+      'udp://tracker.example.test:80/announce',
+      'https://backup.test/a%2Fb?q=one%20two'
+    ])
+
+    await wrapper.get('button[aria-label="Edit tracker"]').trigger('click')
+    await flushPromises()
+    await new DOMWrapper(document.querySelector('#torrent-endpoint-value')).setValue(
+      'https://tracker.example.test/replacement?key=a%2Fb'
+    )
+    await new DOMWrapper(endpointForm()).trigger('submit')
+    await flushPromises()
+    expect(editTracker).toHaveBeenCalledWith(
+      torrent.hash,
+      tracker.url,
+      'https://tracker.example.test/replacement?key=a%2Fb'
+    )
+
+    await wrapper.get('[role="tab"]:nth-child(5)').trigger('click')
+    await flushPromises()
+    await wrapper.get('button[aria-label="Remove web seed"]').trigger('click')
+    await flushPromises()
+    await new DOMWrapper(endpointForm()).trigger('submit')
+    await flushPromises()
+    expect(removeWebSeeds).toHaveBeenCalledWith(torrent.hash, [
+      'https://cdn.example.test/files/a%2Fb?token=one%20two'
+    ])
+    expect(document.body.querySelector('[role="alert"]')?.textContent).toContain(
+      'Web seed removal failed.'
+    )
+
+    await new DOMWrapper(endpointForm()).trigger('submit')
+    await flushPromises()
+    expect(removeWebSeeds).toHaveBeenCalledTimes(2)
+    expect(document.querySelector('#torrent-endpoint-form')).toBeNull()
+    wrapper.unmount()
+  })
+
   it('selects files and folders and sends all descendant indexes at the chosen priority', async () => {
     const context = createTestContext()
     const files = createFiles(4)
-    const setPriority = vi.spyOn(context.api.torrents, 'filePriority').mockResolvedValue()
+    const originalPriorities = files.map((file) => file.priority)
+    const request = deferred<void>()
+    const setPriority = vi
+      .spyOn(context.api.torrents, 'filePriority')
+      .mockReturnValue(request.promise)
     const wrapper = await mountWithContext(FileTreeView, context, {
       props: { hash: 'fixture-hash', files },
       attachTo: document.body
@@ -155,10 +248,75 @@ describe('torrent details', () => {
     )
     expect(priority.element.disabled).toBe(false)
     await priority.setValue('7')
-    await flushPromises()
 
     expect(setPriority).toHaveBeenCalledWith('fixture-hash', [0, 1, 2, 3], 7)
-    expect(files.every((file) => file.priority === 7)).toBe(true)
+    expect(priority.element.disabled).toBe(true)
+    await priority.setValue('6')
+    expect(setPriority).toHaveBeenCalledTimes(1)
+    expect(files.map((file) => file.priority)).toEqual(originalPriorities)
+
+    request.resolve()
+    await flushPromises()
+    expect(priority.element.value).toBe('')
+    expect(wrapper.text()).toContain('Maximum')
+    expect(files.map((file) => file.priority)).toEqual(originalPriorities)
+  })
+
+  it('reapplies the same priority to a later selection in a 10,000-file tree', async () => {
+    const context = createTestContext()
+    const setPriority = vi.spyOn(context.api.torrents, 'filePriority').mockResolvedValue()
+    const wrapper = await mountWithContext(FileTreeView, context, {
+      props: { hash: 'large-priority-hash', files: createFiles(10_000) },
+      attachTo: document.body
+    })
+    await flushPromises()
+
+    await wrapper.get('[role="treeitem"]').trigger('click')
+    const priority = wrapper.get<HTMLSelectElement>(
+      'select[aria-label="Set selected file priority"]'
+    )
+    await priority.setValue('7')
+    await flushPromises()
+
+    expect(setPriority).toHaveBeenCalledOnce()
+    expect(setPriority.mock.calls[0]?.[1]).toHaveLength(10_000)
+    expect(priority.element.value).toBe('')
+
+    await wrapper.get('.expand-button').trigger('click')
+    await flushPromises()
+    const firstFolder = wrapper.findAll<HTMLElement>('[role="treeitem"]')[1]!
+    await firstFolder.trigger('click')
+    await priority.setValue('7')
+    await flushPromises()
+
+    expect(setPriority).toHaveBeenCalledTimes(2)
+    expect(setPriority.mock.calls[1]?.[1]).toEqual(Array.from({ length: 20 }, (_, index) => index))
+    expect(priority.element.value).toBe('')
+  })
+
+  it('uses conventional plain, additive, and range folder selection', async () => {
+    const context = createTestContext()
+    const wrapper = await mountWithContext(FileTreeView, context, {
+      props: { hash: 'selection-hash', files: createFiles(45) },
+      attachTo: document.body
+    })
+    await flushPromises()
+
+    await wrapper.get('.expand-button').trigger('click')
+    await flushPromises()
+    const rows = () => wrapper.findAll<HTMLElement>('[role="treeitem"]')
+    expect(rows().length).toBeGreaterThanOrEqual(4)
+
+    await rows()[1]!.trigger('click')
+    await rows()[2]!.trigger('click', { ctrlKey: true })
+    expect(rows().filter((row) => row.attributes('aria-selected') === 'true')).toHaveLength(2)
+
+    await rows()[3]!.trigger('click')
+    expect(rows().filter((row) => row.attributes('aria-selected') === 'true')).toHaveLength(1)
+
+    await rows()[1]!.trigger('click')
+    await rows()[3]!.trigger('click', { shiftKey: true })
+    expect(rows().filter((row) => row.attributes('aria-selected') === 'true')).toHaveLength(3)
   })
 
   it('virtualizes a searched 10,000-file tree', async () => {
@@ -174,5 +332,13 @@ describe('torrent details', () => {
     expect(Number(tree.attributes('data-visible-count'))).toBeGreaterThanOrEqual(10_000)
     expect(wrapper.findAll('[role="treeitem"]').length).toBeGreaterThan(0)
     expect(wrapper.findAll('[role="treeitem"]').length).toBeLessThan(100)
+
+    const rendered = wrapper.findAll<HTMLElement>('[role="treeitem"]')
+    const boundary = rendered.at(-1)!
+    const boundaryIndex = Number(boundary.attributes('data-file-index'))
+    await boundary.trigger('keydown', { key: 'ArrowDown' })
+    await flushPromises()
+    expect(wrapper.get(`[data-file-index="${boundaryIndex + 1}"]`).attributes('tabindex')).toBe('0')
+    expect(wrapper.findAll('[role="treeitem"][tabindex="0"]')).toHaveLength(1)
   })
 })

@@ -47,6 +47,15 @@ function hashesValue(hashes: TorrentHashes): string {
   return hashes === 'all' ? 'all' : hashes.join('|')
 }
 
+// qBittorrent 5.2.3 form-decodes the request and then Web Seed actions call
+// QUrl::fromPercentEncoding() once more. Protect only existing %HH octets from
+// that controller-level decode; the shared form encoder still transports the
+// complete canonical URL and its query delimiters normally.
+function preserveWebSeedPercentEncoding(url: string): string {
+  const canonicalUrl = new URL(url).href
+  return canonicalUrl.replace(/%([0-9a-f]{2})/giu, '%25$1')
+}
+
 function appendOptional(form: FormData, key: string, value: unknown): void {
   if (value !== undefined && value !== null && value !== '') form.append(key, String(value))
 }
@@ -245,21 +254,25 @@ export function createTorrentsApi(http: HttpClient) {
     addWebSeeds: (hash: string, urls: readonly string[], signal?: AbortSignal) =>
       http.request<void>('torrents/addWebSeeds', {
         method: 'POST',
-        body: { hash, urls: urls.map(encodeURIComponent).join('|') },
+        body: { hash, urls: urls.map(preserveWebSeedPercentEncoding).join('|') },
         response: 'empty',
         ...(signal ? { signal } : {})
       }),
     editWebSeed: (hash: string, origUrl: string, newUrl: string, signal?: AbortSignal) =>
       http.request<void>('torrents/editWebSeed', {
         method: 'POST',
-        body: { hash, origUrl, newUrl: encodeURIComponent(newUrl) },
+        body: {
+          hash,
+          origUrl: preserveWebSeedPercentEncoding(origUrl),
+          newUrl: preserveWebSeedPercentEncoding(newUrl)
+        },
         response: 'empty',
         ...(signal ? { signal } : {})
       }),
     removeWebSeeds: (hash: string, urls: readonly string[], signal?: AbortSignal) =>
       http.request<void>('torrents/removeWebSeeds', {
         method: 'POST',
-        body: { hash, urls: urls.map(encodeURIComponent).join('|') },
+        body: { hash, urls: urls.map(preserveWebSeedPercentEncoding).join('|') },
         response: 'empty',
         ...(signal ? { signal } : {})
       }),

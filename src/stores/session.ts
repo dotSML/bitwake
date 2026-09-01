@@ -3,7 +3,7 @@ import { computed, ref } from 'vue'
 import type { BuildInfo } from '@/api/types/models'
 import type { CapabilityRegistry } from '@/api/capabilities/capabilityRegistry'
 import { createCapabilityRegistry } from '@/api/capabilities/capabilityRegistry'
-import { isApiError } from '@/api/core/errors'
+import { isApiError, isRequestValidationFailure } from '@/api/core/errors'
 import { useApi } from '@/app/providers/api'
 
 export type SessionStatus = 'checking' | 'authenticated' | 'anonymous' | 'disconnected'
@@ -24,9 +24,9 @@ export const useSessionStore = defineStore('session', () => {
     lastError.value = null
     try {
       const [version, webApiVersion, build] = await Promise.all([
-        api.app.version(),
-        api.app.webApiVersion(),
-        api.app.buildInfo()
+        api.app.version({ suppressAuthenticationExpiry: true }),
+        api.app.webApiVersion({ suppressAuthenticationExpiry: true }),
+        api.app.buildInfo({ suppressAuthenticationExpiry: true })
       ])
       appVersion.value = version
       apiVersion.value = webApiVersion
@@ -35,7 +35,12 @@ export const useSessionStore = defineStore('session', () => {
       status.value = 'authenticated'
       return true
     } catch (error) {
-      if (isApiError(error) && (error.kind === 'authentication' || error.kind === 'forbidden')) {
+      if (
+        isApiError(error) &&
+        (error.kind === 'authentication' ||
+          (error.kind === 'forbidden' && !isRequestValidationFailure(error.responseText)))
+      ) {
+        clearSensitiveState()
         status.value = 'anonymous'
         return false
       }
@@ -47,8 +52,9 @@ export const useSessionStore = defineStore('session', () => {
 
   function expire(route?: string): void {
     if (route && !route.startsWith('/login')) intendedRoute.value = route
+    clearSensitiveState()
+    lastError.value = null
     status.value = 'anonymous'
-    capabilities.value = null
   }
 
   function markAuthenticated(): void {
@@ -56,8 +62,23 @@ export const useSessionStore = defineStore('session', () => {
   }
 
   function clearSensitiveState(): void {
+    appVersion.value = ''
+    apiVersion.value = ''
     buildInfo.value = {}
     capabilities.value = null
+  }
+
+  function signOut(): void {
+    clearSensitiveState()
+    intendedRoute.value = null
+    lastError.value = null
+    status.value = 'anonymous'
+  }
+
+  function takeIntendedRoute(): string | null {
+    const route = intendedRoute.value
+    intendedRoute.value = null
+    return route
   }
 
   return {
@@ -72,6 +93,8 @@ export const useSessionStore = defineStore('session', () => {
     detect,
     expire,
     markAuthenticated,
-    clearSensitiveState
+    clearSensitiveState,
+    signOut,
+    takeIntendedRoute
   }
 })

@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, vi } from 'vitest'
 import { config, enableAutoUnmount } from '@vue/test-utils'
 
-vi.stubGlobal('__MOCK_API__', true)
+vi.stubGlobal('__DEPLOYMENT_MODE__', 'mock')
+vi.stubGlobal('__MOCK_BACKEND__', true)
 
 class ResizeObserverMock implements ResizeObserver {
   private readonly callback: ResizeObserverCallback

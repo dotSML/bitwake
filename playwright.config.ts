@@ -16,12 +16,20 @@ export default defineConfig({
       ? { launchOptions: { executablePath: process.env.PLAYWRIGHT_CHROME_PATH } }
       : {})
   },
-  webServer: {
-    command: 'pnpm dev:mock --host 127.0.0.1 --port 4173',
-    url: 'http://127.0.0.1:4173',
-    reuseExistingServer: !process.env.CI,
-    timeout: 120_000
-  },
+  webServer: [
+    {
+      command: 'corepack pnpm dev:standalone-e2e --host 127.0.0.1 --port 4173',
+      url: 'http://127.0.0.1:4173',
+      reuseExistingServer: !process.env.CI,
+      timeout: 120_000
+    },
+    {
+      command: 'corepack pnpm dev:alt-private-e2e --host 127.0.0.1 --port 4174',
+      url: 'http://127.0.0.1:4174',
+      reuseExistingServer: !process.env.CI,
+      timeout: 120_000
+    }
+  ],
   projects: [
     {
       name: 'desktop',

@@ -28,8 +28,7 @@ import TransferGraph from '@/features/statistics/TransferGraph.vue'
 import { usePreferencesStore } from '@/stores/preferences'
 import { useTorrentsStore } from '@/stores/torrents'
 import { useTransferStore } from '@/stores/transfer'
-import { useSessionStore } from '@/stores/session'
-import { useApi } from '@/app/providers/api'
+import { useSessionLifecycle } from '@/app/session/sessionLifecycle'
 import type { TorrentFilterState } from '@/domains/torrents/state'
 
 const emit = defineEmits<{ add: [] }>()
@@ -39,8 +38,7 @@ const router = useRouter()
 const preferences = usePreferencesStore()
 const torrents = useTorrentsStore()
 const transfer = useTransferStore()
-const session = useSessionStore()
-const api = useApi()
+const lifecycle = useSessionLifecycle()
 const collapsed = computed(() => preferences.value.sidebarCollapsed)
 const stateItems: Array<{ id: TorrentFilterState; label: string; icon: typeof Circle }> = [
   { id: 'all', label: 'All torrents', icon: ListFilter },
@@ -89,13 +87,7 @@ function filterTracker(tracker: string): void {
 }
 
 async function logout(): Promise<void> {
-  try {
-    await api.auth.logout()
-  } finally {
-    torrents.clearAll()
-    session.clearSensitiveState()
-    window.location.reload()
-  }
+  await lifecycle.logout()
 }
 </script>
 

@@ -129,6 +129,32 @@ describe('torrent list interactions', () => {
     expect(headers[0]!.attributes('style')).toContain('width: 232px')
   })
 
+  it('keeps one roving row tab stop and extends keyboard selection from its anchor', async () => {
+    const context = createTestContext()
+    const torrents = context.run(() => useTorrentsStore(context.pinia))
+    const items = createTorrents(30)
+    torrents.applyMainData({
+      rid: 1,
+      full_update: true,
+      torrents: Object.fromEntries(items.map((torrent) => [torrent.hash, torrent]))
+    })
+    const wrapper = await mountWithContext(TorrentTable, context, { attachTo: document.body })
+    await flushPromises()
+
+    const first = wrapper.get<HTMLElement>('[data-row-index="0"]')
+    expect(first.attributes('tabindex')).toBe('0')
+    await first.trigger('keydown', { key: 'ArrowDown', shiftKey: true })
+    await flushPromises()
+    const second = wrapper.get<HTMLElement>('[data-row-index="1"]')
+    expect(second.attributes('tabindex')).toBe('0')
+    await second.trigger('keydown', { key: 'ArrowDown', shiftKey: true })
+    await flushPromises()
+
+    expect(torrents.selectedHashes.size).toBe(3)
+    expect(wrapper.get('[data-row-index="2"]').attributes('tabindex')).toBe('0')
+    expect(wrapper.findAll('.table-row[tabindex="0"]')).toHaveLength(1)
+  })
+
   it('virtualizes a 5,000-torrent fixture on desktop and mobile', async () => {
     const context = createTestContext()
     const torrents = context.run(() => useTorrentsStore(context.pinia))
@@ -149,5 +175,13 @@ describe('torrent list interactions', () => {
     expect(mobile.get('.mobile-list').attributes('data-total-count')).toBe('5000')
     expect(mobile.findAll('.mobile-torrent-row').length).toBeGreaterThan(0)
     expect(mobile.findAll('.mobile-torrent-row').length).toBeLessThan(100)
+
+    const boundary = desktop.findAll<HTMLElement>('.table-row').at(-1)!
+    const boundaryIndex = Number(boundary.attributes('data-row-index'))
+    expect(boundaryIndex).toBeLessThan(4_999)
+    await boundary.trigger('keydown', { key: 'ArrowDown' })
+    await flushPromises()
+    expect(desktop.get(`[data-row-index="${boundaryIndex + 1}"]`).attributes('tabindex')).toBe('0')
+    expect(desktop.findAll('.table-row[tabindex="0"]')).toHaveLength(1)
   })
 })

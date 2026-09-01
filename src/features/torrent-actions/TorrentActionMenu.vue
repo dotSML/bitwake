@@ -93,7 +93,7 @@ async function run(label: string, operation: () => Promise<void>): Promise<void>
   try {
     await operation()
     notifications.push(`${label} request accepted.`, 'success')
-    torrents.fullResync()
+    torrents.refreshNow()
     emit('close')
   } catch (cause) {
     notifications.push(cause instanceof Error ? cause.message : `${label} failed.`, 'error')

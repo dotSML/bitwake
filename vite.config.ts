@@ -3,18 +3,42 @@ import { rm } from 'node:fs/promises'
 import vue from '@vitejs/plugin-vue'
 import { defineConfig, loadEnv } from 'vite'
 import { VitePWA } from 'vite-plugin-pwa'
+import type { DeploymentMode } from './src/config/deployment'
+
+function deploymentModeForViteMode(mode: string): DeploymentMode {
+  switch (mode) {
+    case 'alt-public':
+    case 'alt-public-e2e':
+      return 'alternative-public'
+    case 'alt-private':
+    case 'alt-private-e2e':
+      return 'alternative-private'
+    case 'mock':
+      return 'mock'
+    case 'development':
+    case 'production':
+    case 'standalone':
+    case 'standalone-e2e':
+      return 'standalone'
+    default:
+      throw new Error(`Unsupported Vite deployment mode: ${mode}`)
+  }
+}
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
   const proxyTarget = env.VITE_QBITTORRENT_URL
-  const alternativePublic = mode === 'alt-public'
-  const alternativePrivate = mode === 'alt-private'
+  const deploymentMode = deploymentModeForViteMode(mode)
+  const alternativePublic = deploymentMode === 'alternative-public'
+  const alternativePrivate = deploymentMode === 'alternative-private'
   const alternativeBuild = alternativePublic || alternativePrivate
+  const mockBackendEnabled =
+    deploymentMode === 'mock' || mode === 'standalone-e2e' || mode === 'alt-private-e2e'
   const outputDirectory = alternativePublic
     ? 'dist/alt-stage/public'
     : alternativePrivate
       ? 'dist/alt-stage/private'
-      : 'dist/app'
+      : 'dist/standalone'
   const assetsDirectory = alternativePublic
     ? 'login-assets'
     : alternativePrivate
@@ -81,7 +105,9 @@ export default defineConfig(({ mode }) => {
           ],
           cleanupOutdatedCaches: true
         },
-        devOptions: { enabled: mode === 'mock' }
+        // MSW owns the development service-worker scope. Production builds still
+        // generate the PWA worker; enabling both workers in dev breaks refreshes.
+        devOptions: { enabled: false }
       }),
       {
         name: 'remove-production-mock-worker',
@@ -98,7 +124,8 @@ export default defineConfig(({ mode }) => {
       alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) }
     },
     define: {
-      __MOCK_API__: JSON.stringify(mode === 'mock')
+      __DEPLOYMENT_MODE__: JSON.stringify(deploymentMode),
+      __MOCK_BACKEND__: JSON.stringify(mockBackendEnabled)
     },
     ...(proxyTarget
       ? {

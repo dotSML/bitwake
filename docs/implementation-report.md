@@ -2,236 +2,198 @@
 
 ## Executive summary
 
-NeoTorrent now has a coherent, buildable alternative WebUI implementation rather than a torrent-list scaffold. It includes a typed direct qBittorrent client, public/private authentication entries, incremental main-data synchronization, desktop and mobile layouts, torrent details and actions, extended Search/RSS/Creator/Logs/Statistics/Settings routes, deterministic mocks, tests, screenshots, and an installable public/private package.
+NeoTorrent is a functional Vue 3 qBittorrent WebUI preview with two production delivery modes:
 
-The final generated package was installed and smoke-tested against the official qBittorrent 5.2.3 container. Public login, private resource serving, startup, PWA resources, Add Torrent dialog access, logout, and session-expiry recovery worked. That result validates the serving/auth boundary for the rebuilt artifact; it does not validate every API mutation or full feature parity.
+- A standalone, unprivileged Nginx image serves one in-place SPA and reverse-proxies same-origin `/api/` requests to qBittorrent.
+- A native Alternative WebUI package supplies the separate `public/` and `private/` roots that qBittorrent serves itself.
 
-The honest release state is **functional preview**. Advanced wrapper-only operations, capability/runtime validation coverage, proxy/PWA installation verification, and measured large-peer/Search performance remain incomplete. The parity ledger and local release gates are reconciled for this snapshot.
+The implementation includes a typed Web API client, compile-time session modes, incremental `sync/maindata`, virtualized desktop/mobile workspaces, torrent details/actions, Search, RSS, Torrent Creator, logs/statistics/settings, deterministic mocks, tests, and Kubernetes sidecar/separate-Deployment examples.
+
+The honest release state remains **functional preview**. The current tree passed its frozen pnpm 10.15.0 install, format/lint/type checks, 22-file/192-test Vitest run, three production builds, full 63-pass/81-intentional-skip Playwright matrix, deterministic and real qBittorrent 5.2.3 container suites, complete amd64/arm64 HIGH/CRITICAL scans, Kustomize renders, and actionlint. The container workflow is still uncommitted and unhosted; no publicly accessible, verified GHCR manifest or deployable immutable digest exists.
+
+## Repository and evidence identity
+
+| Item                         | Current fact                                                                                                                                                        |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Snapshot                     | 2026-09-01                                                                                                                                                          |
+| Committed HEAD               | `1ab285bb8dbd61b63ef6296790ff895eb918bb2d` plus uncommitted working-tree changes                                                                                    |
+| Pinned target                | qBittorrent 5.2.3 / Web API 2.15.1                                                                                                                                  |
+| Prior hosted CI              | GitHub Actions run #2 passed for the exact committed HEAD; it predates every current uncommitted change                                                             |
+| Current source/browser gates | Frozen install, format/lint/type, 22 files / 192 tests, three builds, and Playwright 63 passed / 81 intentional project skips all passed locally                    |
+| Current image gate           | Final amd64 contract + real-qB suites passed; complete final amd64 and arm64 images each scanned at 0 HIGH/CRITICAL                                                 |
+| Registry                     | Anonymous `ghcr.io/dotsml/neotorrent:edge` inspection failed at token acquisition with HTTP 403, so it is not publicly verifiable here and may be absent or private |
+| Deployable image reference   | None; Kubernetes contains `ghcr.io/dotsml/neotorrent@sha256:REPLACE_WITH_PUBLISHED_DIGEST` intentionally                                                            |
+
+Do not combine historical hosted CI with dirty-tree local evidence, or mistake local Docker content IDs for registry digests.
 
 ## Architecture decisions
 
-### Direct Alternative WebUI, no sidecar
+### Compile-time deployment modes
 
-Production requests go directly to qBittorrent's same-origin `api/v2/` endpoint. There is no server, database, SSR layer, or cloud account. UI preferences use qBittorrent client data when available and local storage as fallback.
+`standalone`, `mock`, `alternative-public`, and `alternative-private` are selected at build time. There is no runtime pathname or environment heuristic that silently changes authentication lifecycle.
 
-### Separate public and private applications
+Standalone mode keeps anonymous startup, login, logout, expiry, and intended-route restoration in one document. Native Alternative WebUI mode deliberately reloads across qBittorrent's public/private resource boundary. Both use browser-managed cookies and relative same-origin API URLs; NeoTorrent stores no credentials or session token.
 
-`public-entry.html` builds a minimal login app. `private-entry.html` builds the authenticated application. The packager produces `public/index.html` and `private/index.html`, matching the target qBittorrent serving model. Production login/logout reload the page so qBittorrent, rather than the router, decides which tree is accessible.
+### One typed HTTP transport
 
-### Typed namespace API over one transport
+One HTTP core handles base-relative URL resolution, cookies, form/multipart encoding, response modes, abort/timeout, status classification, and normalized errors. Namespace modules cover auth, app, sync, transfer, torrents, collections, Search, RSS, Torrent Creator, logs, and client data.
 
-One HTTP core handles URL resolution, cookies, form/multipart encoding, response modes, abort/timeout, statuses, and normalized errors. Small namespace modules cover auth, app, sync, transfer, torrents, collections, search, RSS, Torrent Creator, logs, and client data. This avoids a monolithic API class and keeps route contracts out of components.
+Most request values remain canonical until the shared `URLSearchParams` encoder. Web Seed mutations need a narrow qBittorrent 5.2.3 compatibility transform: qBittorrent form-decodes the request and its Web Seed controller calls `QUrl::fromPercentEncoding()` again. NeoTorrent canonicalizes with `new URL(...).href` and protects only existing `%HH` octets as `%25HH` before normal form encoding. It does not blanket-apply `encodeURIComponent`, so `:`, `/`, `?`, `&`, and `=` keep their URL/query meaning. Exact query/already-encoded unit cases and real add/list/edit/remove integration cover this behavior.
 
-### Capability registry
+### Copy-on-change synchronized state
 
-Application and Web API versions are parsed once into a central registry. The current implementation gates client-data preferences, piece availability, web-seed controls, Torrent Creator, and process information in relevant places. Registry coverage needs to be extended to all dependent controls and settings.
+`sync/maindata` is the primary feed. A non-overlapping poll loop tracks the response ID, performs full/delta merges, preserves last-good data on outages, and requests a full resync after inconsistency or visibility restoration. Torrent changes clone only changed rows; untouched row identities remain stable for Vue/TanStack rendering.
 
-### Normalized incremental state
+A focused store file passed 8/8 in 286 ms. Its changed-delta assertion requires the update itself to remain below a generous 1,000 ms and preserves all 4,999 untouched object references; a separate removal delta verifies selection cleanup and RID 43. This is a coarse local regression budget, not a formal benchmark.
 
-`sync/maindata` is the primary feed. A non-overlapping polling loop tracks the response ID and applies full or incremental torrent/category/tag/tracker/server-state data to shallow maps keyed by hash/name. It preserves last good data, backs off after failures, and resets to a full sync after inconsistency or visibility restoration.
+### Virtualized, adaptive interaction model
 
-### Purposeful desktop and mobile layouts
+Desktop uses a dense TanStack table with persisted column state and a roving tab stop. Arrow navigation calls `scrollToIndex` across virtual render boundaries; Shift extends the selected range. Mobile uses compact purpose-built rows and selection/action surfaces.
 
-Desktop uses a dense virtualized TanStack table, persisted column layout, a resizable sidebar/inspector, and pointer/keyboard action menus. Mobile uses virtualized semantic rows, a local graph, state strip, bottom navigation, a per-row action sheet, and dedicated detail routes. This is an original interaction model; it does not use a card-first desktop or a compressed desktop table.
+The file tree clones props into immutable local state, gathers folder descendants into a `Set<number>`, guards duplicate priority submission, resets its selector after completion, and supports conventional plain/Ctrl-or-Meta/Shift/folder selection plus roving tree keys. Mobile Files uses adaptive 84 px rows and retains name, progress, size, and priority. Trackers and Peers also adapt without a forced desktop minimum width at 320/375/430.
 
-### Network-only private data
+Tracker and Web Seed add/edit/remove, Search-plugin install, RSS feed/folder creation and removal, category/tag removal, and shutdown use accessible `AppDialog` workflows with validation, busy/error retention, and duplicate-submit guards. No `window.prompt` remains. Native confirmation remains only for the PWA update and three secondary Settings security decisions.
 
-The API client uses `no-store`; Workbox applies NetworkOnly to API GET and POST. The PWA caches versioned static assets only. RSS HTML is sanitized before DOM insertion, and no production runtime dependency is loaded from a CDN.
+## Product surface
 
-## Major implementation areas
+### Torrent workspace and actions
 
-### API and state
+- Virtualized desktop/mobile torrent collections with filtering, persisted table layout, contextual actions, conventional multi/range selection, and focused virtual-boundary keyboard coverage.
+- Start/stop, delete with or without content, recheck, reannounce, force start, sequential mode, first/last-piece priority, and category/tag assignment.
+- Add files, magnets, and HTTP(S) sources with detailed/partial response handling.
+- Overview, Files, Trackers, Peers, Web Seeds, and Pieces detail tabs.
+- Virtualized immutable file tree; accessible tracker/Web Seed CRUD; incremental peer delta polling and ban; Canvas piece state.
 
-- Shared HTTP core with relative reverse-proxy-aware URLs.
-- qBittorrent endpoint modules covering the broad target surface.
-- Version parsing and capability thresholds.
-- Main-data delta store and bounded transfer graph.
-- Strict allow-listed interface preference migration and client-data/local persistence.
-- Strict TypeScript models and initial Zod schema work.
+Advanced wrapper-only operations remain explicit gaps, including queue priority, per-torrent limits/share limits, set location, torrent/file rename, automatic management, super seeding, export, and peer addition.
 
-### Torrent management
+### Extended tools
 
-- Virtualized sortable desktop table with persisted column visibility, order, and pointer/keyboard widths.
-- Virtualized compact mobile rows and selection mode.
-- Text/state/category/tag filtering foundations.
-- Bulk start, stop, delete, recheck, reannounce, force start, sequential mode, and first/last-piece priority.
-- Desktop context menu and phone action sheet for lifecycle operations, details, category/tag assignment, and confirmed deletion.
-- Add dialog for files, magnets, and URLs with legacy/detailed partial-result handling.
-- Resizable desktop and route-based mobile detail views.
-- Virtualized file tree with priorities; tracker CRUD; incremental virtualized peers with ban; Web Seed add/remove; piece canvas.
+- Search jobs/results/downloads and partial plugin management.
+- RSS feed/folder management, virtualized sanitized articles, and partial rule editing.
+- Torrent Creator host-path task flow, incremental logs, transfer/statistics views, and curated daemon settings.
+- Category/tag management and interface preferences with allow-listed migration.
 
-### Extended qBittorrent tools
+These areas are usable slices, not exhaustive stock-WebUI parity. See `feature-parity.md` for row-level gaps.
 
-- Search jobs, virtualized results, download action, and plugin controls.
-- RSS feeds/folders, virtualized articles, and basic rules with sanitized HTML.
-- Torrent Creator host-path form and task/result management.
-- Incremental virtualized application/peer logs.
-- Browser-session transfer graph and daemon statistics.
-- Curated qBittorrent settings with validation and connectivity warnings.
-- Category/tag collection management.
+## Delivery and operations
 
-### Development and delivery
+### Native Alternative WebUI
 
-- MSW mock mode with deterministic open-source-themed data.
-- Strict typecheck, lint/test scripts, Vitest projects, and six Playwright viewport projects.
-- Push/pull-request GitHub Actions workflow covering format, lint, type, Vitest, package build, Playwright, and artifact upload; no hosted result is recorded yet.
-- Two-pass Alternative WebUI builder with structural/path/size checks.
-- Generated install directory and zip.
-- Desktop and mobile screenshots.
-- Real-instance browser verification script.
+`corepack pnpm build:alt-webui` produces:
 
-## Compatibility statement
+```text
+dist/alt-webui/
+dist/qbittorrent-modern-webui.zip
+```
 
-| Item                            | Status                                                                  |
-| ------------------------------- | ----------------------------------------------------------------------- |
-| qBittorrent 5.2.3               | Pinned; final package/auth smoke passed                                 |
-| Web API 2.15.1                  | Pinned; startup endpoints observed live                                 |
-| qBittorrent 5.0+                | Best effort through capability thresholds; not comprehensively verified |
-| Older pause/resume APIs         | Not supported; qB 5 start/stop is intentional                           |
-| Unreleased qBittorrent behavior | Not targeted                                                            |
+The parent `dist/alt-webui` contains both `public/` and `private/`; qBittorrent must point to that parent. The builder rejects symlinks, files at or above 10 MiB, production source maps, unsafe root/parent-relative asset references, literal hardcoded `/api/v2/` bases, and a retained mock worker.
 
-The source audit is based on the exact 5.2.3 release tree, its stock WebUI and route declarations, the `v5_2_x` Web API changelog, and official Alternative WebUI guidance. API wrappers are not counted as live-verified unless the real smoke flow invoked them.
+The current Alternative WebUI tree is 1,041,432 bytes. Its zip is 375,293 bytes with SHA-256 `6e9318711a937b89cf8d5b936ebc4de00bcf2f256950b36f589672558c8e8e83`. The older native smoke still does not live-verify this current zip.
+
+### Standalone image
+
+`corepack pnpm build` and `corepack pnpm build:standalone` emit `dist/standalone`. The multi-stage Dockerfile pins Node 22.23.2 and this runtime:
+
+```text
+nginxinc/nginx-unprivileged:1.30.4-alpine@sha256:45ce1e2e699234253d1def7baa96218a5d00b498d1ba0cbb1a17b6bdf73d1351
+```
+
+The final stage contains only Nginx/static assets/configuration, runs as UID/GID 101, and supports a read-only root with a 32 MiB memory-backed `/tmp`. Runtime validation covers the qBittorrent URL, ports, upload size, timeouts, and `PROXY_SSL_VERIFY`; URLs with embedded credentials, unsafe text, a query/fragment, or an `/api/v2` suffix are rejected.
+
+The proxy preserves methods, queries, bodies, statuses, cookies, and download headers; disables API buffering/temp files; sets API responses `no-store`; and never falls back from `/api/` to the SPA. It preserves Origin/Referer, supplies the external host separately, resets `X-Forwarded-For` to the immediate peer, accepts only an `http`/`https` forwarded scheme, and verifies HTTPS upstream certificates by default. `/healthz` and `/readyz` report the NeoTorrent process/configuration, not qBittorrent reachability.
+
+The standalone image sets a self-only CSP (with `style-src 'unsafe-inline'` for runtime layout styles), anti-framing/content-type/referrer/permissions/COOP headers, and an OCI license value of `NOASSERTION`. That license value is deliberate because the repository has no `LICENSE` or `COPYING` file.
+
+### Kubernetes topology and migration
+
+`deploy/kubernetes/sidecar` is the primary merge pattern for an existing qBittorrent Pod. NeoTorrent shares loopback, leaves qBittorrent/VPN/config/download volumes and daemon settings unchanged, exposes NeoTorrent's named `webui` port 8081 through the Service, and does not publicly expose qBittorrent port 8080.
+
+`deploy/kubernetes/separate` gives NeoTorrent an independent rollout and reaches a private qBittorrent Service DNS name. Operators must supply an explicit NetworkPolicy and configure qBittorrent to trust only the actual proxy source.
+
+Both examples run non-root, drop all capabilities, disallow privilege escalation, request `RuntimeDefault` seccomp, use a read-only root and memory-backed `/tmp`, and disable service-account token mounting/service links. Their Ingress examples use no rewrite annotation.
+
+When replacing an older VueTorrent/Alternative-WebUI sidecar, add NeoTorrent plus its `/tmp`, change the Service target to `webui`, remove an old `rewrite-target`, and keep a tested rollback. The sidecar base includes both `replace-with-your-existing-qbittorrent-image` and the NeoTorrent digest placeholder; neither is deployable as checked in.
+
+Official Kustomize v5.8.1 was downloaded, its asset SHA-256 `029a7f0f4e1932c52a0476cf02a0fd855c0bb85694b82c338fc648dcb53a819d` was verified, and both bases rendered successfully. That confirms template composition only—not API-server admission, rollout, TLS, NetworkPolicy, or live cluster behavior.
+
+### Container publication workflow
+
+`.github/workflows/container.yml` is present only as an uncommitted working-tree file. If reviewed and committed, its verify job runs source/browser/package gates, deterministic and real-qB container suites, and HIGH/CRITICAL Trivy scans for amd64 and arm64. Publication is push-only after verify succeeds. Main would receive `edge` and `sha-*`; version tags would receive semver and major.minor; `latest` is disabled. The publish job declares SBOM, maximum provenance, a GitHub artifact attestation, and post-push digest inspection.
+
+None of those hosted outputs exists yet. Final local linux/amd64 content ID `sha256:686127d46d2539bd41c60b645d172a0352acfe3ab89e448f84c636d7d47a78ef` and linux/arm64 image ID `sha256:42f9d35735bcedabfed6ac581a3ea1ec3dd724f8be023998f78fd479f152aefb` were built and scanned. Both run as 101:101 with revision `1ab285bb8dbd61b63ef6296790ff895eb918bb2d-dirty` and created `unspecified`, but they are not GHCR references and do not constitute a published multi-architecture manifest.
+
+## Verification performed
+
+| Evidence                                          | Result and scope                                                                                                                                                                                          |
+| ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Full unit/component checkpoint                    | 22 files / 192 tests passed; focused counts below are subsets                                                                                                                                             |
+| Torrent store                                     | 8/8 passed; 286 ms file total; changed delta preserved 4,999 references under the coarse budget, then a separate removal verified cleanup/RID 43                                                          |
+| Torrent details                                   | 7/7 passed in 2.008 s; large 10,000-file reapply case took 860 ms, sent all indexes, reset, then applied the same priority to a later 20-file folder                                                      |
+| Session/HTTP/notifications focused unit/component | Unit 32/32 and component 19/19 passed across the latest affected files                                                                                                                                    |
+| Frozen install/source/build gates                 | pnpm 10.15.0 frozen install, format, lint, typecheck, `build`, `build:standalone`, and `build:alt-webui` passed                                                                                           |
+| Full Playwright matrix                            | 63 passed / 81 intentional project skips across Chromium, WebKit, and 320/375/430 in `mcr.microsoft.com/playwright:v1.62.1-noble@sha256:dcc5531e97840b9b5e794f2814476b21571c5124a3fca2267d73041f56e7580e` |
+| Earlier focused responsive actions                | Desktop/mobile-320/mobile-430 passed 5 with 4 intentional project skips for desktop category/tag assignment, mobile two-item bulk start, and mobile detail file-tree priority                             |
+| Deterministic standalone contract                 | Passed locally: runtime hardening, artifact contents, cache/security headers, proxy fidelity, upload/timeout behavior, invalid configuration, and outage behavior                                         |
+| Real qBittorrent                                  | Passed locally against qBittorrent 5.2.3 / Web API 2.15.1; scope below                                                                                                                                    |
+| Kustomize                                         | Both example bases rendered with verified official v5.8.1 binary; no live cluster                                                                                                                         |
+| Final local image scans                           | Complete amd64 and arm64 images each reported 0 HIGH/CRITICAL with Trivy v0.74.0/current DB on Alpine 3.24.1                                                                                              |
+| Workflow syntax                                   | actionlint 1.7.7 passed locally; workflow remains uncommitted/unhosted                                                                                                                                    |
+
+The previous runtime base failed the same vulnerability policy with 25 HIGH and 2 CRITICAL findings; both complete local final images now pass. These are point-in-time local scan results, not hosted attestation or provenance.
+
+### Real qBittorrent 5.2.3 scope
+
+`container/test-qbittorrent.sh` uses the pinned official image `ghcr.io/qbittorrent/docker-qbittorrent-nox@sha256:9ebb534fe30bab98622cb84a8c3acecfd88319b2d540f52ecdec7b9f866374d7`. Its final rerun narrowed `WebUI\ServerDomains` to `127.0.0.1`, generated two legal local single-file torrents, did not contact trackers, and verified through the NeoTorrent origin:
+
+1. Anonymous deep-link startup, invalid credentials, valid login, intended-route restoration, authenticated refresh, logout, and expiry without a reload loop.
+2. Multipart add, start, stop, rename, category/tag assignment, recheck, reannounce, and file priority `0 → 1`.
+3. Web Seed add/list/edit/remove with encoded path/query octets preserved.
+4. Delete without content retaining the fixture and delete with content removing it.
+5. qBittorrent outage yielding API 502 while NeoTorrent probes stayed process-healthy, last-good data remained visible, and restart/re-authentication recovered.
+
+Mutation assertions use a browser-side same-origin API helper. They establish proxy/API contracts, not every corresponding Vue dialog path. Search, RSS, Torrent Creator, settings writes, tracker CRUD, peer actions, large libraries, Kubernetes, outer Ingress TLS, subpaths, secure cookies, and PWA lifecycle were not covered by this real suite.
 
 ## Commands and outputs
 
 ```bash
-corepack pnpm dev
-corepack pnpm dev:mock
+corepack pnpm install --frozen-lockfile
 corepack pnpm format:check
 corepack pnpm typecheck
 corepack pnpm lint
-corepack pnpm test
-corepack pnpm test:component
 corepack pnpm test:all
 corepack pnpm test:e2e
 corepack pnpm build
+corepack pnpm build:standalone
 corepack pnpm build:alt-webui
-corepack pnpm audit --prod --audit-level high
-corepack pnpm run licenses
+corepack pnpm container:build
+corepack pnpm container:test
 ```
 
-Build outputs:
+The full Playwright command ran inside the pinned official Playwright image because the host lacked compatible WebKit libraries. Supplementary commands built the arm64 image with Docker Buildx, scanned both complete local images with the pinned Trivy 0.74.0 image, rendered each base with the verified Kustomize v5.8.1 binary, and linted the workflow with actionlint 1.7.7.
 
-- Ordinary build: `dist/app`.
-- Installable qBittorrent directory: `dist/alt-webui`.
-- Distributable archive: `dist/qbittorrent-modern-webui.zip`.
-
-The qBittorrent Alternative WebUI path must point to `dist/alt-webui` or a deployed copy of that parent directory, not to either child root.
-
-## Verification actually performed
-
-### Static/build checks
-
-At this report snapshot:
-
-| Command                          | Result                                                                   |
-| -------------------------------- | ------------------------------------------------------------------------ |
-| `corepack pnpm format:check`     | Passed; final tree                                                       |
-| `corepack pnpm typecheck`        | Passed; final tree                                                       |
-| `corepack pnpm lint`             | Passed; zero warnings                                                    |
-| `corepack pnpm test:all`         | Passed; 17 files / 159 tests                                             |
-| Playwright desktop suite         | Passed; 17 tests / 2 expected skips                                      |
-| Playwright five-project run      | Passed; 95 discovered / 49 passed / 46 intentional skips                 |
-| Focused action/mobile-detail E2E | Passed; 5 tests / 4 intentional project skips                            |
-| Playwright 375×812 WebKit        | Not run locally; host dependency install needs unavailable sudo/password |
-| `corepack pnpm build`            | Not separately recorded after final changes                              |
-| `corepack pnpm build:alt-webui`  | Passed; final package and structural checks                              |
-| Production registry audit        | Passed; no known vulnerabilities found                                   |
-| Production license summary       | Passed; dependency license categories recorded                           |
-
-The builder produced `dist/alt-webui` and a 360K `dist/qbittorrent-modern-webui.zip`, and rejected the configured unsafe artifact conditions. The tested archive SHA-256 is `2ed5ee36588a7144d5a629ad048e4074147060d91a6eb9ccc5af2ebb9808041`.
-
-### Final real qBittorrent 5.2.3 smoke
-
-Environment:
-
-```text
-ghcr.io/qbittorrent/docker-qbittorrent-nox:5.2.3-1
-qBittorrent v5.2.3
-Web API 2.15.1
-```
-
-Observed:
-
-1. Enabled `dist/alt-webui` as the Alternative WebUI.
-2. Unauthenticated `/` served the public login page.
-3. Authentication transitioned to private HTML/JavaScript.
-4. Private JavaScript was rejected without authentication (HTTP 500 from this image).
-5. A private API request without authentication returned HTTP 403.
-6. Headless Chrome completed login, loaded the private shell and empty library, and opened Add Torrent.
-7. Logout caused an expected 403 and automatic recovery to public login.
-8. The manifest, service worker, and packaged icon each returned HTTP 200.
-9. Nine API calls were observed.
-10. No page errors or unexpected console errors occurred.
-
-No torrent was added and no daemon mutation beyond authentication/logout was used in this smoke.
-
-### Screenshots
-
-- `docs/screenshots/desktop-torrents.png` — 1440 × 900 mock torrent workspace.
-- `docs/screenshots/mobile-torrents.png` — 375 × 812 mock torrent workspace.
-
-These were recaptured from the final mock implementation. They demonstrate layout with synthetic data; they are not real-instance evidence.
+Current working-tree outputs are built and identified above: standalone tree 746,801 bytes, Alternative WebUI tree 1,041,432 bytes, and zip 375,293 bytes at the recorded SHA-256. Final checks found no maps, MSW worker, or embedded upstream string. No public registry digest exists; a hosted rebuild from a reviewed immutable commit remains a publication requirement.
 
 ## Genuine limitations
 
-### Parity and reachability
+- The parity matrix retains substantial Partial/Not implemented rows; complete stock parity is not established.
+- Capability gating and runtime response validation are incomplete across secondary endpoints/settings.
+- Mobile advanced multi-selection remains narrower than desktop; advanced wrapper-only operations remain absent.
+- Bounded-DOM fixtures cover 5,000 torrents, 10,000 files, and 2,000 RSS articles, but there is no calibrated browser timing/memory benchmark or comparable large peer/Search fixture.
+- All recorded local gates passed, but they identify a dirty working tree and local Docker content IDs rather than one reviewed immutable hosted revision and registry artifact.
+- No live cluster, outer-proxy subpath/TLS/secure-cookie deployment, or complete PWA install/update/scope lifecycle has been verified.
+- No public GHCR digest, final multi-architecture manifest, hosted SBOM/provenance, or deployable immutable container reference exists.
+- The focused and real-instance results are not a formal security audit, penetration test, or provenance review.
+- Vue I18n is present, but many strings remain hardcoded English.
 
-- `docs/feature-parity.md` is reconciled to the current implementation and named automated evidence; its Partial, Not implemented, and untested cells remain explicit acceptance gaps.
-- Many torrent API operations exist only as wrappers: queue priority, limits, share limits, location, rename, automatic management, super seeding, export, and peer addition. Category/tag assignment is reachable from the torrent action surfaces.
-- Category editing/share limits, tracker tiers, Web Seed edit, RSS rule rename/delete/matching, feed edit/move/interval, search-plugin uninstall, API keys, app cookies, and network interfaces lack complete UI. Existing RSS rule fields that the form does not model are preserved during edits. Daemon shutdown is implemented with confirmation.
+## Recommended release gate
 
-### Interaction and scale
-
-- Desktop context/keyboard menus and the phone action sheet cover common actions, but mobile advanced multi-selection remains narrower than desktop and advanced wrapper-only operations remain absent.
-- Tablet navigation uses a persistent 64 px icon rail, with accessible labels and titles, for library and secondary routes; desktop sidebar width is resizable/persisted.
-- Desktop/mobile torrents, files, peers, Search results, RSS articles, and logs use bounded rendering. Component tests exercise 5,000 torrents, 10,000 files, and 2,000 RSS articles, but no timing/memory benchmark or large peer/Search fixture is recorded.
-- Column order/width persistence is implemented through toolbar controls and pointer/keyboard resizing; reordering is not drag-and-drop.
-- Peer detail polls incrementally and handles removals; peer addition still has no UI.
-- Torrent Creator tasks require manual refresh.
-
-### Compatibility and safety
-
-- Capability gating is incomplete.
-- Most JSON boundaries do not yet use runtime Zod validation.
-- Recognized Host/Origin/Referer/CSRF 403s remain forbidden errors, but the text heuristic can miss different wording; all 401s and unrecognized eligible 403s trigger expiry.
-- Settings cover many fields but not the full stock dependency/version model.
-- Many strings remain hardcoded English despite Vue I18n.
-- Production source maps are disabled, the Alternative WebUI package passed its structural checks, and the ordinary `dist/app` production build also completed successfully.
-- PWA file/protocol launch handling is not implemented, so the manifest intentionally registers neither handler.
-
-### Verification
-
-- Representative real torrent mutations and non-empty libraries were not exercised.
-- Reverse-proxy subpaths, HTTPS secure cookies, PWA install/update/scope, and multiple qBittorrent versions were not tested.
-- Bounded-DOM fixture evidence exists for 5,000 torrents, 10,000 files, and 2,000 RSS articles; browser timing/memory, large peer/Search, and long-running reconnect evidence is absent.
-- The production registry audit reported no known vulnerabilities, but no formal security, CSP, source, or provenance audit was performed.
-- CI is committed and configured, but no GitHub-hosted run/artifact has been observed.
-
-## Feature-parity assessment
-
-The project provides broad architectural and visible feature coverage, including all major stock WebUI areas, but it does **not** meet the specification's definition of full parity. The correct status is:
-
-- Torrent manager core: implemented with partial advanced action coverage.
-- Detail surface: broadly implemented, with several editing/add-operation gaps despite incremental peers.
-- Search/RSS/Creator/Logs/Statistics: usable implementations, not exhaustive parity.
-- Settings: broad curated subset, not exhaustive stock behavior.
-- Mobile: purpose-built, virtualized, and usable for core flows; advanced multi-selection remains narrower than desktop.
-- Packaging/authentication: the final rebuilt package was smoke-verified on the pinned official image.
-
-## Recommended next release gate
-
-Do not label 0.1.0 as parity-complete. Before a broader release:
-
-1. Run the 375×812 WebKit project on a host/CI runner with its dependencies and observe the configured hosted CI workflow.
-2. Keep the parity matrix synchronized with code and verification evidence.
-3. Extend action surfaces to the remaining advanced wrapper-only operations where safe and useful.
-4. Complete capability/runtime validation work.
-5. Exercise real start/stop/add/delete/file priority/tracker/settings flows with safe public-domain fixtures.
-6. Test reverse proxy, subpath, HTTPS, secure cookies, session expiry, and PWA scope.
-7. Run measured large peer/Search fixtures and accessibility checks at all six configured viewports.
-8. Confirm source maps remain absent and perform a security/dependency review.
+1. Commit/review the container workflow and rerun the same source/package/browser/container/per-architecture scan gates in hosted CI against an immutable revision before publication.
+2. Let hosted verification finish before publication.
+3. Inspect the pushed digest, both architectures, SBOM, provenance, attestation, and vulnerability result; only then replace the Kubernetes placeholder.
+4. Validate the selected sidecar/separate topology in a real cluster, including NetworkPolicy, Ingress TLS, qBittorrent proxy trust, rollback, session lifecycle, and safe mutations.
+5. Complete the manual keyboard and screen-reader review; the full configured viewport/WebKit matrix already passed.
+6. Keep the feature-parity ledger synchronized and preserve the remaining gaps as release acceptance items.
 
 ## Conclusion
 
-The implementation establishes a credible, original qBittorrent Alternative WebUI foundation and a substantial usable product surface. The strongest live evidence is that the final public/private package worked through login and expiry on the pinned official qBittorrent 5.2.3 image. The remaining work is no longer foundational scaffolding, but it is material enough that complete parity and production-hardening claims would be inaccurate.
+NeoTorrent has a substantial original product surface, a deliberate dual delivery architecture, and meaningful local evidence against its pinned qBittorrent target. It should still be described as an implementation preview. Local per-platform images are verified as described, but the evidence does not support claims of complete stock-WebUI parity, a public GHCR release/published multi-architecture manifest, or production-ready live Kubernetes deployment.

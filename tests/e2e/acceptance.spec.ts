@@ -1,9 +1,10 @@
-import { expect, test, type Page } from '@playwright/test'
-import { installFetchControl, openMockApp, setFetchControl } from './support/app'
-
-function acceptNextDialog(page: Page, value: string): void {
-  page.once('dialog', (dialog) => void dialog.accept(value))
-}
+import { expect, test } from '@playwright/test'
+import {
+  installFetchControl,
+  installLargeMainDataFixture,
+  openMockApp,
+  setFetchControl
+} from './support/app'
 
 test.describe('desktop acceptance workflows', () => {
   test.beforeEach(({ page }, testInfo) => {
@@ -71,6 +72,39 @@ test.describe('desktop acceptance workflows', () => {
     await expect(page.getByText('Some torrent sources could not be added.')).toBeVisible()
   })
 
+  test('moves focus and Shift selection beyond the virtualized torrent-row boundary', async ({
+    page
+  }) => {
+    await installLargeMainDataFixture(page, 500)
+    await openMockApp(page)
+
+    const grid = page.getByRole('grid', { name: 'Torrents' })
+    await expect(grid).toHaveAttribute('aria-rowcount', '500')
+    const initialIndexes = await grid
+      .locator('.table-row')
+      .evaluateAll((rows) =>
+        rows.map((row) => Number((row as HTMLElement).dataset.rowIndex ?? '-1'))
+      )
+    const initialBoundary = Math.max(...initialIndexes)
+    expect(initialBoundary).toBeLessThan(499)
+
+    const firstRow = grid.locator('[data-row-index="0"]')
+    await firstRow.click()
+    await expect(firstRow).toBeFocused()
+    const targetIndex = initialBoundary + 3
+    for (let index = 1; index <= targetIndex; index += 1) {
+      await page.keyboard.press('Shift+ArrowDown')
+      await expect(grid.locator(`[data-row-index="${index}"]`)).toBeFocused()
+    }
+
+    await expect(page.locator('.selected-count')).toHaveText(`${targetIndex + 1} selected`)
+    await expect(grid.locator('.table-row[tabindex="0"]')).toHaveCount(1)
+    await expect(grid.locator(`[data-row-index="${targetIndex}"]`)).toHaveAttribute(
+      'aria-selected',
+      'true'
+    )
+  })
+
   test('uses detail tabs, changes file priority, and manages trackers', async ({ page }) => {
     await openMockApp(page)
     await page.locator('.table-row').first().dblclick()
@@ -88,14 +122,22 @@ test.describe('desktop acceptance workflows', () => {
 
     await details.getByRole('tab', { name: 'Trackers' }).click()
     await expect(details.getByText('https://tracker.example.org/announce')).toBeVisible()
-    acceptNextDialog(page, 'https://tracker-added.example/announce')
     await details.getByRole('button', { name: 'Add tracker' }).click()
+    let endpointDialog = page.getByRole('dialog', { name: 'Add tracker' })
+    await endpointDialog.getByLabel('URLs').fill('https://tracker-added.example/announce')
+    await endpointDialog.getByRole('button', { name: 'Save' }).click()
     await expect(page.getByText('Trackers added.')).toBeVisible()
 
-    acceptNextDialog(page, 'https://tracker-edited.example/announce')
     await details.getByRole('button', { name: 'Edit tracker' }).last().click()
+    endpointDialog = page.getByRole('dialog', { name: 'Edit tracker' })
+    await endpointDialog
+      .getByLabel('Replacement URL')
+      .fill('https://tracker-edited.example/announce')
+    await endpointDialog.getByRole('button', { name: 'Save' }).click()
     await expect(page.getByText('Tracker updated.')).toBeVisible()
     await details.getByRole('button', { name: 'Remove tracker' }).last().click()
+    endpointDialog = page.getByRole('dialog', { name: 'Remove tracker' })
+    await endpointDialog.getByRole('button', { name: 'Remove' }).click()
     await expect(page.getByText('Tracker removed.')).toBeVisible()
 
     await details.getByRole('tab', { name: 'Peers' }).click()
@@ -176,8 +218,14 @@ test.describe('desktop acceptance workflows', () => {
     await plugin.uncheck()
     await expect(plugin).not.toBeChecked()
 
-    acceptNextDialog(page, 'https://plugins.example/search.py')
     await page.getByRole('button', { name: 'Install search plugin' }).click()
+    const installDialog = page.getByRole('dialog', { name: 'Install search plugin' })
+    await expect(installDialog).toBeVisible()
+    await installDialog
+      .getByLabel('Plugin URL or host path')
+      .fill('https://plugins.example/search.py')
+    await installDialog.getByRole('button', { name: 'Install plugin' }).click()
+    await expect(installDialog).toBeHidden()
     await expect(page.getByText('Search plugin installed.')).toBeVisible()
   })
 

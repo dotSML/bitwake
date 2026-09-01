@@ -128,7 +128,7 @@ async function add(): Promise<void> {
         'success'
       )
       emit('update:open', false)
-      torrents.fullResync()
+      torrents.refreshNow()
     } else if (summary.failed > 0) {
       notifications.push('Some torrent sources could not be added.', 'warning')
     }

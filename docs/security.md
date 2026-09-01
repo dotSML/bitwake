@@ -4,7 +4,7 @@
 
 NeoTorrent is a privileged browser client for qBittorrent. Anyone who can use an authenticated NeoTorrent session can perform consequential daemon actions such as deleting torrent data, changing network/Web UI settings, installing search plugins, banning peers, or manipulating host-side paths through supported qBittorrent APIs.
 
-NeoTorrent does not reduce qBittorrent's privilege. The primary security boundary remains qBittorrent, the browser session, the network/reverse proxy, and the host account running the daemon.
+NeoTorrent does not reduce qBittorrent's privilege. In native Alternative WebUI mode, qBittorrent also serves the static application. In standalone mode, an unprivileged Nginx container serves the SPA and proxies `/api/`; it is not an authorization layer or application backend. The primary security boundary remains qBittorrent, the browser session, the network/reverse proxies, container/cluster policy, and the host account running the daemon.
 
 ## Threat model
 
@@ -17,6 +17,7 @@ The implementation considers:
 - Destructive actions triggered without confirmation.
 - Version-dependent response shapes that cause unsafe assumptions.
 - Supply-chain and build artifacts that expose more than intended.
+- A misconfigured standalone upstream, mutable/unverified image, overly broad proxy trust, or direct exposure that bypasses the intended outer proxy.
 
 It does not claim to protect a session after the browser, qBittorrent host, administrator account, or trusted reverse proxy is compromised.
 
@@ -30,16 +31,20 @@ It does not claim to protect a session after the browser, qBittorrent host, admi
 - Authentication uses the browser-managed qBittorrent cookie with `credentials: 'include'`.
 - NeoTorrent does not read, copy, rename, or persist that cookie.
 - Logout clears private in-memory torrent/session state even when the request fails, then reloads the server resource boundary.
-- Expiry clears torrent state and returns to the public login boundary.
+- Expiry clears torrent state and returns to login. Standalone mode routes in place; native Alternative WebUI mode reloads qBittorrent's public boundary.
+- Startup session probes suppress global expiry notifications so an expected anonymous 401/403 cannot create a reload loop.
+- qBittorrent 5.0-style HTTP-200 `Fails.` login text is treated as invalid credentials, not successful authentication.
 
 ### Network and cache behavior
 
 - Production API URLs are same-origin and relative to `document.baseURI`.
 - API `fetch` uses `cache: 'no-store'`.
 - The service worker has explicit NetworkOnly rules for API GET and POST requests.
-- Login is performed by the public entry, which does not register the service worker.
+- The native Alternative WebUI public login entry does not register the service worker. Standalone login shares the SPA worker scope, but its API/login requests still match NetworkOnly and the HTTP client uses `no-store`.
 - HTML is not in the Workbox precache glob.
 - There is no offline torrent-data mode.
+- Standalone Nginx applies `Cache-Control: no-store` to proxied API responses, disables proxy buffering, and never falls back from an unknown `/api/...` route to the SPA.
+- The standalone proxy discards caller-supplied `X-Forwarded-For`, sets it to the immediate peer address, preserves the external host in `X-Forwarded-Host`, and accepts only `http`/`https` as an inbound forwarded scheme. HTTPS upstream certificate verification defaults to `PROXY_SSL_VERIFY=on`.
 
 ### Untrusted content
 
@@ -53,10 +58,11 @@ It does not claim to protect a session after the browser, qBittorrent host, admi
 ### Destructive and critical operations
 
 - Torrent deletion uses a dialog and separates “remove torrent” from “remove and delete files.”
-- RSS and category/tag removal request confirmation.
+- Tracker and Web Seed add/edit/remove, RSS feed/folder creation and removal, category/tag removal, search-plugin installation, and daemon shutdown use accessible application dialogs with busy/error states and duplicate-submit guards.
 - Connectivity-critical settings are marked and require a confirmation before submission.
 - Unknown qBittorrent preferences are shown read-only instead of being guessed.
 - Daemon shutdown is exposed in the connection section behind a dedicated confirmation; the accepted request clears live torrent state.
+- No `window.prompt` remains. Native `window.confirm` is limited to the PWA update prompt and secondary security-sensitive Settings changes, not the frequent management flows above.
 
 ### Data minimization
 
@@ -78,6 +84,16 @@ The Alternative WebUI script:
 - Rejects root- and parent-relative `src`/`href` attributes in HTML/CSS/JS text and literal hardcoded `/api/v2/` paths.
 - Uses local, hashed application assets.
 
+The standalone image additionally:
+
+- Uses a multi-stage build and copies only `dist/standalone` into the runtime.
+- Runs as UID/GID `101:101` with no Node.js runtime in the final image.
+- Validates the upstream URL, ports, upload size, and timeout environment before rendering configuration.
+- Rejects embedded upstream credentials, unsafe characters, query/fragment text, and a URL ending in `/api/v2`.
+- Supports a read-only root filesystem with only a small `/tmp` writable, all Linux capabilities dropped, no privilege escalation, and `RuntimeDefault` seccomp in the Kubernetes examples.
+- Serves process-only health/readiness endpoints; these do not make a false claim that qBittorrent is reachable.
+- Pins the runtime to `nginxinc/nginx-unprivileged:1.30.4-alpine@sha256:45ce1e2e699234253d1def7baa96218a5d00b498d1ba0cbb1a17b6bdf73d1351` and labels the project license `NOASSERTION` because this repository contains no `LICENSE` or `COPYING` file.
+
 ## qBittorrent settings that should remain enabled
 
 For remote deployments, keep these qBittorrent controls enabled and configure them accurately:
@@ -96,22 +112,21 @@ Authentication bypass for localhost or subnets is a qBittorrent policy decision.
 ## Reverse-proxy requirements
 
 - Terminate TLS with a maintained configuration and redirect plaintext access.
-- Preserve the external host and scheme in a way consistent with qBittorrent's reverse-proxy settings.
+- Preserve the external host and scheme in a way consistent with qBittorrent's reverse-proxy settings. The included standalone proxy resets `X-Forwarded-For` to its immediate peer; configure qBittorrent to trust only that address/network.
 - Strip only the intended subpath prefix.
 - Do not cache `/api/`, login, HTML, or authenticated responses at the proxy.
 - Do not expose qBittorrent's upstream port publicly in parallel with the protected proxy.
 - Trust forwarded headers only from the actual proxy network/address.
-- Verify the final external Origin/Referer behavior instead of disabling CSRF protection.
+- Verify the final external Origin/Referer behavior instead of disabling CSRF protection. The included proxy intentionally does not rewrite either header.
+- Keep `PROXY_SSL_VERIFY=on` for HTTPS upstreams. Turning it off weakens the connection between NeoTorrent and qBittorrent and should be a narrowly justified exception.
 
 See [deployment.md](deployment.md) for an illustrative routing shape.
 
 ## Content Security Policy
 
-The code has no runtime CDN, `eval`, inline script blocks, or third-party frames. This makes a strong CSP practical, but the repository does not currently set an HTTP CSP header; qBittorrent or the reverse proxy must do so.
+The standalone container sets a self-only policy for scripts, connections, forms, fonts, and workers; blocks objects; and prevents framing. It permits `data:`/`blob:` images and workers where the application needs them. `style-src 'unsafe-inline'` remains because the virtualized table/tree and other layout controls use runtime style attributes. The image also sets `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`, and `Cross-Origin-Opener-Policy` headers.
 
-The UI uses runtime style attributes for layout values such as virtualized row transforms, widths, and progress. A CSP that blocks all inline styles will require hashes/nonces or implementation changes. Test any policy against login, the virtualized table/tree, Canvas graphs, dialogs, and lazy chunks before enforcing it.
-
-Do not add a permissive CSP merely to silence errors. Prefer a documented proxy header that is verified against the built package.
+Native Alternative WebUI deployments are served by qBittorrent and do not inherit those Nginx headers. Apply and test an equivalent policy at the actual outer proxy. Test either policy against login, virtualization, Canvas graphs, dialogs, lazy chunks, and the chosen subpath before enforcement.
 
 ## Dependency and artifact considerations
 
@@ -121,6 +136,10 @@ Do not add a permissive CSP merely to silence errors. Prefer a documented proxy 
 - Production source maps are disabled in the current Vite configuration and are not intended to ship in either build output. Keep this invariant in the artifact checks if build tooling changes.
 - The generated 192 px/512 px PNG icons, source SVG icon, and all runtime code are local.
 - Search-plugin installation delegates code acquisition/execution to qBittorrent's search subsystem. Install only trusted plugins and sources.
+- The previous runtime base failed a Trivy v0.74.0 scan with 25 HIGH and 2 CRITICAL findings. The complete final local amd64 and arm64 NeoTorrent images (Alpine 3.24.1) each passed a current-database scan with 0 HIGH/CRITICAL using `--scanners vuln --severity HIGH,CRITICAL --ignore-unfixed=false --exit-code 1`.
+- The final linux/amd64 content ID is `sha256:686127d46d2539bd41c60b645d172a0352acfe3ab89e448f84c636d7d47a78ef`; the final linux/arm64 audit image ID is `sha256:42f9d35735bcedabfed6ac581a3ea1ec3dd724f8be023998f78fd479f152aefb`. Both run as UID/GID 101:101 with revision `1ab285bb8dbd61b63ef6296790ff895eb918bb2d-dirty`. These are local content identifiers, not GHCR references or proof of a published multi-architecture manifest.
+- Anonymous inspection of `ghcr.io/dotsml/neotorrent:edge` failed during GHCR token acquisition with HTTP 403. The image is therefore not publicly verifiable here (it may be absent or private), and no deployable immutable digest has been established.
+- The container publication workflow is currently uncommitted and has never run on GitHub. Its intended SBOM, provenance, scan, and multi-architecture outputs do not exist as hosted release evidence yet.
 
 ## Known security gaps and caveats
 
@@ -138,7 +157,7 @@ The Add Torrent path validates typed URLs, RSS feed creation explicitly requires
 
 ### Destructive action breadth
 
-Deletion confirmation is implemented, but some mutation flows use native `prompt`/`confirm` and do not provide per-item bulk results. Full action authorization still depends entirely on the qBittorrent session.
+Destructive confirmation is implemented, and frequent tracker/Web Seed/RSS/category/tag/plugin/shutdown flows use application dialogs rather than `window.prompt`. PWA update and three secondary Settings decisions still use native confirmation, and some bulk mutations cannot report a per-item result. Full action authorization still depends entirely on the qBittorrent session.
 
 ### PWA verification
 
@@ -146,7 +165,7 @@ API caching rules are explicit, and the service-worker update callback presents 
 
 ### No formal security audit
 
-The pinned official-container smoke test verified login/private transition, expiry recovery, and the absence of unexpected browser errors in that flow. The scoped production registry audit found no known advisories at the time it ran. Neither result was a penetration test, source/provenance review, CSP evaluation, CSRF test suite, or hostile-content fuzzing campaign.
+The real qBittorrent 5.2.3 integration verified the standalone login/session lifecycle, same-origin mutations, outage/recovery behavior, and the absence of unexpected browser errors in that suite. The deterministic container contract and complete local amd64/arm64 image scans also passed. None is a penetration test, formal source/provenance review, complete CSRF/CSP deployment test, hostile-content fuzzing campaign, hosted attestation, or live-deployment review.
 
 ## Private-data handling
 
@@ -170,7 +189,7 @@ This repository does not currently declare a dedicated security contact or priva
 
 1. Review [../IMPLEMENTATION_STATUS.md](../IMPLEMENTATION_STATUS.md) and do not assume complete parity.
 2. Build from the lockfile and run the available checks.
-3. Use the complete public/private package, not a development server.
+3. Use either the complete public/private Alternative WebUI package or a locally verified standalone image, never a development server or the Kubernetes placeholder image reference.
 4. Put qBittorrent behind HTTPS and deliberate network access control.
 5. Keep qBittorrent CSRF, clickjacking, Host validation, and authentication enabled.
 6. Verify cookie and proxy behavior at the final external URL.
@@ -178,3 +197,4 @@ This repository does not currently declare a dedicated security contact or priva
 8. Confirm no proxy or service worker caches `/api/` or login responses.
 9. Confirm the final artifact contains no production source maps.
 10. Keep a tested rollback path.
+11. Before using a published container, verify its immutable digest, expected architecture, vulnerability result, SBOM, and provenance. No such public NeoTorrent image is verified for this snapshot.

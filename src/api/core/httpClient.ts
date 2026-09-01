@@ -1,5 +1,5 @@
 import type { ZodType } from 'zod'
-import { ApiError, kindForStatus, messageForStatus } from './errors'
+import { ApiError, isRequestValidationFailure, kindForStatus, messageForStatus } from './errors'
 import { parseResponse, type ResponseMode } from './responseParsers'
 import { defaultApiBase, resolveApiUrl, type QueryValue } from './urlResolver'
 
@@ -15,7 +15,7 @@ export interface RequestOptions<T> {
   signal?: AbortSignal
   timeoutMs?: number
   acceptedStatuses?: readonly number[]
-  treatForbiddenAsAuthExpiry?: boolean
+  suppressAuthenticationExpiry?: boolean
 }
 
 export interface HttpClientOptions {
@@ -45,17 +45,6 @@ function combineSignals(signals: readonly AbortSignal[]): AbortSignal {
     signal.addEventListener('abort', () => controller.abort(signal.reason), { once: true })
   }
   return controller.signal
-}
-
-function isRequestValidationFailure(responseText: string): boolean {
-  const detail = responseText.trim().toLocaleLowerCase()
-  return [
-    'invalid host header',
-    'invalid origin header',
-    'invalid referer header',
-    'csrf',
-    'cross-site request forgery'
-  ].some((marker) => detail.includes(marker))
 }
 
 export class HttpClient {
@@ -127,10 +116,9 @@ export class HttpClient {
       if (!accepted.includes(response.status)) {
         const responseText = await response.text().catch(() => '')
         const isAuthExpiry =
-          response.status === 401 ||
-          (response.status === 403 &&
-            (options.treatForbiddenAsAuthExpiry ?? true) &&
-            !isRequestValidationFailure(responseText))
+          !options.suppressAuthenticationExpiry &&
+          (response.status === 401 ||
+            (response.status === 403 && !isRequestValidationFailure(responseText)))
         if (isAuthExpiry) this.#onAuthenticationExpired?.()
         throw new ApiError(messageForStatus(response.status, responseText), {
           kind: kindForStatus(response.status),

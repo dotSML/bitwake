@@ -180,19 +180,25 @@ describe('HttpClient', () => {
     }
   )
 
-  it('can treat a forbidden response as an authorization error without expiring the session', async () => {
-    const onAuthenticationExpired = vi.fn()
-    const client = new HttpClient({
-      fetch: vi.fn<typeof fetch>().mockResolvedValue(new Response('', { status: 403 })),
-      baseUrl: 'https://example.test/api/v2/',
-      onAuthenticationExpired
-    })
+  it.each([401, 403])(
+    'can suppress authentication expiry notifications for an expected HTTP %s response',
+    async (status) => {
+      const onAuthenticationExpired = vi.fn()
+      const client = new HttpClient({
+        fetch: vi.fn<typeof fetch>().mockResolvedValue(new Response('', { status })),
+        baseUrl: 'https://example.test/api/v2/',
+        onAuthenticationExpired
+      })
 
-    await expect(
-      client.request('test', { treatForbiddenAsAuthExpiry: false })
-    ).rejects.toMatchObject({ kind: 'forbidden', status: 403 })
-    expect(onAuthenticationExpired).not.toHaveBeenCalled()
-  })
+      await expect(
+        client.request('test', { suppressAuthenticationExpiry: true })
+      ).rejects.toMatchObject({
+        kind: status === 401 ? 'authentication' : 'forbidden',
+        status
+      })
+      expect(onAuthenticationExpired).not.toHaveBeenCalled()
+    }
+  )
 
   it.each([
     'Invalid Host header',

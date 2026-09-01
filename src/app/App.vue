@@ -1,38 +1,26 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
 import AppShell from './layouts/AppShell.vue'
+import { useSessionLifecycle } from './session/sessionLifecycle'
 import { usePreferencesStore } from '@/stores/preferences'
 import { useSessionStore } from '@/stores/session'
 import { useTorrentsStore } from '@/stores/torrents'
 
-const route = useRoute()
-const router = useRouter()
 const session = useSessionStore()
 const torrents = useTorrentsStore()
 const preferences = usePreferencesStore()
+const lifecycle = useSessionLifecycle()
 
 async function initialize(): Promise<void> {
-  const authenticated = await session.detect()
-  if (!authenticated) {
-    if (!__MOCK_API__) window.location.reload()
-    else await router.replace('/login')
-    return
-  }
-  await preferences.load()
-  torrents.setPollingInterval(preferences.value.pollingInterval)
-  torrents.startSync()
+  await lifecycle.initialize()
 }
 
 function onExpired(): void {
-  session.expire(route.fullPath)
-  torrents.clearAll()
-  if (!__MOCK_API__) window.location.reload()
-  else void router.replace('/login')
+  void lifecycle.expire()
 }
 
 function onVisibility(): void {
-  if (!document.hidden && session.status === 'authenticated') torrents.fullResync()
+  if (!document.hidden && session.status === 'authenticated') torrents.refreshNow()
 }
 
 watch(

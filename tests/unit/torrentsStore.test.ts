@@ -3,22 +3,22 @@ import { createApp } from 'vue'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createQbittorrentApi } from '@/api'
 import { apiKey } from '@/app/providers/api'
+import { defaultTorrentFilters } from '@/domains/torrents/filtering'
 import { useTorrentsStore } from '@/stores/torrents'
 import { useTransferStore } from '@/stores/transfer'
 
 function createStores() {
   const app = createApp({ render: () => null })
   const pinia = createPinia()
+  const api = createQbittorrentApi({
+    baseUrl: 'https://example.test/api/v2/',
+    fetch: vi.fn<typeof fetch>()
+  })
   app.use(pinia)
-  app.provide(
-    apiKey,
-    createQbittorrentApi({
-      baseUrl: 'https://example.test/api/v2/',
-      fetch: vi.fn<typeof fetch>()
-    })
-  )
+  app.provide(apiKey, api)
 
   return app.runWithContext(() => ({
+    api,
     torrents: useTorrentsStore(pinia),
     transfer: useTransferStore(pinia)
   }))
@@ -182,8 +182,84 @@ describe('torrent incremental sync store', () => {
     expect([...torrents.trackers.keys()]).toEqual(['keep'])
   })
 
-  it('updates derived filters and selection, then clears synchronized state', () => {
+  it('updates a 5,000-torrent snapshot without replacing untouched row identities or its RID', () => {
     const { torrents } = createStores()
+    const library = Object.fromEntries(
+      Array.from({ length: 5_000 }, (_, index) => [
+        `hash-${index}`,
+        { name: `Torrent ${index}`, dlspeed: index, progress: index / 5_000 }
+      ])
+    )
+    torrents.applyMainData({ rid: 41, full_update: true, torrents: library })
+    torrents.setSelection(['hash-10', 'hash-2500', 'hash-4999'])
+    const previousReferences = new Map(torrents.byHash)
+    const changed = previousReferences.get('hash-2500')
+    const unchangedCategories = torrents.categories
+    const unchangedTags = torrents.tags
+    const unchangedTrackers = torrents.trackers
+
+    const startedAt = performance.now()
+    torrents.applyMainData({
+      rid: 42,
+      torrents: { 'hash-2500': { dlspeed: 999_999 } }
+    })
+    const elapsedMs = performance.now() - startedAt
+
+    expect(torrents.byHash.size).toBe(5_000)
+    expect(torrents.byHash.get('hash-2500')).not.toBe(changed)
+    expect(torrents.byHash.get('hash-2500')?.dlspeed).toBe(999_999)
+    for (const [hash, reference] of previousReferences) {
+      if (hash !== 'hash-2500') expect(torrents.byHash.get(hash)).toBe(reference)
+    }
+    expect([...torrents.selectedHashes]).toEqual(['hash-10', 'hash-2500', 'hash-4999'])
+    expect(torrents.responseId).toBe(42)
+    expect(torrents.categories).toBe(unchangedCategories)
+    expect(torrents.tags).toBe(unchangedTags)
+    expect(torrents.trackers).toBe(unchangedTrackers)
+    expect(elapsedMs).toBeLessThan(1_000)
+
+    torrents.applyMainData({ rid: 43, torrents_removed: ['hash-10'] })
+    expect(torrents.byHash.size).toBe(4_999)
+    expect(torrents.byHash.has('hash-10')).toBe(false)
+    expect([...torrents.selectedHashes]).toEqual(['hash-2500', 'hash-4999'])
+    expect(torrents.responseId).toBe(43)
+
+    torrents.refreshNow()
+    expect(torrents.responseId).toBe(43)
+    torrents.forceFullResync()
+    expect(torrents.responseId).toBe(0)
+  })
+
+  it('aborts in-flight synchronization and clears transfer runtime state on reset', async () => {
+    const { api, torrents, transfer } = createStores()
+    let requestSignal: AbortSignal | undefined
+    vi.spyOn(api.sync, 'mainData').mockImplementation(
+      (_rid, signal) =>
+        new Promise((_resolve, reject) => {
+          requestSignal = signal
+          signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')))
+        })
+    )
+    torrents.applyMainData({
+      rid: 9,
+      full_update: true,
+      torrents: { alpha: { name: 'Alpha' } },
+      server_state: { dl_info_speed: 2_048, connection_status: 'connected' }
+    })
+    torrents.startSync()
+    await vi.waitFor(() => expect(requestSignal).toBeInstanceOf(AbortSignal))
+
+    torrents.clearAll()
+
+    expect(requestSignal?.aborted).toBe(true)
+    expect(torrents.connectionState).toBe('idle')
+    expect(torrents.lastError).toBeNull()
+    expect(transfer.serverState).toEqual({})
+    expect(transfer.graph.length).toBe(0)
+  })
+
+  it('updates derived filters and selection, then clears synchronized state', () => {
+    const { torrents, transfer } = createStores()
     torrents.applyMainData({
       rid: 1,
       full_update: true,
@@ -215,5 +291,8 @@ describe('torrent incremental sync store', () => {
     expect(torrents.categories.size).toBe(0)
     expect(torrents.tags.size).toBe(0)
     expect(torrents.trackers.size).toBe(0)
+    expect(torrents.filters).toEqual(defaultTorrentFilters)
+    expect(transfer.serverState).toEqual({})
+    expect(transfer.graph.length).toBe(0)
   })
 })

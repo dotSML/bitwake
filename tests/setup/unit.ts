@@ -5,6 +5,9 @@ const dom = new JSDOM('<!doctype html><html><head></head><body></body></html>', 
   url: 'https://qbt.example.test/reverse-proxy/ui/'
 })
 
+vi.stubGlobal('__DEPLOYMENT_MODE__', 'mock')
+vi.stubGlobal('__MOCK_BACKEND__', true)
+
 Object.defineProperties(globalThis, {
   window: { configurable: true, value: dom.window },
   document: { configurable: true, value: dom.window.document },

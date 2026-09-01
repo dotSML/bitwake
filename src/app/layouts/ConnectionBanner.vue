@@ -22,7 +22,7 @@ const torrents = useTorrentsStore()
       v-if="torrents.connectionState === 'disconnected'"
       class="banner-retry"
       type="button"
-      @click="torrents.fullResync"
+      @click="torrents.refreshNow"
     >
       <RefreshCw :size="15" aria-hidden="true" /> Retry
     </button>

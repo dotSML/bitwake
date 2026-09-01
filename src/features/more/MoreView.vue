@@ -17,8 +17,9 @@ import {
   Tags,
   WandSparkles
 } from 'lucide-vue-next'
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useApi } from '@/app/providers/api'
+import { useSessionLifecycle } from '@/app/session/sessionLifecycle'
 import { useNotificationsStore } from '@/stores/notifications'
 import { usePreferencesStore } from '@/stores/preferences'
 import { useSessionStore } from '@/stores/session'
@@ -30,9 +31,23 @@ const session = useSessionStore()
 const torrents = useTorrentsStore()
 const preferences = usePreferencesStore()
 const notifications = useNotificationsStore()
+const lifecycle = useSessionLifecycle()
 const manager = ref<'categories' | 'tags' | null>(null)
 const newName = ref('')
 const savePath = ref('')
+type ConfirmationAction =
+  { kind: 'shutdown' } | { kind: 'remove-item'; collection: 'categories' | 'tags'; name: string }
+const confirmation = ref<ConfirmationAction | null>(null)
+const confirmationWorking = ref(false)
+const confirmationError = ref<string | null>(null)
+const confirmationTitle = computed(() =>
+  confirmation.value?.kind === 'shutdown' ? 'Shut down qBittorrent' : 'Remove item'
+)
+const confirmationDescription = computed(() =>
+  confirmation.value?.kind === 'shutdown'
+    ? 'Active transfers stop and the qBittorrent application exits.'
+    : 'This removes the category or tag without deleting torrent data.'
+)
 
 const links = [
   { to: '/search', label: 'Search', description: 'Search plugins and jobs', icon: Search },
@@ -66,30 +81,28 @@ const links = [
 ]
 
 async function logout(): Promise<void> {
-  try {
-    await api.auth.logout()
-  } finally {
-    torrents.clearAll()
-    session.clearSensitiveState()
-    window.location.reload()
-  }
+  await lifecycle.logout()
 }
-async function shutdown(): Promise<void> {
-  if (
-    !window.confirm('Shut down the connected qBittorrent application? Active transfers will stop.')
-  )
-    return
-  try {
-    await api.app.shutdown()
-    torrents.clearAll()
-    notifications.push('qBittorrent shutdown request accepted.', 'success')
-  } catch (cause) {
-    notifications.push(
-      cause instanceof Error ? cause.message : 'qBittorrent could not be shut down.',
-      'error'
-    )
-  }
+
+function requestShutdown(): void {
+  confirmation.value = { kind: 'shutdown' }
+  confirmationError.value = null
+  confirmationWorking.value = false
 }
+
+function requestRemoveItem(name: string): void {
+  if (!manager.value) return
+  confirmation.value = { kind: 'remove-item', collection: manager.value, name }
+  confirmationError.value = null
+  confirmationWorking.value = false
+}
+
+function closeConfirmation(): void {
+  if (confirmationWorking.value) return
+  confirmation.value = null
+  confirmationError.value = null
+}
+
 async function createItem(): Promise<void> {
   if (!newName.value.trim() || !manager.value) return
   try {
@@ -99,7 +112,7 @@ async function createItem(): Promise<void> {
     notifications.push(`${manager.value === 'categories' ? 'Category' : 'Tag'} created.`, 'success')
     newName.value = ''
     savePath.value = ''
-    torrents.fullResync()
+    torrents.refreshNow()
   } catch (cause) {
     notifications.push(
       cause instanceof Error ? cause.message : 'Item could not be created.',
@@ -107,19 +120,36 @@ async function createItem(): Promise<void> {
     )
   }
 }
-async function removeItem(name: string): Promise<void> {
-  if (!manager.value || !window.confirm(`Remove “${name}”? This does not delete torrent data.`))
-    return
+async function confirmAction(): Promise<void> {
+  const action = confirmation.value
+  if (!action || confirmationWorking.value) return
+  confirmationWorking.value = true
+  confirmationError.value = null
   try {
-    if (manager.value === 'categories') await api.collections.removeCategories([name])
-    else await api.collections.deleteTags([name])
-    torrents.fullResync()
-    notifications.push('Item removed.', 'success')
+    if (action.kind === 'shutdown') {
+      await api.app.shutdown()
+      torrents.clearAll()
+      notifications.push('qBittorrent shutdown request accepted.', 'success')
+    } else {
+      if (action.collection === 'categories') {
+        await api.collections.removeCategories([action.name])
+      } else {
+        await api.collections.deleteTags([action.name])
+      }
+      torrents.refreshNow()
+      notifications.push('Item removed.', 'success')
+    }
+    confirmation.value = null
   } catch (cause) {
-    notifications.push(
-      cause instanceof Error ? cause.message : 'Item could not be removed.',
-      'error'
-    )
+    confirmationError.value =
+      cause instanceof Error
+        ? cause.message
+        : action.kind === 'shutdown'
+          ? 'qBittorrent could not be shut down.'
+          : 'Item could not be removed.'
+    notifications.push(confirmationError.value, 'error')
+  } finally {
+    confirmationWorking.value = false
   }
 }
 function cycleTheme(): void {
@@ -182,7 +212,7 @@ function cycleTheme(): void {
         <LogOut :size="19" /><span
           ><strong>Log out</strong><small>End this browser session</small></span
         ><ChevronRight :size="17" /></button
-      ><button class="shutdown-row" type="button" @click="shutdown">
+      ><button class="shutdown-row" type="button" @click="requestShutdown">
         <Power :size="19" /><span
           ><strong>Shut down qBittorrent</strong><small>Requires confirmation</small></span
         ><ChevronRight :size="17" />
@@ -218,7 +248,7 @@ function cycleTheme(): void {
           ><small v-if="manager === 'categories'">{{
             torrents.categories.get(name)?.savePath
           }}</small
-          ><button type="button" @click="removeItem(name)">Remove</button>
+          ><button type="button" @click="requestRemoveItem(name)">Remove</button>
         </li>
         <li
           v-if="!(manager === 'categories' ? torrents.categories.size : torrents.tags.size)"
@@ -227,6 +257,53 @@ function cycleTheme(): void {
           No items configured.
         </li>
       </ul>
+    </AppDialog>
+
+    <AppDialog
+      :open="confirmation !== null"
+      :title="confirmationTitle"
+      :description="confirmationDescription"
+      fullscreen-mobile
+      @update:open="!$event && closeConfirmation()"
+    >
+      <div class="confirmation-copy">
+        <p v-if="confirmation?.kind === 'shutdown'">
+          Shut down the connected qBittorrent application?
+        </p>
+        <template v-else>
+          <p>Remove this {{ confirmation?.collection === 'categories' ? 'category' : 'tag' }}?</p>
+          <code>{{ confirmation?.name }}</code>
+        </template>
+        <p v-if="confirmationError" class="confirmation-error" role="alert">
+          {{ confirmationError }}
+        </p>
+      </div>
+      <template #footer>
+        <button
+          class="btn"
+          type="button"
+          :disabled="confirmationWorking"
+          @click="closeConfirmation"
+        >
+          Cancel
+        </button>
+        <button
+          class="btn btn-danger"
+          type="button"
+          :disabled="confirmationWorking"
+          @click="confirmAction"
+        >
+          {{
+            confirmationWorking
+              ? confirmation?.kind === 'shutdown'
+                ? 'Shutting down…'
+                : 'Removing…'
+              : confirmation?.kind === 'shutdown'
+                ? 'Shut down'
+                : 'Remove'
+          }}
+        </button>
+      </template>
     </AppDialog>
   </div>
 </template>
@@ -342,6 +419,20 @@ function cycleTheme(): void {
   display: block;
   color: rgb(var(--color-muted));
   padding: 12px;
+}
+.confirmation-copy > p:first-child {
+  margin-top: 0;
+}
+.confirmation-copy code {
+  display: block;
+  overflow-wrap: anywhere;
+  border-radius: 7px;
+  background: rgb(var(--color-surface-muted));
+  padding: 10px;
+  white-space: pre-wrap;
+}
+.confirmation-error {
+  color: rgb(var(--color-danger));
 }
 @media (min-width: 768px) {
   .more-page {

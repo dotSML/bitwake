@@ -2,7 +2,7 @@
 
 ## Scope and status
 
-NeoTorrent is a client-only Vue application served by qBittorrent itself in production. It has no custom API server and no database. The architecture is designed around qBittorrent 5.2.3 / Web API 2.15.1, same-origin browser cookies, relative URLs, incremental state, and separate public/private Alternative WebUI resources.
+NeoTorrent is a client-only Vue application with two production delivery modes. qBittorrent can serve separate public/private Alternative WebUI resources, or an unprivileged Nginx container can serve one standalone SPA and reverse-proxy `/api/` to qBittorrent. The Nginx layer is transport/static delivery, not a custom application API, preference sidecar, or database. Both modes are designed around qBittorrent 5.2.3 / Web API 2.15.1, same-origin browser cookies, relative URLs, and incremental state.
 
 This document describes the code that exists. Items under **Current gaps** are intentional disclosures, not future behavior presented as complete.
 
@@ -11,9 +11,12 @@ This document describes the code that exists. Items under **Current gaps** are i
 ```mermaid
 flowchart LR
   B[Browser]
-  PUB[public/index.html<br/>public-main.ts]
-  PRIV[private/index.html<br/>main.ts]
+  NGINX[Standalone unprivileged Nginx<br/>static SPA + /api proxy]
+  SPA[standalone index.html<br/>main.ts]
+  PUB[Alternative public/index.html<br/>public-main.ts]
+  PRIV[Alternative private/index.html<br/>main.ts]
   UI[Vue routes and feature views]
+  LIFE[Central session lifecycle<br/>compile-time mode]
   PINIA[Pinia session, torrents,<br/>transfer, preferences]
   API[Typed namespace APIs]
   HTTP[Shared HttpClient]
@@ -22,10 +25,15 @@ flowchart LR
   LOCAL[localStorage fallback]
   SW[Static-asset service worker]
 
-  B -->|unauthenticated resources| PUB
-  B -->|authenticated resources| PRIV
-  PUB -->|POST auth/login; reload| QB
-  PRIV --> UI
+  B -->|standalone| NGINX
+  NGINX --> SPA
+  NGINX -->|proxy api/| QB
+  B -->|native unauthenticated| PUB
+  B -->|native authenticated| PRIV
+  PUB -->|POST auth/login; native reload| QB
+  SPA --> LIFE
+  PRIV --> LIFE
+  LIFE --> UI
   UI --> PINIA
   UI --> API
   PINIA --> API
@@ -39,7 +47,7 @@ flowchart LR
   SW -. NetworkOnly /api/** .-> QB
 ```
 
-qBittorrent owns the authentication boundary. In an installed Alternative WebUI, it serves the `public/` tree before authentication and the `private/` tree after authentication. Successful login and logout therefore reload the document instead of pretending that a client-side route changes the server's resource boundary. Mock mode keeps the transition inside the development app for testability.
+The build injects a typed deployment mode; the browser does not infer it from URLs or runtime failures. In native Alternative WebUI mode, qBittorrent owns the resource boundary and successful login/logout/expiry reload so it can choose `public/` or `private/`. In standalone mode, one document probes the protected API and routes between login and the private shell in place. Mock mode uses the same in-place lifecycle with MSW.
 
 ## Source organization
 
@@ -54,7 +62,9 @@ src/
 ├── app/
 │   ├── layouts/         desktop/tablet/mobile shell
 │   ├── providers/       injected API key
-│   └── router/          lazy feature routes with hash history
+│   ├── router/          lazy feature routes with hash history
+│   └── session/         centralized mode-aware session lifecycle
+├── config/              compile-time deployment-mode contract
 ├── domains/             torrent filters/state, file tree, graph buffer
 ├── features/            route and workflow components
 ├── stores/              session, torrent sync, transfer graph, preferences,
@@ -64,35 +74,39 @@ src/
 ├── mocks/               MSW handlers and deterministic fixtures
 ├── main.ts              authenticated entry
 └── public-main.ts       public login entry
+
+container/               entrypoint, Nginx templates, deterministic and real-qB tests
+deploy/kubernetes/       sidecar and separate-Deployment Kustomize examples
 ```
 
 The important dependency rule is that views and stores call namespace APIs, namespace APIs call the shared HTTP core, and endpoint encoding does not live in Vue components.
 
 ## Boot and authentication sequence
 
-### Public entry
+`src/config/deployment.ts` defines `alternative-public`, `alternative-private`, `standalone`, and `mock`. Vite injects one exact value; unsupported modes fail the build configuration rather than falling through to an inferred production behavior.
 
-1. qBittorrent serves `public/index.html`.
-2. `public-main.ts` creates a minimal Vue/Pinia app and injects the API facade.
-3. `LoginView` posts a URL-encoded username/password to `auth/login`.
-4. The password ref is cleared on success or failure.
-5. A production success reloads the document so qBittorrent can serve its authenticated resource tree.
+### Standalone and mock entry
 
-### Private entry
+1. Nginx or Vite serves `index.html`; `main.ts` creates Vue, Router, i18n, Pinia, and the API facade.
+2. `SessionLifecycle.initialize()` preserves the requested hash route and calls `session.detect()`.
+3. Detection requests application version, Web API version, and build information in parallel with authentication-expiry notification suppressed for those probes.
+4. A 401/403 probe result shows `/login` in the same document; a network failure shows the disconnected retry state.
+5. `LoginView` posts URL-encoded credentials. qBittorrent 5.0-style HTTP-200 `Fails.` text is converted into an authentication error rather than accepted as success.
+6. After login, protected probes must succeed before preferences/sync start; the intended route is then restored without reload.
+7. Logout and eligible expiry clear private stores and route to login in place.
 
-1. qBittorrent serves `private/index.html`.
-2. `main.ts` creates the application, router, i18n instance, Pinia, and API facade.
-3. `session.detect()` requests application version, Web API version, and build information in parallel. Daemon preferences are deliberately deferred to the Settings route.
-4. Successful protected requests also act as authentication-bypass detection; there is no invented “who am I” endpoint.
-5. A capability registry is created from the normalized versions.
-6. Interface preferences load from client data when supported, otherwise from local storage.
-7. The torrent store starts `sync/maindata` polling.
+### Native Alternative WebUI entries
 
-The application never reads or writes qBittorrent's cookie. `fetch` uses `credentials: 'include'`, leaving cookie scope, flags, expiry, and replacement to qBittorrent and the browser.
+1. qBittorrent serves `public/index.html`; `public-main.ts` creates the minimal login application.
+2. Successful login reloads so qBittorrent can select its authenticated tree.
+3. qBittorrent serves `private/index.html`; `main.ts` creates the full application and runs the same protected detection/preferences/sync activation.
+4. Logout and expiry clear in-memory state and reload to qBittorrent's public boundary.
+
+In all modes, successful protected requests also act as authentication-bypass detection; there is no invented “who am I” endpoint. The application never reads or writes qBittorrent's cookie. `fetch` uses `credentials: 'include'`, leaving cookie scope, flags, expiry, and replacement to qBittorrent and the browser.
 
 ### Expiry and connection failures
 
-The HTTP client invokes an authentication-expired callback for 401 responses and eligible 403 responses. Login opts out of 403-as-expiry, and recognized Host, Origin, Referer, and CSRF response text remains a forbidden/request-validation error instead of forcing a login transition. The private app clears torrent state, preserves a safe intended route in memory, and reloads to the public boundary in production. Network and timeout failures instead put startup or sync into a disconnected state. The sync store preserves the last good state, applies exponential retry delay up to 30 seconds, and offers an explicit full-resync action.
+The HTTP client invokes an authentication-expired callback for 401 responses and eligible 403 responses. Login and startup probes suppress that callback, and recognized Host, Origin, Referer, and CSRF response text remains a forbidden/request-validation error instead of forcing a login transition. The central lifecycle clears torrent state and preserves a safe intended route, then routes in place for standalone/mock or reloads for a native Alternative WebUI boundary. Network and timeout failures instead put startup or sync into a disconnected state. The sync store preserves the last good state, applies exponential retry delay up to 30 seconds, and offers an explicit full-resync action.
 
 Current limitation: request-validation detection is a bounded text-marker heuristic. A differently worded qBittorrent/proxy 403 can still be classified as expiry, while all 401 responses remain authentication failures.
 
@@ -130,6 +144,8 @@ const api = {
 
 Detailed route coverage is in [api-capabilities.md](api-capabilities.md).
 
+Most form values remain canonical until `HttpClient` applies `URLSearchParams`. Web Seed mutations are the narrow target-specific exception: after normal form decoding, qBittorrent 5.2.3 applies `QUrl::fromPercentEncoding()` again. The torrent API canonicalizes each Web Seed URL and protects only an existing `%HH` sequence as `%25HH` before the shared form encoder. It deliberately does not blanket-encode the URL, so `:`, `/`, `?`, `&`, and `=` retain their semantics. Unit contracts cover exact queries and already-encoded values; the real 5.2.3 suite covers add/list/edit/remove preservation.
+
 Runtime validation is currently incomplete. Zod and initial schemas exist, but endpoint modules generally rely on TypeScript assertions after JSON parsing and do not yet pass those schemas to `HttpClient.request`. Version-variable and security-relevant response boundaries still need targeted validation.
 
 ## Capability model
@@ -148,7 +164,7 @@ The torrent store keeps shallow normalized collections:
 - `Map<string, string[]>` for tracker membership.
 - A separate selected-hash set.
 
-The polling loop has one in-flight `sync/maindata` request at a time. A full response clears and rebuilds normalized maps. A delta response mutates existing torrent objects in place, adds complete new torrents, removes hashes, and applies category/tag/tracker/server-state changes. The response ID advances after applying the response. An incomplete new torrent causes the next request to restart from response ID zero.
+The polling loop has one in-flight `sync/maindata` request at a time. A full response builds new normalized maps. A delta shallow-copies the torrent map, replaces only changed torrent objects, preserves untouched object identities, adds complete new torrents, removes hashes/selections, and copy-on-changes category/tag/tracker collections only when their fields are present. The response ID advances after the complete synchronous apply. An incomplete new torrent causes the next request to restart from response ID zero.
 
 The loop:
 
@@ -171,7 +187,7 @@ Atomicity is pragmatic rather than transactional: collection mutations occur syn
 - TanStack Virtual renders only visible desktop torrent rows.
 - Column visibility, order, and widths are stored in the strict interface-preference schema; widths persist after pointer or keyboard resize.
 - Stable table row IDs are torrent hashes.
-- Desktop selection supports single, modifier toggle, shift range, keyboard arrows, select all, filter focus, Escape, and Delete confirmation.
+- Desktop selection supports single, modifier toggle, anchored shift range, roving-tabindex Arrow navigation across virtual render boundaries through `scrollToIndex`, select all, filter focus, Escape, and Delete confirmation.
 - Right-click and keyboard context invocation open an accessible action menu; phone overflow opens the corresponding action sheet.
 - The desktop sidebar and inspector both support bounded pointer resizing; the sidebar and table column separators also support keyboard resizing.
 - A resizable right inspector loads per-torrent detail endpoints on demand.
@@ -181,7 +197,7 @@ The action menu covers start, stop, details, recheck, reannounce, force start, s
 
 ### Files and pieces
 
-Torrent files are converted to an aggregate folder/file tree, flattened according to expansion/search state, and virtualized. Folder selection expands to descendant file indexes for `torrents/filePrio`. Piece state uses Canvas to avoid one DOM node per piece. The peer tab incrementally polls `sync/torrentPeers`, applies full/delta additions and removals, aborts stale requests on tab/hash changes, slows while hidden, and virtualizes the visible peer collection.
+Torrent files are cloned into component-local immutable state, converted to an aggregate folder/file tree, flattened according to expansion/search state, and virtualized. Selection uses conventional plain/modifier/anchored-range behavior; tree Arrow/Home/End keys move one roving tab stop across virtual boundaries. Folder descendants are gathered into a `Set<number>` for `torrents/filePrio`, the selector is guarded against duplicate submission and reset after each result, and successful local updates replace file objects instead of mutating props. Mobile uses adaptive 84 px rows that retain name, progress, size, and priority. A focused regression applies one priority to a 10,000-file folder, resets, then applies the same priority to a later 20-file folder. Piece state uses Canvas to avoid one DOM node per piece. The peer tab incrementally polls `sync/torrentPeers`, applies full/delta additions and removals, aborts stale requests on tab/hash changes, slows while hidden, and virtualizes adaptive desktop/mobile rows.
 
 ### Transfer graph
 
@@ -205,7 +221,9 @@ Passwords, qBittorrent cookies, torrent files, and magnet history are not part o
 
 Migration constructs a fresh allow-listed object. It validates enum and boolean fields, clamps sidebar/inspector widths and column widths, filters/uniquifies known columns and sort keys, fills defaults, and drops unknown stored keys.
 
-## Public/private packaging
+## Production builds and container runtime
+
+### Native public/private packaging
 
 `scripts/build-alt-webui.mjs` orchestrates two Vite builds:
 
@@ -219,28 +237,43 @@ Migration constructs a fresh allow-listed object. It validates enum and boolean 
 
 Vite uses `base: './'`, separate `login-assets/` and `app-assets/`, hashed chunks, and disabled production source maps. Artifact security considerations are covered in [security.md](security.md).
 
+### Standalone build and proxy
+
+`vite build --mode standalone` emits one SPA to `dist/standalone`. The Dockerfile builds that output in a Node stage and copies it into the pinned `nginxinc/nginx-unprivileged:1.30.4-alpine@sha256:45ce1e2e699234253d1def7baa96218a5d00b498d1ba0cbb1a17b6bdf73d1351` runtime. The final local amd64 and arm64 images run as `101:101` and intentionally contain neither Node nor the source/test tree.
+
+The POSIX entrypoint validates `QBITTORRENT_URL` or the `QB_HOST`/`QB_PORT` fallback, listen port, upload size, and proxy timeouts. It rejects embedded credentials, query/fragment text, unsafe characters, and an upstream ending in `/api/v2`, then renders Nginx configuration into writable `/tmp` and runs `nginx -t`.
+
+Nginx serves the hash-routed SPA, proxies root `/api/` to the configured upstream `/api/`, forwards cookies and validation-relevant headers, disables API buffering/caching, and returns proxy statuses without substituting the SPA. `/healthz` and `/readyz` describe only the NeoTorrent process and deliberately do not probe qBittorrent.
+
+Kubernetes has sidecar and separate-Deployment examples. The sidecar shares loopback with an operator's unchanged qBittorrent container; the separate form reaches a private qBittorrent Service. Both render with an unprivileged/read-only/capability-drop security context and a small `/tmp` `emptyDir`. Kustomize v5.8.1 render validation passed for both, but neither has been admitted or run in a cluster. Both retain a non-runnable immutable-image placeholder because no public verified NeoTorrent digest exists.
+
 ## PWA and cache boundary
 
-The authenticated entry registers the generated service worker. Workbox precaches JS, CSS, SVG, PNG, and WOFF2 application assets. HTML is not included in the configured glob. GET and POST requests whose URL path contains `/api/` use `NetworkOnly`, and all fetches from the API client also use `no-store`.
+The standalone and authenticated Alternative WebUI entries register the generated service worker. Workbox precaches JS, CSS, SVG, PNG, and WOFF2 application assets. HTML is not included in the configured glob. GET and POST requests whose URL path contains `/api/` use `NetworkOnly`, and all fetches from the API client also use `no-store`.
 
 The manifest declares standalone display, generated 192×192 and 512×512 PNG icons, the local SVG source icon, and relative start/scope. File and protocol handlers are intentionally absent until the app has a safe launch-payload consumer.
 
-The service-worker update callback presents a confirmation and activates/reloads the update when accepted. PWA behavior has not been fully verified through qBittorrent's public/private resource switch or a reverse-proxy subpath.
+The service-worker update callback presents a confirmation and activates/reloads the update when accepted. PWA behavior has not been fully verified through either deployment mode or a reverse-proxy subpath.
 
 ## Testing architecture
 
 - Vitest `unit` project uses a Node environment.
 - Vitest `component` project uses jsdom and Vue Test Utils.
 - MSW provides browser development fixtures and can support deterministic component/E2E flows.
-- Playwright is configured for 1440×900 desktop, 320×700, 375×812, and 430×932 phone projects, plus 768×1024 and 1024×768 tablet projects, with mock-mode Vite as its web server.
-- Build scripts produce ordinary and Alternative WebUI artifacts independently of test fixtures.
-- A GitHub Actions workflow installs the frozen lockfile, runs format/lint/type/Vitest/build/Playwright gates with Chromium and WebKit available, and uploads `dist/alt-webui` plus the zip. Its configuration exists, but a hosted run has not been observed in this snapshot.
+- Playwright is configured for 1440×900 desktop, 320×700, 375×812, and 430×932 phone projects, plus 768×1024 and 1024×768 tablet projects. It starts standalone-E2E and Alternative-private-E2E Vite servers so session-boundary behavior can be tested separately.
+- Build scripts produce standalone and Alternative WebUI artifacts independently of test fixtures.
+- Frozen pnpm 10.15.0 installation, formatting, lint, typecheck, `build`, `build:standalone`, and `build:alt-webui` passed on the current working tree. The final full Vitest run passed 22 files / 192 tests.
+- A focused store test (8/8, 286 ms file total) applies a changed delta to 5,000 torrents, preserves all 4,999 untouched object references under a generous `<1,000 ms` local regression budget, then applies a separate removal delta and verifies selection cleanup/RID 43. This is not a formal benchmark.
+- The full Playwright suite passed in the official 1.62.1 Noble image at digest `sha256:dcc5531e97840b9b5e794f2814476b21571c5124a3fca2267d73041f56e7580e`: 63 passed and 81 intentional project skips across Chromium, WebKit, and 320/375/430 phone projects.
+- Deterministic proxy and real qBittorrent 5.2.3 suites passed on final local linux/amd64 image content ID `sha256:686127d46d2539bd41c60b645d172a0352acfe3ab89e448f84c636d7d47a78ef`. The final linux/arm64 audit image has content ID `sha256:42f9d35735bcedabfed6ac581a3ea1ec3dd724f8be023998f78fd479f152aefb`. Both run as 101:101 with the dirty-HEAD revision label; Trivy 0.74.0/current DB reported 0 HIGH/CRITICAL for both complete images on Alpine 3.24.1.
+- The committed CI workflow's run #2 was green for HEAD `1ab285bb8dbd61b63ef6296790ff895eb918bb2d`, before current working-tree changes. The new container workflow is uncommitted/unhosted and has produced no verified public image, SBOM, provenance, or multi-architecture manifest.
+- actionlint 1.7.7 passed locally, but that does not make the uncommitted workflow hosted evidence. Local image content digests are not GHCR registry references.
 
 Executed results and missing suites are recorded in [../IMPLEMENTATION_STATUS.md](../IMPLEMENTATION_STATUS.md); configuration files alone are not counted as passing tests.
 
 ## Architectural constraints
 
-- No custom production server, persistence sidecar, SSR, or database.
+- No custom application server, persistence sidecar, SSR, or database; standalone Nginx is a static server/reverse proxy only.
 - No cross-origin production API configuration.
 - No API contract inferred from VueTorrent.
 - No raw version comparisons in templates.
@@ -252,7 +285,8 @@ Executed results and missing suites are recorded in [../IMPLEMENTATION_STATUS.md
 - Targeted runtime schemas are defined but not wired into most requests.
 - Capability checks do not yet cover every API-dependent control or settings field.
 - Full stock action coverage is present in API wrappers but not in the interaction model.
-- Component fixtures demonstrate bounded DOM counts for 5,000 desktop/mobile torrents, a searched 10,000-file tree, and 2,000 RSS articles, but no timing, memory, or sustained-poll benchmark is recorded. Comparable large peer and Search-result fixture evidence is also absent.
+- Component fixtures demonstrate bounded DOM counts for 5,000 desktop/mobile torrents, a searched 10,000-file tree, a 10,000-index priority/reapply flow, and 2,000 RSS articles. Coarse local time guards are not timing, memory, or sustained-poll benchmarks; comparable large peer and Search-result fixture evidence is also absent.
 - Several user-facing strings bypass Vue I18n.
-- The CI workflow is configured but has no recorded hosted run.
-- The final real qBittorrent installation smoke covered the serving/auth boundary only; representative mutations, non-empty libraries, reverse-proxy, and broader session-edge verification remain separately evidenced.
+- Current builds are recorded: standalone tree 746,801 bytes; Alternative WebUI tree 1,041,432 bytes; zip 375,293 bytes with SHA-256 `6e9318711a937b89cf8d5b936ebc4de00bcf2f256950b36f589672558c8e8e83`. Final checks found no maps, MSW worker, or embedded upstream string.
+- The container publication workflow is not in committed HEAD, the public GHCR manifest is absent or inaccessible/private, and a deployable immutable reference is unavailable.
+- Real qBittorrent coverage includes safe local mutations and outage recovery, but not Search/RSS/Creator/settings/peer workflows, large libraries, Kubernetes, outer proxy TLS, subpaths, or PWA lifecycle.

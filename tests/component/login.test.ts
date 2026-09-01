@@ -14,7 +14,11 @@ describe('LoginView', () => {
     const context = createTestContext()
     const login = vi.spyOn(context.api.auth, 'login').mockResolvedValue()
     const session = context.run(() => useSessionStore(context.pinia))
-    vi.spyOn(session, 'detect').mockResolvedValue(true)
+    vi.spyOn(session, 'detect').mockImplementation(() => {
+      session.markAuthenticated()
+      return Promise.resolve(true)
+    })
+    vi.spyOn(context.api.sync, 'mainData').mockResolvedValue({ rid: 1, full_update: true })
     const wrapper = await mountWithContext(LoginView, context)
 
     const submit = wrapper.get<HTMLButtonElement>('button[type="submit"]')
@@ -28,6 +32,28 @@ describe('LoginView', () => {
     expect(login).toHaveBeenCalledWith({ username: 'admin', password: 'secret' })
     expect(wrapper.get<HTMLInputElement>('input[name="password"]').element.value).toBe('')
     expect(context.router.currentRoute.value.path).toBe('/torrents')
+    expect(session.status).toBe('authenticated')
+  })
+
+  it('returns to the preserved private deep link without reloading the document', async () => {
+    const context = createTestContext()
+    vi.spyOn(context.api.auth, 'login').mockResolvedValue()
+    vi.spyOn(context.api.sync, 'mainData').mockResolvedValue({ rid: 1, full_update: true })
+    const session = context.run(() => useSessionStore(context.pinia))
+    session.intendedRoute = '/torrents/example-hash/files'
+    vi.spyOn(session, 'detect').mockImplementation(() => {
+      session.markAuthenticated()
+      return Promise.resolve(true)
+    })
+    const wrapper = await mountWithContext(LoginView, context)
+
+    await wrapper.get('input[name="username"]').setValue('admin')
+    await wrapper.get('input[name="password"]').setValue('secret')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+
+    expect(context.router.currentRoute.value.fullPath).toBe('/torrents/example-hash/files')
+    expect(session.intendedRoute).toBeNull()
     expect(session.status).toBe('authenticated')
   })
 

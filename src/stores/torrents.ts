@@ -84,14 +84,10 @@ export const useTorrentsStore = defineStore('torrents', () => {
   function applyMainData(update: MainDataResponse): void {
     const full = update.full_update === true || responseId.value === 0
     const torrentUpdates = update.torrents ?? {}
-    const nextTorrents = full
-      ? new Map<string, TorrentInfo>()
-      : new Map([...byHash.value].map(([hash, torrent]) => [hash, { ...torrent }]))
-    const nextCategories = full ? new Map<string, Category>() : new Map(categories.value)
-    const nextTags = full ? new Set<string>() : new Set(tags.value)
-    const nextTrackers = full
-      ? new Map<string, string[]>()
-      : new Map([...trackers.value].map(([tracker, hashes]) => [tracker, [...hashes]]))
+    const nextTorrents = full ? new Map<string, TorrentInfo>() : new Map(byHash.value)
+    let nextCategories = full ? new Map<string, Category>() : categories.value
+    let nextTags = full ? new Set<string>() : tags.value
+    let nextTrackers = full ? new Map<string, string[]>() : trackers.value
     const nextSelection = new Set(selectedHashes.value)
 
     if (full) {
@@ -121,16 +117,25 @@ export const useTorrentsStore = defineStore('torrents', () => {
         nextTorrents.delete(hash)
         nextSelection.delete(hash)
       }
-      for (const [name, category] of Object.entries(update.categories ?? {})) {
-        nextCategories.set(name, category)
+      if (update.categories || update.categories_removed) {
+        nextCategories = new Map(categories.value)
+        for (const [name, category] of Object.entries(update.categories ?? {})) {
+          nextCategories.set(name, category)
+        }
+        for (const name of update.categories_removed ?? []) nextCategories.delete(name)
       }
-      for (const name of update.categories_removed ?? []) nextCategories.delete(name)
-      for (const tag of update.tags ?? []) nextTags.add(tag)
-      for (const tag of update.tags_removed ?? []) nextTags.delete(tag)
-      for (const [tracker, hashes] of Object.entries(update.trackers ?? {})) {
-        nextTrackers.set(tracker, [...hashes])
+      if (update.tags || update.tags_removed) {
+        nextTags = new Set(tags.value)
+        for (const tag of update.tags ?? []) nextTags.add(tag)
+        for (const tag of update.tags_removed ?? []) nextTags.delete(tag)
       }
-      for (const tracker of update.trackers_removed ?? []) nextTrackers.delete(tracker)
+      if (update.trackers || update.trackers_removed) {
+        nextTrackers = new Map(trackers.value)
+        for (const [tracker, hashes] of Object.entries(update.trackers ?? {})) {
+          nextTrackers.set(tracker, [...hashes])
+        }
+        for (const tracker of update.trackers_removed ?? []) nextTrackers.delete(tracker)
+      }
     }
 
     if (update.server_state) transfer.applyServerState(update.server_state)
@@ -148,22 +153,24 @@ export const useTorrentsStore = defineStore('torrents', () => {
   let timer: ReturnType<typeof setTimeout> | null = null
   let failureCount = 0
   let intervalMs = 1000
-  let resyncRequested = false
+  let pollAgainRequested = false
+  let syncGeneration = 0
 
   async function poll(): Promise<void> {
     if (!running || pollController) return
     const controller = new AbortController()
+    const generation = syncGeneration
     pollController = controller
     connectionState.value = responseId.value === 0 ? 'syncing' : connectionState.value
     try {
       const response = await api.sync.mainData(responseId.value, controller.signal)
-      if (resyncRequested) return
+      if (generation !== syncGeneration) return
       applyMainData(response)
       failureCount = 0
       lastError.value = null
       connectionState.value = 'connected'
     } catch (error) {
-      if (!running || resyncRequested) return
+      if (!running || generation !== syncGeneration) return
       failureCount += 1
       connectionState.value = 'disconnected'
       lastError.value = error instanceof Error ? error.message : 'Live synchronization failed.'
@@ -173,8 +180,8 @@ export const useTorrentsStore = defineStore('torrents', () => {
       if (pollController === controller) {
         pollController = null
         if (running) {
-          if (resyncRequested) {
-            resyncRequested = false
+          if (pollAgainRequested) {
+            pollAgainRequested = false
             void poll()
           } else {
             const hiddenDelay =
@@ -195,16 +202,17 @@ export const useTorrentsStore = defineStore('torrents', () => {
 
   function stopSync(): void {
     running = false
-    resyncRequested = false
+    pollAgainRequested = false
+    syncGeneration += 1
     if (timer) clearTimeout(timer)
     timer = null
     pollController?.abort()
     pollController = null
+    failureCount = 0
     connectionState.value = 'idle'
   }
 
-  function fullResync(): void {
-    responseId.value = 0
+  function requestImmediatePoll(): void {
     if (!running) return
     if (timer) {
       clearTimeout(timer)
@@ -213,11 +221,25 @@ export const useTorrentsStore = defineStore('torrents', () => {
       return
     }
     if (pollController) {
-      resyncRequested = true
-      pollController.abort()
+      pollAgainRequested = true
       return
     }
     void poll()
+  }
+
+  function refreshNow(): void {
+    requestImmediatePoll()
+  }
+
+  function forceFullResync(): void {
+    responseId.value = 0
+    syncGeneration += 1
+    if (pollController) {
+      pollAgainRequested = true
+      pollController.abort()
+      return
+    }
+    requestImmediatePoll()
   }
 
   function setPollingInterval(value: 1000 | 2000 | 5000): void {
@@ -255,6 +277,9 @@ export const useTorrentsStore = defineStore('torrents', () => {
     trackers.value = new Map()
     selectedHashes.value = new Set()
     responseId.value = 0
+    lastError.value = null
+    filters.value = { ...defaultTorrentFilters }
+    transfer.reset()
   }
 
   return {
@@ -274,7 +299,8 @@ export const useTorrentsStore = defineStore('torrents', () => {
     applyMainData,
     startSync,
     stopSync,
-    fullResync,
+    refreshNow,
+    forceFullResync,
     setPollingInterval,
     updateFilters,
     clearFilters,

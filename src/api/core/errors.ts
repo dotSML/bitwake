@@ -32,6 +32,17 @@ export function isApiError(error: unknown): error is ApiError {
   return error instanceof ApiError
 }
 
+export function isRequestValidationFailure(responseText: string | undefined): boolean {
+  const detail = responseText?.trim().toLocaleLowerCase() ?? ''
+  return [
+    'invalid host header',
+    'invalid origin header',
+    'invalid referer header',
+    'csrf',
+    'cross-site request forgery'
+  ].some((marker) => detail.includes(marker))
+}
+
 export function messageForStatus(status: number, responseText?: string): string {
   const detail = responseText?.trim()
   if (detail && detail.length <= 300 && !detail.startsWith('<')) return detail

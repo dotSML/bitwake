@@ -27,6 +27,13 @@ export const useTransferStore = defineStore('transfer', () => {
     graphRevision.value += 1
   }
 
+  function reset(): void {
+    serverState.value = {}
+    graph.clear()
+    lastSampleAt = 0
+    graphRevision.value += 1
+  }
+
   return {
     serverState,
     graph,
@@ -34,6 +41,7 @@ export const useTransferStore = defineStore('transfer', () => {
     downloadSpeed,
     uploadSpeed,
     connected,
-    applyServerState
+    applyServerState,
+    reset
   }
 })

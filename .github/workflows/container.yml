@@ -1,0 +1,189 @@
+name: Container
+
+on:
+  push:
+    branches: [main]
+    tags:
+      - 'v*.*.*'
+  pull_request:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: dotsml/neotorrent
+
+concurrency:
+  group: container-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Source, browser, image, and qBittorrent gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22.23.2
+      - name: Enable locked pnpm through Corepack
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.15.0+sha512.486ebc259d3e999a4e8691ce03b5cac4a71cbeca39372a9b762cb500cfdf0873e2cb16abe3d951b1ee2cf012503f027b98b6584e4df22524e0c7450d9ec7aa7b --activate
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Check formatting
+        run: pnpm format:check
+      - name: Lint
+        run: pnpm lint
+      - name: Typecheck
+        run: pnpm typecheck
+      - name: Unit and component tests
+        run: pnpm test:all
+      - name: Build native Alternative WebUI package
+        run: pnpm build:alt-webui
+      - name: Build standalone frontend
+        run: pnpm build:standalone
+      - name: Install browser engines
+        run: pnpm exec playwright install --with-deps chromium webkit
+      - name: Browser tests
+        run: pnpm test:e2e
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - name: Derive deterministic image metadata
+        id: build
+        shell: bash
+        run: |
+          created=$(git show -s --format=%cI "$GITHUB_SHA")
+          {
+            echo "created=${created}"
+            echo "revision=${GITHUB_SHA}"
+            echo "version=ci-${GITHUB_SHA:0:12}"
+          } >> "$GITHUB_OUTPUT"
+      - name: Build local linux/amd64 test image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          tags: neotorrent:ci-amd64
+          build-args: |
+            BUILD_CREATED=${{ steps.build.outputs.created }}
+            BUILD_REVISION=${{ steps.build.outputs.revision }}
+            BUILD_VERSION=${{ steps.build.outputs.version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Deterministic proxy and real qBittorrent 5.2.3 tests
+        env:
+          NEOTORRENT_IMAGE: neotorrent:ci-amd64
+        run: pnpm container:test
+      - name: Scan linux/amd64 HIGH and CRITICAL vulnerabilities
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: neotorrent:ci-amd64
+          version: v0.74.0
+          format: table
+          exit-code: '1'
+          ignore-unfixed: false
+          severity: HIGH,CRITICAL
+      - name: Build local linux/arm64 scan image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          platforms: linux/arm64
+          load: true
+          tags: neotorrent:ci-arm64
+          build-args: |
+            BUILD_CREATED=${{ steps.build.outputs.created }}
+            BUILD_REVISION=${{ steps.build.outputs.revision }}
+            BUILD_VERSION=${{ steps.build.outputs.version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Scan linux/arm64 HIGH and CRITICAL vulnerabilities
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: neotorrent:ci-arm64
+          version: v0.74.0
+          format: table
+          exit-code: '1'
+          ignore-unfixed: false
+          severity: HIGH,CRITICAL
+
+  publish:
+    name: Publish provenance and multi-architecture image
+    needs: verify
+    if: github.event_name == 'push' && needs.verify.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - name: Log in to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Generate image tags
+        id: meta
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          flavor: latest=false
+          tags: |
+            type=raw,value=edge,enable={{is_default_branch}}
+            type=sha,prefix=sha-,format=short,enable={{is_default_branch}}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+      - name: Derive deterministic image metadata
+        id: build
+        shell: bash
+        run: |
+          created=$(git show -s --format=%cI "$GITHUB_SHA")
+          if [[ "$GITHUB_REF_TYPE" == tag ]]; then
+            version=${GITHUB_REF_NAME#v}
+          else
+            version="edge-${GITHUB_SHA:0:12}"
+          fi
+          {
+            echo "created=${created}"
+            echo "revision=${GITHUB_SHA}"
+            echo "version=${version}"
+          } >> "$GITHUB_OUTPUT"
+      - name: Build and publish linux/amd64 and linux/arm64
+        id: push
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          build-args: |
+            BUILD_CREATED=${{ steps.build.outputs.created }}
+            BUILD_REVISION=${{ steps.build.outputs.revision }}
+            BUILD_VERSION=${{ steps.build.outputs.version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          sbom: true
+          provenance: mode=max
+      - name: Generate GitHub artifact attestation
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+      - name: Verify the published manifest
+        run: docker buildx imagetools inspect "${REGISTRY}/${IMAGE_NAME}@${{ steps.push.outputs.digest }}"
+      - name: Report immutable reference
+        run: |
+          {
+            echo "### Published NeoTorrent image"
+            echo '```text'
+            echo "${REGISTRY}/${IMAGE_NAME}@${{ steps.push.outputs.digest }}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

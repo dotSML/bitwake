@@ -31,7 +31,8 @@ export default tseslint.config(
         setTimeout: 'readonly',
         clearTimeout: 'readonly',
         structuredClone: 'readonly',
-        __MOCK_API__: 'readonly'
+        __DEPLOYMENT_MODE__: 'readonly',
+        __MOCK_BACKEND__: 'readonly'
       },
       parserOptions: {
         parser: tseslint.parser,
@@ -59,14 +60,18 @@ export default tseslint.config(
     }
   },
   {
-    files: ['scripts/**/*.mjs'],
+    files: ['scripts/**/*.mjs', 'container/**/*.mjs'],
     ...tseslint.configs.disableTypeChecked,
     languageOptions: {
       ...tseslint.configs.disableTypeChecked.languageOptions,
       globals: {
+        atob: 'readonly',
         console: 'readonly',
+        File: 'readonly',
         fetch: 'readonly',
-        process: 'readonly'
+        FormData: 'readonly',
+        process: 'readonly',
+        URLSearchParams: 'readonly'
       }
     }
   }

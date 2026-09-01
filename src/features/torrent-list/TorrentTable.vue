@@ -12,7 +12,7 @@ import {
   type VisibilityState
 } from '@tanstack/vue-table'
 import { useVirtualizer } from '@tanstack/vue-virtual'
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import type { TorrentInfo } from '@/api/types/models'
 import { torrentStateLabel } from '@/domains/torrents/state'
 import { torrentTableColumnIds, usePreferencesStore } from '@/stores/preferences'
@@ -25,7 +25,8 @@ const preferences = usePreferencesStore()
 const scrollElement = ref<HTMLElement | null>(null)
 const sorting = ref<SortingState>(preferences.value.sort)
 const columnSizing = ref<ColumnSizingState>({ ...preferences.value.columnWidths })
-let lastSelectedIndex: number | null = null
+const focusedIndex = ref(0)
+let selectionAnchor: number | null = null
 let sizingPersistTimer: ReturnType<typeof setTimeout> | undefined
 
 const helper = createColumnHelper<TorrentInfo>()
@@ -205,21 +206,26 @@ const table = useVueTable({
 })
 
 const rows = computed(() => table.getRowModel().rows)
+const estimatedRowSize = () =>
+  preferences.value.density === 'comfortable'
+    ? 46
+    : preferences.value.density === 'extra-compact'
+      ? 30
+      : 36
 const virtualizer = useVirtualizer({
   get count() {
     return rows.value.length
   },
   getScrollElement: () => scrollElement.value,
-  estimateSize: () =>
-    preferences.value.density === 'comfortable'
-      ? 46
-      : preferences.value.density === 'extra-compact'
-        ? 30
-        : 36,
+  estimateSize: estimatedRowSize,
   overscan: 12
 })
 
 watch(sorting, (value) => preferences.patch({ sort: value }), { deep: true })
+watch(rows, (items) => {
+  focusedIndex.value = Math.max(0, Math.min(focusedIndex.value, Math.max(0, items.length - 1)))
+  if (selectionAnchor !== null && selectionAnchor >= items.length) selectionAnchor = null
+})
 watch(
   () => preferences.value.columnWidths,
   (widths) => {
@@ -237,23 +243,42 @@ onBeforeUnmount(() => {
 function selectRow(index: number, event: MouseEvent): void {
   const row = rows.value[index]
   if (!row) return
-  if (event.shiftKey && lastSelectedIndex !== null) {
-    const from = Math.min(lastSelectedIndex, index)
-    const to = Math.max(lastSelectedIndex, index)
+  if (event.shiftKey && selectionAnchor !== null) {
+    const from = Math.min(selectionAnchor, index)
+    const to = Math.max(selectionAnchor, index)
     const range = rows.value.slice(from, to + 1).map((item) => item.original.hash)
     torrents.setSelection(
       event.ctrlKey || event.metaKey ? [...torrents.selectedHashes, ...range] : range
     )
   } else if (event.ctrlKey || event.metaKey) {
     torrents.toggleSelection(row.original.hash)
-    lastSelectedIndex = index
+    selectionAnchor = index
   } else {
     torrents.setSelection([row.original.hash])
-    lastSelectedIndex = index
+    selectionAnchor = index
   }
+  focusedIndex.value = index
 }
 
-function onKeydown(event: KeyboardEvent, index: number): void {
+async function focusRow(index: number): Promise<void> {
+  const nextIndex = Math.max(0, Math.min(rows.value.length - 1, index))
+  focusedIndex.value = nextIndex
+  const selector = `[data-row-index="${nextIndex}"]`
+  const rendered = scrollElement.value?.querySelector<HTMLElement>(selector)
+  virtualizer.value.scrollToIndex(nextIndex, { align: rendered ? 'auto' : 'center' })
+  if (!rendered && scrollElement.value) {
+    scrollElement.value.scrollTop = Math.max(
+      0,
+      nextIndex * estimatedRowSize() - scrollElement.value.clientHeight / 2
+    )
+  }
+  scrollElement.value?.dispatchEvent(new Event('scroll'))
+  await nextTick()
+  await nextTick()
+  scrollElement.value?.querySelector<HTMLElement>(selector)?.focus({ preventScroll: true })
+}
+
+async function onKeydown(event: KeyboardEvent, index: number): Promise<void> {
   const row = rows.value[index]
   if (!row) return
   if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) {
@@ -279,13 +304,16 @@ function onKeydown(event: KeyboardEvent, index: number): void {
       0,
       Math.min(rows.value.length - 1, index + (event.key === 'ArrowDown' ? 1 : -1))
     )
-    const next = scrollElement.value?.querySelector<HTMLElement>(`[data-row-index="${nextIndex}"]`)
-    next?.focus()
     if (event.shiftKey) {
-      const from = Math.min(index, nextIndex)
-      const to = Math.max(index, nextIndex)
-      torrents.setSelection(rows.value.slice(from, to + 1).map((item) => item.original.hash))
-    }
+      selectionAnchor ??= index
+      const from = Math.min(selectionAnchor, nextIndex)
+      const to = Math.max(selectionAnchor, nextIndex)
+      const range = rows.value.slice(from, to + 1).map((item) => item.original.hash)
+      torrents.setSelection(
+        event.ctrlKey || event.metaKey ? [...torrents.selectedHashes, ...range] : range
+      )
+    } else selectionAnchor = nextIndex
+    await focusRow(nextIndex)
   }
 }
 </script>
@@ -364,7 +392,7 @@ function onKeydown(event: KeyboardEvent, index: number): void {
             torrents.selectedHashes.has(rows[virtualRow.index]!.original.hash)
         }"
         role="row"
-        tabindex="0"
+        :tabindex="virtualRow.index === focusedIndex ? 0 : -1"
         aria-haspopup="menu"
         :data-row-index="virtualRow.index"
         :aria-rowindex="virtualRow.index + 2"
@@ -381,6 +409,7 @@ function onKeydown(event: KeyboardEvent, index: number): void {
         @contextmenu.prevent="
           rows[virtualRow.index] && emit('context', $event, rows[virtualRow.index]!.original.hash)
         "
+        @focus="focusedIndex = virtualRow.index"
         @keydown="onKeydown($event, virtualRow.index)"
       >
         <div

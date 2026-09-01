@@ -1,0 +1,86 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: neotorrent
+  namespace: media
+  labels:
+    app: neotorrent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: neotorrent
+  template:
+    metadata:
+      labels:
+        app: neotorrent
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      containers:
+        - name: neotorrent
+          image: ghcr.io/dotsml/neotorrent@sha256:REPLACE_WITH_PUBLISHED_DIGEST
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: QBITTORRENT_URL
+              value: http://qbittorrent.media.svc.cluster.local:8080
+            - name: LISTEN_PORT
+              value: '8081'
+            - name: MAX_UPLOAD_SIZE
+              value: 100m
+            - name: PROXY_CONNECT_TIMEOUT
+              value: 10s
+            - name: PROXY_READ_TIMEOUT
+              value: 300s
+            - name: PROXY_SEND_TIMEOUT
+              value: 300s
+            - name: PROXY_SSL_VERIFY
+              value: 'on'
+          ports:
+            - name: webui
+              containerPort: 8081
+              protocol: TCP
+          startupProbe:
+            httpGet:
+              path: /readyz
+              port: webui
+            periodSeconds: 2
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: webui
+            periodSeconds: 10
+            timeoutSeconds: 2
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: webui
+            periodSeconds: 20
+            timeoutSeconds: 2
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 101
+            runAsGroup: 101
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: neotorrent-tmp
+              mountPath: /tmp
+      volumes:
+        - name: neotorrent-tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 32Mi

@@ -3,6 +3,18 @@ import type { BuildInfo } from '@/api/types/models'
 
 export type AppPreferences = Record<string, unknown>
 
+export interface SessionProbeOptions {
+  signal?: AbortSignal
+  suppressAuthenticationExpiry?: boolean
+}
+
+type SessionProbeInput = AbortSignal | SessionProbeOptions
+
+function normalizeSessionProbeOptions(input: SessionProbeInput | undefined): SessionProbeOptions {
+  if (!input) return {}
+  return 'aborted' in input ? { signal: input } : input
+}
+
 export interface DirectoryEntry {
   name: string
   type: 'dir' | 'file' | string
@@ -22,21 +34,30 @@ export interface AppCookie {
 
 export function createAppApi(http: HttpClient) {
   return {
-    version: (signal?: AbortSignal) =>
-      http.request<string>('app/version', {
+    version: (input?: SessionProbeInput) => {
+      const options = normalizeSessionProbeOptions(input)
+      return http.request<string>('app/version', {
         response: 'text',
-        ...(signal ? { signal } : {})
-      }),
-    webApiVersion: (signal?: AbortSignal) =>
-      http.request<string>('app/webapiVersion', {
+        ...(options.signal ? { signal: options.signal } : {}),
+        ...(options.suppressAuthenticationExpiry ? { suppressAuthenticationExpiry: true } : {})
+      })
+    },
+    webApiVersion: (input?: SessionProbeInput) => {
+      const options = normalizeSessionProbeOptions(input)
+      return http.request<string>('app/webapiVersion', {
         response: 'text',
-        ...(signal ? { signal } : {})
-      }),
-    buildInfo: (signal?: AbortSignal) =>
-      http.request<BuildInfo>('app/buildInfo', {
+        ...(options.signal ? { signal: options.signal } : {}),
+        ...(options.suppressAuthenticationExpiry ? { suppressAuthenticationExpiry: true } : {})
+      })
+    },
+    buildInfo: (input?: SessionProbeInput) => {
+      const options = normalizeSessionProbeOptions(input)
+      return http.request<BuildInfo>('app/buildInfo', {
         response: 'json',
-        ...(signal ? { signal } : {})
-      }),
+        ...(options.signal ? { signal: options.signal } : {}),
+        ...(options.suppressAuthenticationExpiry ? { suppressAuthenticationExpiry: true } : {})
+      })
+    },
     processInfo: (signal?: AbortSignal) =>
       http.request<{ launch_time: number }>('app/processInfo', {
         response: 'json',

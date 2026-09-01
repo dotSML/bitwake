@@ -14,8 +14,10 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import type { SearchPlugin, SearchResult } from '@/api/types/models'
 import { useApi } from '@/app/providers/api'
 import { useNotificationsStore } from '@/stores/notifications'
+import { useTorrentsStore } from '@/stores/torrents'
 import { formatBytes } from '@/utils/format'
 import RouteScaffold from '@/ui/components/RouteScaffold.vue'
+import AppDialog from '@/ui/primitives/AppDialog.vue'
 
 interface Job {
   id: number
@@ -26,6 +28,7 @@ interface Job {
 }
 const api = useApi()
 const notifications = useNotificationsStore()
+const torrents = useTorrentsStore()
 const query = ref('')
 const category = ref('all')
 const plugins = ref<SearchPlugin[]>([])
@@ -37,6 +40,10 @@ const loading = ref(false)
 const unsupported = ref<string | null>(null)
 const resultFilter = ref('')
 const resultsScroller = ref<HTMLElement | null>(null)
+const pluginDialogOpen = ref(false)
+const pluginSource = ref('')
+const pluginError = ref<string | null>(null)
+const pluginInstalling = ref(false)
 let timer: ReturnType<typeof setTimeout> | null = null
 let pollController: AbortController | null = null
 let disposed = false
@@ -165,6 +172,7 @@ async function download(result: SearchResult): Promise<void> {
   }
   try {
     await api.search.downloadTorrent(result.fileUrl, pluginName)
+    torrents.refreshNow()
     notifications.push('Search result sent to qBittorrent.', 'success')
   } catch (cause) {
     notifications.push(
@@ -184,18 +192,40 @@ async function togglePlugin(plugin: SearchPlugin): Promise<void> {
     )
   }
 }
+
+function openPluginDialog(): void {
+  pluginSource.value = ''
+  pluginError.value = null
+  pluginInstalling.value = false
+  pluginDialogOpen.value = true
+}
+
+function closePluginDialog(): void {
+  if (pluginInstalling.value) return
+  pluginDialogOpen.value = false
+  pluginError.value = null
+}
+
 async function installPlugin(): Promise<void> {
-  const source = window.prompt('Search plugin URL or qBittorrent host path')
-  if (!source) return
+  if (pluginInstalling.value) return
+  const source = pluginSource.value.trim()
+  if (!source) {
+    pluginError.value = 'Enter a plugin URL or a path on the qBittorrent host.'
+    return
+  }
+  pluginInstalling.value = true
+  pluginError.value = null
   try {
     await api.search.installPlugin([source])
     await loadPlugins()
     notifications.push('Search plugin installed.', 'success')
+    pluginDialogOpen.value = false
+    pluginSource.value = ''
   } catch (cause) {
-    notifications.push(
-      cause instanceof Error ? cause.message : 'Plugin installation failed.',
-      'error'
-    )
+    pluginError.value = cause instanceof Error ? cause.message : 'Plugin installation failed.'
+    notifications.push(pluginError.value, 'error')
+  } finally {
+    pluginInstalling.value = false
   }
 }
 
@@ -257,7 +287,7 @@ onBeforeUnmount(() => {
         <aside class="jobs-panel panel">
           <header>
             <strong>Search jobs</strong
-            ><button type="button" aria-label="Install search plugin" @click="installPlugin">
+            ><button type="button" aria-label="Install search plugin" @click="openPluginDialog">
               <Plug :size="16" />+
             </button>
           </header>
@@ -362,6 +392,46 @@ onBeforeUnmount(() => {
         </section>
       </div>
     </template>
+
+    <AppDialog
+      :open="pluginDialogOpen"
+      title="Install search plugin"
+      description="Install from a plugin URL or a path accessible to the qBittorrent host."
+      fullscreen-mobile
+      @update:open="!$event && closePluginDialog()"
+    >
+      <form id="search-plugin-form" class="plugin-form" @submit.prevent="installPlugin">
+        <label for="search-plugin-source">
+          <span>Plugin URL or host path</span>
+          <input
+            id="search-plugin-source"
+            v-model="pluginSource"
+            class="field"
+            autocomplete="off"
+            required
+            autofocus
+            :aria-describedby="pluginError ? 'search-plugin-error' : undefined"
+          />
+        </label>
+        <p v-if="pluginError" id="search-plugin-error" class="form-error" role="alert">
+          {{ pluginError }}
+        </p>
+      </form>
+      <template #footer>
+        <button class="btn" type="button" :disabled="pluginInstalling" @click="closePluginDialog">
+          Cancel
+        </button>
+        <button
+          class="btn btn-primary"
+          type="submit"
+          form="search-plugin-form"
+          :disabled="pluginInstalling || !pluginSource.trim()"
+        >
+          <LoaderCircle v-if="pluginInstalling" class="spin" :size="16" />
+          {{ pluginInstalling ? 'Installing…' : 'Install plugin' }}
+        </button>
+      </template>
+    </AppDialog>
   </RouteScaffold>
 </template>
 
@@ -478,6 +548,19 @@ onBeforeUnmount(() => {
   color: rgb(var(--color-muted));
   padding: 8px 11px;
   font-size: 12px;
+}
+.plugin-form,
+.plugin-form label {
+  display: grid;
+  gap: 8px;
+}
+.plugin-form label > span {
+  font-size: 12px;
+  font-weight: 650;
+}
+.plugin-form .form-error {
+  margin: 0;
+  color: rgb(var(--color-danger));
 }
 .plugin-list {
   border-top: 1px solid rgb(var(--color-line));

@@ -5,11 +5,12 @@ import { createQbittorrentApi } from '@/api'
 import App from '@/app/App.vue'
 import { apiKey } from '@/app/providers/api'
 import { router } from '@/app/router'
+import { mockBackendEnabled } from '@/config/deployment'
 import { i18n } from '@/i18n'
 import '@/styles/main.css'
 
 async function bootstrap(): Promise<void> {
-  if (__MOCK_API__) {
+  if (mockBackendEnabled) {
     const { worker } = await import('@/mocks/browser')
     await worker.start({
       onUnhandledRequest: 'bypass',
@@ -26,6 +27,7 @@ async function bootstrap(): Promise<void> {
   app.use(router)
   app.use(i18n)
   app.provide(apiKey, api)
+  await router.isReady()
   app.mount('#app')
 
   const updateServiceWorker = registerSW({

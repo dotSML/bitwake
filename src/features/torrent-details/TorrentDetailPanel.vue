@@ -24,6 +24,7 @@ import {
   formatSpeed,
   formatTimestamp
 } from '@/utils/format'
+import AppDialog from '@/ui/primitives/AppDialog.vue'
 import FileTreeView from './FileTreeView.vue'
 import PiecesCanvas from './PiecesCanvas.vue'
 
@@ -53,6 +54,17 @@ const peerScroller = ref<HTMLElement | null>(null)
 const webSeeds = ref<Array<{ url: string }>>([])
 const pieceStates = ref<number[]>([])
 const pieceAvailability = ref<number[]>([])
+type EndpointKind = 'tracker' | 'webSeed'
+type EndpointAction = 'add' | 'edit' | 'remove'
+const endpointDialog = ref<{
+  open: boolean
+  kind: EndpointKind
+  action: EndpointAction
+  original: string
+}>({ open: false, kind: 'tracker', action: 'add', original: '' })
+const endpointValue = ref('')
+const endpointError = ref<string | null>(null)
+const endpointWorking = ref(false)
 const torrent = computed(() => torrents.byHash.get(props.hash))
 let loadGeneration = 0
 let loadController: AbortController | null = null
@@ -64,7 +76,7 @@ const peerVirtualizer = useVirtualizer({
     return peers.value.length
   },
   getScrollElement: () => peerScroller.value,
-  estimateSize: () => 35,
+  estimateSize: () => (window.innerWidth <= 767 ? 118 : 35),
   overscan: 10,
   getItemKey: (index) => peers.value[index]?.[0] ?? index
 })
@@ -259,46 +271,99 @@ async function copy(value: string): Promise<void> {
   notifications.push('Copied to clipboard.', 'success', 2000)
 }
 
-async function addTracker(): Promise<void> {
-  const value = window.prompt('Tracker URLs, one per line')
-  if (!value) return
-  try {
-    await api.torrents.addTrackers(props.hash, value.split(/\r?\n/).filter(Boolean))
-    await loadTab()
-    notifications.push('Trackers added.', 'success')
-  } catch (cause) {
-    notifications.push(
-      cause instanceof Error ? cause.message : 'Tracker could not be added.',
-      'error'
-    )
-  }
+const endpointDialogTitle = computed(() => {
+  const label = endpointDialog.value.kind === 'tracker' ? 'tracker' : 'web seed'
+  const action = endpointDialog.value.action
+  return `${action[0]?.toUpperCase()}${action.slice(1)} ${label}`
+})
+const endpointDialogDescription = computed(() =>
+  endpointDialog.value.action === 'remove'
+    ? 'This removes the endpoint from this torrent. Downloaded data is not deleted.'
+    : endpointDialog.value.action === 'add'
+      ? 'Enter one URL per line.'
+      : 'Enter the replacement URL.'
+)
+
+function openEndpointDialog(kind: EndpointKind, action: EndpointAction, original = ''): void {
+  endpointDialog.value = { open: true, kind, action, original }
+  endpointValue.value = action === 'edit' ? original : ''
+  endpointError.value = null
+  endpointWorking.value = false
 }
 
-async function editTracker(tracker: Tracker): Promise<void> {
-  const value = window.prompt('Tracker URL', tracker.url)
-  if (!value || value === tracker.url) return
-  try {
-    await api.torrents.editTracker(props.hash, tracker.url, value)
-    await loadTab()
-    notifications.push('Tracker updated.', 'success')
-  } catch (cause) {
-    notifications.push(
-      cause instanceof Error ? cause.message : 'Tracker could not be updated.',
-      'error'
-    )
-  }
+function closeEndpointDialog(): void {
+  if (endpointWorking.value) return
+  endpointDialog.value = { ...endpointDialog.value, open: false }
+  endpointError.value = null
 }
 
-async function removeTracker(tracker: Tracker): Promise<void> {
+function endpointUrls(): string[] | null {
+  const values = endpointValue.value
+    .split(/\r?\n/)
+    .map((value) => value.trim())
+    .filter(Boolean)
+  if (!values.length) {
+    endpointError.value = 'Enter at least one URL.'
+    return null
+  }
+  const allowed =
+    endpointDialog.value.kind === 'tracker'
+      ? new Set(['http:', 'https:', 'udp:'])
+      : new Set(['http:', 'https:'])
+  for (const value of values) {
+    try {
+      if (!allowed.has(new URL(value).protocol)) throw new Error('unsupported protocol')
+    } catch {
+      const label = endpointDialog.value.kind === 'tracker' ? 'tracker' : 'web seed'
+      endpointError.value = `“${value.slice(0, 100)}” is not a supported ${label} URL.`
+      return null
+    }
+  }
+  return values
+}
+
+async function submitEndpointDialog(): Promise<void> {
+  if (endpointWorking.value) return
+  const { action, kind, original } = endpointDialog.value
+  const values = action === 'remove' ? [original] : endpointUrls()
+  if (!values) return
+  if (action === 'edit' && values.length !== 1) {
+    endpointError.value = 'Enter exactly one replacement URL.'
+    return
+  }
+  if (action === 'edit' && values[0] === original) {
+    closeEndpointDialog()
+    return
+  }
+  endpointWorking.value = true
+  endpointError.value = null
   try {
-    await api.torrents.removeTrackers(props.hash, [tracker.url])
+    if (kind === 'tracker') {
+      if (action === 'add') await api.torrents.addTrackers(props.hash, values)
+      else if (action === 'edit') await api.torrents.editTracker(props.hash, original, values[0]!)
+      else await api.torrents.removeTrackers(props.hash, values)
+    } else if (action === 'add') await api.torrents.addWebSeeds(props.hash, values)
+    else if (action === 'edit') await api.torrents.editWebSeed(props.hash, original, values[0]!)
+    else await api.torrents.removeWebSeeds(props.hash, values)
+
+    endpointDialog.value = { ...endpointDialog.value, open: false }
     await loadTab()
-    notifications.push('Tracker removed.', 'success')
+    const label =
+      kind === 'tracker'
+        ? action === 'add'
+          ? 'Trackers'
+          : 'Tracker'
+        : action === 'add'
+          ? 'Web seeds'
+          : 'Web seed'
+    const pastTense = action === 'add' ? 'added' : action === 'edit' ? 'updated' : 'removed'
+    notifications.push(`${label} ${pastTense}.`, 'success')
   } catch (cause) {
-    notifications.push(
-      cause instanceof Error ? cause.message : 'Tracker could not be removed.',
-      'error'
-    )
+    endpointError.value =
+      cause instanceof Error ? cause.message : 'The endpoint could not be saved.'
+    notifications.push(endpointError.value, 'error')
+  } finally {
+    endpointWorking.value = false
   }
 }
 
@@ -314,21 +379,6 @@ async function banPeer(key: string, peer: Peer): Promise<void> {
   } catch (cause) {
     notifications.push(
       cause instanceof Error ? cause.message : 'Peer could not be banned.',
-      'error'
-    )
-  }
-}
-
-async function addWebSeed(): Promise<void> {
-  const value = window.prompt('Web seed URLs, one per line')
-  if (!value) return
-  try {
-    await api.torrents.addWebSeeds(props.hash, value.split(/\r?\n/).filter(Boolean))
-    await loadTab()
-    notifications.push('Web seeds added.', 'success')
-  } catch (cause) {
-    notifications.push(
-      cause instanceof Error ? cause.message : 'Web seed could not be added.',
       'error'
     )
   }
@@ -352,8 +402,16 @@ watch(
     if (tab && tabs.includes(tab) && tab !== activeTab.value) activeTab.value = tab
   }
 )
-onMounted(() => void loadTab())
+function measurePeerRows(): void {
+  peerVirtualizer.value.measure()
+}
+
+onMounted(() => {
+  window.addEventListener('resize', measurePeerRows)
+  void loadTab()
+})
 onBeforeUnmount(() => {
+  window.removeEventListener('resize', measurePeerRows)
   loadController?.abort()
   stopPeerPolling()
 })
@@ -420,7 +478,12 @@ onBeforeUnmount(() => {
       <FileTreeView v-else-if="activeTab === 'files'" :key="hash" :hash="hash" :files="files" />
       <div v-else-if="activeTab === 'trackers'" class="data-view">
         <div class="data-toolbar">
-          <button class="btn" type="button" :disabled="loading" @click="addTracker">
+          <button
+            class="btn"
+            type="button"
+            :disabled="loading"
+            @click="openEndpointDialog('tracker', 'add')"
+          >
             <Plus :size="15" />Add tracker
           </button>
         </div>
@@ -434,24 +497,26 @@ onBeforeUnmount(() => {
             :key="`${tracker.tier}:${tracker.url}`"
             class="data-row tracker-grid"
           >
-            <span :title="tracker.url">{{ tracker.url }}</span
-            ><span>{{ tracker.tier }}</span
-            ><span>{{ tracker.num_seeds }}</span
-            ><span>{{ tracker.num_peers }}</span
-            ><span :title="tracker.msg">{{ tracker.msg || tracker.status }}</span
+            <span class="tracker-url" :title="tracker.url">{{ tracker.url }}</span
+            ><span class="tracker-tier">Tier {{ tracker.tier }}</span
+            ><span class="tracker-seeds">{{ tracker.num_seeds }} seeds</span
+            ><span class="tracker-peers">{{ tracker.num_peers }} peers</span
+            ><span class="tracker-status" :title="tracker.msg">{{
+              tracker.msg || tracker.status
+            }}</span
             ><span class="row-buttons"
               ><button
                 type="button"
                 :disabled="loading"
                 aria-label="Edit tracker"
-                @click="editTracker(tracker)"
+                @click="openEndpointDialog('tracker', 'edit', tracker.url)"
               >
                 <Edit3 :size="14" /></button
               ><button
                 type="button"
                 :disabled="loading"
                 aria-label="Remove tracker"
-                @click="removeTracker(tracker)"
+                @click="openEndpointDialog('tracker', 'remove', tracker.url)"
               >
                 <Trash2 :size="14" /></button
             ></span>
@@ -477,22 +542,26 @@ onBeforeUnmount(() => {
               :style="{ transform: `translateY(${virtualRow.start}px)` }"
             >
               <template v-if="peers[virtualRow.index]">
-                <span>{{
+                <span class="peer-address">{{
                   peers[virtualRow.index]![1].host_name ||
                   peers[virtualRow.index]![1].ip ||
                   peers[virtualRow.index]![1].i2p_dest ||
                   peers[virtualRow.index]![0]
                 }}</span
-                ><span>{{ peers[virtualRow.index]![1].client }}</span
-                ><span>{{
+                ><span class="peer-client">{{ peers[virtualRow.index]![1].client }}</span
+                ><span class="peer-country">{{
                   peers[virtualRow.index]![1].country ||
                   peers[virtualRow.index]![1].country_code ||
                   'Unknown'
                 }}</span
-                ><span>{{ (peers[virtualRow.index]![1].progress * 100).toFixed(1) }}%</span
-                ><span>{{ formatSpeed(peers[virtualRow.index]![1].dl_speed) }}</span
-                ><span>{{ formatSpeed(peers[virtualRow.index]![1].up_speed) }}</span
+                ><span class="peer-progress"
+                  >{{ (peers[virtualRow.index]![1].progress * 100).toFixed(1) }}%</span
+                ><span class="peer-download"
+                  >↓ {{ formatSpeed(peers[virtualRow.index]![1].dl_speed) }}</span
+                ><span class="peer-upload"
+                  >↑ {{ formatSpeed(peers[virtualRow.index]![1].up_speed) }}</span
                 ><button
+                  class="peer-ban"
                   type="button"
                   :disabled="loading || !peers[virtualRow.index]![1].ip"
                   :title="
@@ -514,7 +583,7 @@ onBeforeUnmount(() => {
             class="btn"
             type="button"
             :disabled="!session.capabilities?.has('webSeedManagement')"
-            @click="addWebSeed"
+            @click="openEndpointDialog('webSeed', 'add')"
           >
             <Plus :size="15" />Add web seed
           </button>
@@ -527,9 +596,17 @@ onBeforeUnmount(() => {
             ><button
               v-if="session.capabilities?.has('webSeedManagement')"
               type="button"
+              aria-label="Edit web seed"
+              :disabled="loading"
+              @click="openEndpointDialog('webSeed', 'edit', seed.url)"
+            >
+              <Edit3 :size="14" /></button
+            ><button
+              v-if="session.capabilities?.has('webSeedManagement')"
+              type="button"
               aria-label="Remove web seed"
               :disabled="loading"
-              @click="api.torrents.removeWebSeeds(hash, [seed.url]).then(loadTab)"
+              @click="openEndpointDialog('webSeed', 'remove', seed.url)"
             >
               <Trash2 :size="14" />
             </button>
@@ -539,6 +616,56 @@ onBeforeUnmount(() => {
       </div>
       <PiecesCanvas v-else :states="pieceStates" :availability="pieceAvailability" />
     </div>
+    <AppDialog
+      :open="endpointDialog.open"
+      :title="endpointDialogTitle"
+      :description="endpointDialogDescription"
+      fullscreen-mobile
+      @update:open="!$event && closeEndpointDialog()"
+    >
+      <form id="torrent-endpoint-form" class="endpoint-form" @submit.prevent="submitEndpointDialog">
+        <template v-if="endpointDialog.action === 'remove'">
+          <p>Remove this {{ endpointDialog.kind === 'tracker' ? 'tracker' : 'web seed' }}?</p>
+          <code>{{ endpointDialog.original }}</code>
+        </template>
+        <label v-else for="torrent-endpoint-value">
+          <span>{{ endpointDialog.action === 'add' ? 'URLs' : 'Replacement URL' }}</span>
+          <textarea
+            v-if="endpointDialog.action === 'add'"
+            id="torrent-endpoint-value"
+            v-model="endpointValue"
+            class="field"
+            rows="5"
+            required
+            autofocus
+          />
+          <input
+            v-else
+            id="torrent-endpoint-value"
+            v-model="endpointValue"
+            class="field"
+            required
+            autofocus
+          />
+        </label>
+        <p v-if="endpointError" class="form-error" role="alert">{{ endpointError }}</p>
+      </form>
+      <template #footer>
+        <button class="btn" type="button" :disabled="endpointWorking" @click="closeEndpointDialog">
+          Cancel
+        </button>
+        <button
+          class="btn"
+          :class="endpointDialog.action === 'remove' ? 'btn-danger' : 'btn-primary'"
+          type="submit"
+          form="torrent-endpoint-form"
+          :disabled="endpointWorking"
+        >
+          <LoaderCircle v-if="endpointWorking" class="spin" :size="16" />
+          {{ endpointDialog.action === 'remove' ? 'Remove' : 'Save' }}
+        </button>
+      </template>
+    </AppDialog>
   </section>
 </template>
 
@@ -770,6 +897,31 @@ onBeforeUnmount(() => {
 .empty-row {
   color: rgb(var(--color-muted));
 }
+.endpoint-form {
+  display: grid;
+  gap: 12px;
+}
+.endpoint-form label,
+.endpoint-form label > span {
+  display: grid;
+  gap: 7px;
+}
+.endpoint-form textarea {
+  min-height: 120px;
+  resize: vertical;
+}
+.endpoint-form code {
+  display: block;
+  overflow-wrap: anywhere;
+  border-radius: 7px;
+  background: rgb(var(--color-surface-muted));
+  padding: 10px;
+  white-space: pre-wrap;
+}
+.endpoint-form .form-error {
+  margin: 0;
+  color: rgb(var(--color-danger));
+}
 .mobile {
   min-width: 0;
   border-left: 0;
@@ -793,6 +945,76 @@ onBeforeUnmount(() => {
   }
   .detail-body {
     overscroll-behavior: contain;
+  }
+  .data-table {
+    min-width: 0;
+  }
+  .data-head {
+    display: none;
+  }
+  .data-row.tracker-grid {
+    grid-template-areas:
+      'url url actions'
+      'status status status'
+      'tier seeds peers';
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    gap: 6px 10px;
+    padding: 9px 10px;
+  }
+  .tracker-url {
+    grid-area: url;
+    font-weight: 650;
+  }
+  .tracker-tier {
+    grid-area: tier;
+  }
+  .tracker-seeds {
+    grid-area: seeds;
+  }
+  .tracker-peers {
+    grid-area: peers;
+  }
+  .tracker-status {
+    grid-area: status;
+    color: rgb(var(--color-muted));
+  }
+  .tracker-grid .row-buttons {
+    grid-area: actions;
+  }
+  .data-row.peer-grid {
+    min-height: 118px;
+    grid-template-areas:
+      'address address action'
+      'client client client'
+      'country progress progress'
+      'download upload upload';
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+    gap: 5px 10px;
+    padding: 10px;
+  }
+  .peer-address {
+    grid-area: address;
+    font-weight: 650;
+  }
+  .peer-client {
+    grid-area: client;
+  }
+  .peer-country {
+    grid-area: country;
+  }
+  .peer-progress {
+    grid-area: progress;
+    text-align: right;
+  }
+  .peer-download {
+    grid-area: download;
+  }
+  .peer-upload {
+    grid-area: upload;
+    text-align: right;
+  }
+  .peer-ban {
+    grid-area: action;
   }
 }
 </style>

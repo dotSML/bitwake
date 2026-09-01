@@ -36,7 +36,7 @@ async function confirm(): Promise<void> {
       'success'
     )
     torrents.clearSelection()
-    torrents.fullResync()
+    torrents.refreshNow()
     emit('update:open', false)
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : 'The torrents could not be removed.'

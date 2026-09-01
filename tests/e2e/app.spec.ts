@@ -1,8 +1,9 @@
 import { expect, test } from '@playwright/test'
-import { expectNoDocumentOverflow, openMockApp } from './support/app'
+import { expectNoDocumentOverflow, installStandaloneSession, openMockApp } from './support/app'
 
 test('logs in and returns to the torrent workspace', async ({ page }) => {
-  await openMockApp(page, '/login')
+  await installStandaloneSession(page, { authenticated: false })
+  await page.goto('/#/login')
   await expect(page.getByRole('heading', { name: 'Sign in to qBittorrent' })).toBeVisible()
 
   await page.getByLabel('Username').fill('admin')
@@ -112,7 +113,18 @@ test('mobile navigation and detail routes do not overflow the viewport', async (
   await fileTree.getByRole('treeitem').first().click()
   await page.getByLabel('Set selected file priority').selectOption('7')
   await expect(page.getByText('Priority updated for 75 files.')).toBeVisible()
-  await expectNoDocumentOverflow(page)
+
+  for (const [width, height] of [
+    [320, 700],
+    [375, 812],
+    [430, 932]
+  ] as const) {
+    await page.setViewportSize({ width, height })
+    for (const tab of ['Files', 'Trackers', 'Peers'] as const) {
+      await page.getByRole('tab', { name: tab }).click()
+      await expectNoDocumentOverflow(page)
+    }
+  }
 
   await page.getByRole('button', { name: 'Back to torrents' }).click()
   await expect(page).toHaveURL(/#\/torrents$/)

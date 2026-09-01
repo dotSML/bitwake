@@ -91,15 +91,20 @@ describe('RSS view contracts', () => {
     const context = createTestContext()
     vi.spyOn(context.api.rss, 'items').mockResolvedValue({})
     const addFeed = vi.spyOn(context.api.rss, 'addFeed').mockResolvedValue()
-    const prompt = vi.spyOn(window, 'prompt').mockReturnValue('magnet:?xt=urn:btih:NOTAFEED')
     await mountWithContext(RssView, context, { attachTo: document.body })
     await flushPromises()
 
     await buttonWithText('Add feed').trigger('click')
+    await inputWithLabel('Feed URL').setValue('magnet:?xt=urn:btih:NOTAFEED')
+    const form = document.querySelector<HTMLFormElement>('#rss-item-form')
+    expect(form).not.toBeNull()
+    await new DOMWrapper(form).trigger('submit')
     await flushPromises()
 
-    expect(prompt).toHaveBeenCalledOnce()
     expect(addFeed).not.toHaveBeenCalled()
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain(
+      'RSS feeds must use an HTTP or HTTPS URL.'
+    )
     expect(context.run(() => useNotificationsStore(context.pinia)).items).toContainEqual(
       expect.objectContaining({
         tone: 'warning',
@@ -115,17 +120,55 @@ describe('RSS view contracts', () => {
       vi.spyOn(context.api.rss, 'items').mockResolvedValue({})
       const addFeed = vi.spyOn(context.api.rss, 'addFeed').mockResolvedValue()
       const url = `${protocol}://feeds.example.test/releases.xml`
-      vi.spyOn(window, 'prompt').mockReturnValueOnce(url).mockReturnValueOnce('')
       await mountWithContext(RssView, context, { attachTo: document.body })
       await flushPromises()
 
       await buttonWithText('Add feed').trigger('click')
+      await inputWithLabel('Feed URL').setValue(url)
+      const form = document.querySelector<HTMLFormElement>('#rss-item-form')
+      expect(form).not.toBeNull()
+      await new DOMWrapper(form).trigger('submit')
       await flushPromises()
 
       expect(addFeed).toHaveBeenCalledOnce()
       expect(addFeed).toHaveBeenCalledWith(url, '')
+      expect(document.querySelector('#rss-item-form')).toBeNull()
     }
   )
+
+  it('creates folders and removes feeds through accessible dialogs', async () => {
+    const context = createTestContext()
+    vi.spyOn(context.api.rss, 'items').mockResolvedValue({
+      Releases: {
+        title: 'Release feed',
+        url: 'https://feeds.example.test/releases.xml',
+        articles: []
+      }
+    })
+    const addFolder = vi.spyOn(context.api.rss, 'addFolder').mockResolvedValue()
+    const removeItem = vi.spyOn(context.api.rss, 'removeItem').mockResolvedValue()
+    await mountWithContext(RssView, context, { attachTo: document.body })
+    await flushPromises()
+
+    const folderButton = document.querySelector<HTMLButtonElement>(
+      'button[aria-label="Add folder"]'
+    )
+    expect(folderButton).not.toBeNull()
+    await new DOMWrapper(folderButton).trigger('click')
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain('Add RSS folder')
+    await inputWithLabel('Folder path').setValue('Operating systems/Linux')
+    await new DOMWrapper(document.querySelector<HTMLFormElement>('#rss-item-form')).trigger(
+      'submit'
+    )
+    await flushPromises()
+    expect(addFolder).toHaveBeenCalledWith('Operating systems/Linux')
+
+    await buttonWithText('Remove').trigger('click')
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain('Remove RSS item')
+    await buttonWithText('Remove item').trigger('click')
+    await flushPromises()
+    expect(removeItem).toHaveBeenCalledWith('Releases')
+  })
 
   it('virtualizes a feed with thousands of articles', async () => {
     const context = createTestContext()

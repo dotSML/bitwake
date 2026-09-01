@@ -149,20 +149,43 @@ describe('torrent mutation contracts', () => {
     expect(bodyAt(fetchMock, 0).get('shareLimitAction')).toBe('Stop')
   })
 
-  it('uses target-5.2.3 URL encoding for trackers and web seeds', async () => {
+  it('uses target-5.2.3 URL encoding for tracker removal', async () => {
     const { api, fetchMock } = setup()
     const urls = ['https://tracker.test/a|b?x=%2F', 'https://tracker.test/two path']
     const joined = urls.map(encodeURIComponent).join('|')
 
     await api.removeTrackers('hash', urls)
-    await api.addWebSeeds('hash', urls)
-    await api.removeWebSeeds('hash', urls)
-    await api.editWebSeed('hash', urls[0]!, urls[1]!)
 
     expect(bodyAt(fetchMock, 0).get('urls')).toBe(joined)
-    expect(bodyAt(fetchMock, 1).get('urls')).toBe(joined)
-    expect(bodyAt(fetchMock, 2).get('urls')).toBe(joined)
-    expect(bodyAt(fetchMock, 3).get('origUrl')).toBe(urls[0])
-    expect(bodyAt(fetchMock, 3).get('newUrl')).toBe(encodeURIComponent(urls[1]!))
+  })
+
+  it('preserves encoded Web Seed octets across qBittorrent controller decoding', async () => {
+    const { api, fetchMock } = setup()
+    const original = 'https://cdn.test/files/a%2Fb?q=one%20two&next=https%3A%2F%2Forigin.test%2Fx'
+    const replacement = 'https://cdn.test/files/new?q=%252F&token=a+b'
+    const second = 'https://backup.test/content?key=value%2Fwith%2Fslashes'
+
+    await api.webSeeds('hash / with query?')
+    await api.addWebSeeds('hash', [original, second])
+    await api.editWebSeed('hash', original, replacement)
+    await api.removeWebSeeds('hash', [replacement, second])
+
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
+      'https://example.test/api/v2/torrents/webseeds?hash=hash+%2F+with+query%3F'
+    )
+    const protectPercentOctets = (url: string) => url.replace(/%([0-9a-f]{2})/giu, '%25$1')
+    expect(bodyAt(fetchMock, 1).get('urls')).toBe(
+      `${protectPercentOctets(original)}|${protectPercentOctets(second)}`
+    )
+    expect(bodyAt(fetchMock, 2).get('origUrl')).toBe(protectPercentOctets(original))
+    expect(bodyAt(fetchMock, 2).get('newUrl')).toBe(protectPercentOctets(replacement))
+    expect(bodyAt(fetchMock, 3).get('urls')).toBe(
+      `${protectPercentOctets(replacement)}|${protectPercentOctets(second)}`
+    )
+
+    const serialized = bodyAt(fetchMock, 2).toString()
+    expect(serialized).toContain('a%25252Fb')
+    expect(serialized).toContain('%2525252F')
+    expect(serialized).toContain('%26token%3Da%2Bb')
   })
 })

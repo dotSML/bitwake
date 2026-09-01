@@ -2,14 +2,10 @@
 import { Eye, EyeOff, LoaderCircle, Waves } from 'lucide-vue-next'
 import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useRouter } from 'vue-router'
 import { isApiError } from '@/api/core/errors'
-import { useApi } from '@/app/providers/api'
-import { useSessionStore } from '@/stores/session'
+import { useSessionLifecycle } from '@/app/session/sessionLifecycle'
 
-const api = useApi()
-const session = useSessionStore()
-const router = useRouter()
+const lifecycle = useSessionLifecycle()
 const { t } = useI18n()
 const username = ref('')
 const password = ref('')
@@ -21,19 +17,11 @@ async function submit(): Promise<void> {
   if (submitting.value || !username.value || !password.value) return
   submitting.value = true
   error.value = null
+  const credentials = { username: username.value, password: password.value }
+  password.value = ''
   try {
-    await api.auth.login({ username: username.value, password: password.value })
-    password.value = ''
-    if (__MOCK_API__) {
-      session.markAuthenticated()
-      await session.detect()
-      await router.replace(session.intendedRoute ?? '/torrents')
-      session.intendedRoute = null
-    } else {
-      window.location.reload()
-    }
+    await lifecycle.login(credentials)
   } catch (cause) {
-    password.value = ''
     if (isApiError(cause)) {
       if (cause.status === 401) error.value = t('auth.invalid')
       else if (cause.status === 403) error.value = t('auth.forbidden')

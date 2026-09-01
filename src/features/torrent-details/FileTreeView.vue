@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { ChevronDown, ChevronRight, File, Folder, FolderOpen, Search } from 'lucide-vue-next'
 import { useVirtualizer } from '@tanstack/vue-virtual'
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import type { TorrentFile } from '@/api/types/models'
-import { buildFileTree, flattenFileTree } from '@/domains/files/fileTree'
+import { buildFileTree, flattenFileTree, type FileTreeNode } from '@/domains/files/fileTree'
 import { useApi } from '@/app/providers/api'
 import { useNotificationsStore } from '@/stores/notifications'
 import { formatBytes, formatPercent } from '@/utils/format'
@@ -11,19 +11,34 @@ import { formatBytes, formatPercent } from '@/utils/format'
 const props = defineProps<{ hash: string; files: TorrentFile[] }>()
 const api = useApi()
 const notifications = useNotificationsStore()
+const localFiles = ref<TorrentFile[]>([])
 const expanded = ref(new Set<string>())
 const selected = ref(new Set<string>())
 const search = ref('')
 const scroller = ref<HTMLElement | null>(null)
-let lastSelectedIndex: number | null = null
-const tree = computed(() => buildFileTree(props.files))
+const focusedIndex = ref(0)
+const priorityValue = ref('')
+const prioritySaving = ref(false)
+let selectionAnchor: number | null = null
+const tree = computed(() => buildFileTree(localFiles.value))
 const visible = computed(() => flattenFileTree(tree.value, expanded.value, search.value))
+const nodesById = computed(() => {
+  const nodes = new Map<string, FileTreeNode>()
+  const visit = (items: readonly FileTreeNode[]) => {
+    for (const item of items) {
+      nodes.set(item.id, item)
+      visit(item.children)
+    }
+  }
+  visit(tree.value)
+  return nodes
+})
 const virtualizer = useVirtualizer({
   get count() {
     return visible.value.length
   },
   getScrollElement: () => scroller.value,
-  estimateSize: () => 35,
+  estimateSize: () => (window.innerWidth <= 767 ? 84 : 35),
   overscan: 12
 })
 
@@ -33,9 +48,21 @@ watch(
     expanded.value = new Set()
     selected.value = new Set()
     search.value = ''
-    lastSelectedIndex = null
+    focusedIndex.value = 0
+    selectionAnchor = null
+    priorityValue.value = ''
   }
 )
+watch(
+  () => props.files,
+  (files) => {
+    localFiles.value = files.map((file) => ({ ...file }))
+  },
+  { immediate: true }
+)
+watch(visible, (items) => {
+  focusedIndex.value = Math.max(0, Math.min(focusedIndex.value, Math.max(0, items.length - 1)))
+})
 
 function toggleFolder(id: string): void {
   const next = new Set(expanded.value)
@@ -44,34 +71,47 @@ function toggleFolder(id: string): void {
   expanded.value = next
 }
 
-function toggleSelected(id: string): void {
-  const next = new Set(selected.value)
-  if (next.has(id)) next.delete(id)
-  else next.add(id)
-  selected.value = next
-}
-
-function selectNode(index: number, event: MouseEvent): void {
+function selectNode(
+  index: number,
+  event: Pick<MouseEvent | KeyboardEvent, 'shiftKey' | 'ctrlKey' | 'metaKey'>
+): void {
   const node = visible.value[index]
   if (!node) return
-  if (event.shiftKey && lastSelectedIndex !== null) {
-    const from = Math.min(lastSelectedIndex, index)
-    const to = Math.max(lastSelectedIndex, index)
+  if (event.shiftKey && selectionAnchor !== null) {
+    const from = Math.min(selectionAnchor, index)
+    const to = Math.max(selectionAnchor, index)
     const range = visible.value.slice(from, to + 1).map((item) => item.id)
     selected.value = new Set(event.ctrlKey || event.metaKey ? [...selected.value, ...range] : range)
+  } else if (event.ctrlKey || event.metaKey) {
+    const next = new Set(selected.value)
+    if (next.has(node.id)) next.delete(node.id)
+    else next.add(node.id)
+    selected.value = next
+    selectionAnchor = index
   } else {
-    toggleSelected(node.id)
-    lastSelectedIndex = index
+    selected.value = new Set([node.id])
+    selectionAnchor = index
   }
+  focusedIndex.value = index
 }
 
 async function setPriority(priority: 0 | 1 | 6 | 7): Promise<void> {
-  const nodes = visible.value.filter((node) => selected.value.has(node.id))
-  const indexes = [...new Set(nodes.flatMap((node) => node.descendantIndexes))]
-  if (!indexes.length) return
+  if (prioritySaving.value) return
+  const indexSet = new Set<number>()
+  for (const id of selected.value) {
+    for (const index of nodesById.value.get(id)?.descendantIndexes ?? []) indexSet.add(index)
+  }
+  const indexes = [...indexSet]
+  if (!indexes.length) {
+    priorityValue.value = ''
+    return
+  }
+  prioritySaving.value = true
   try {
     await api.torrents.filePriority(props.hash, indexes, priority)
-    for (const file of props.files) if (indexes.includes(file.index)) file.priority = priority
+    localFiles.value = localFiles.value.map((file) =>
+      indexSet.has(file.index) ? { ...file, priority } : file
+    )
     notifications.push(
       `Priority updated for ${indexes.length} file${indexes.length === 1 ? '' : 's'}.`,
       'success'
@@ -81,7 +121,86 @@ async function setPriority(priority: 0 | 1 | 6 | 7): Promise<void> {
       cause instanceof Error ? cause.message : 'File priority could not be changed.',
       'error'
     )
+  } finally {
+    prioritySaving.value = false
+    priorityValue.value = ''
   }
+}
+
+function onPriorityChange(): void {
+  const priority = Number(priorityValue.value)
+  if (priority === 0 || priority === 1 || priority === 6 || priority === 7) {
+    void setPriority(priority)
+  }
+}
+
+async function focusRow(index: number): Promise<void> {
+  const nextIndex = Math.max(0, Math.min(visible.value.length - 1, index))
+  focusedIndex.value = nextIndex
+  const selector = `[data-file-index="${nextIndex}"]`
+  const rendered = scroller.value?.querySelector<HTMLElement>(selector)
+  virtualizer.value.scrollToIndex(nextIndex, { align: rendered ? 'auto' : 'center' })
+  if (!rendered && scroller.value) {
+    scroller.value.scrollTop = Math.max(0, nextIndex * 35 - scroller.value.clientHeight / 2)
+  }
+  scroller.value?.dispatchEvent(new Event('scroll'))
+  await nextTick()
+  await nextTick()
+  scroller.value?.querySelector<HTMLElement>(selector)?.focus({ preventScroll: true })
+}
+
+function parentIndex(index: number): number | null {
+  const node = visible.value[index]
+  if (!node || !node.path.includes('/')) return null
+  const parentPath = node.path.slice(0, node.path.lastIndexOf('/'))
+  const target = `folder:${parentPath}`
+  const found = visible.value.findIndex((item) => item.id === target)
+  return found >= 0 ? found : null
+}
+
+async function onKeydown(event: KeyboardEvent, index: number): Promise<void> {
+  const node = visible.value[index]
+  if (!node) return
+  if (event.key === ' ') {
+    event.preventDefault()
+    selectNode(index, event)
+    return
+  }
+  if (event.key === 'Enter') {
+    if (node.kind === 'folder') {
+      event.preventDefault()
+      toggleFolder(node.id)
+    }
+    return
+  }
+  if (event.key === 'ArrowRight' && node.kind === 'folder') {
+    event.preventDefault()
+    if (!expanded.value.has(node.id)) toggleFolder(node.id)
+    else await focusRow(index + 1)
+    return
+  }
+  if (event.key === 'ArrowLeft') {
+    event.preventDefault()
+    if (node.kind === 'folder' && expanded.value.has(node.id)) toggleFolder(node.id)
+    else {
+      const parent = parentIndex(index)
+      if (parent !== null) await focusRow(parent)
+    }
+    return
+  }
+  let nextIndex: number | null = null
+  if (event.key === 'ArrowDown') nextIndex = index + 1
+  else if (event.key === 'ArrowUp') nextIndex = index - 1
+  else if (event.key === 'Home') nextIndex = 0
+  else if (event.key === 'End') nextIndex = visible.value.length - 1
+  if (nextIndex === null) return
+  event.preventDefault()
+  nextIndex = Math.max(0, Math.min(visible.value.length - 1, nextIndex))
+  if (event.shiftKey) {
+    selectionAnchor ??= index
+    selectNode(nextIndex, event)
+  } else selectionAnchor = nextIndex
+  await focusRow(nextIndex)
 }
 
 function priorityLabel(priority: number | null): string {
@@ -109,9 +228,10 @@ function priorityLabel(priority: number | null): string {
         />
       </div>
       <select
+        v-model="priorityValue"
         aria-label="Set selected file priority"
-        :disabled="!selected.size"
-        @change="setPriority(Number(($event.target as HTMLSelectElement).value) as 0 | 1 | 6 | 7)"
+        :disabled="!selected.size || prioritySaving"
+        @change="onPriorityChange"
       >
         <option value="">Set priority…</option>
         <option value="0">Do not download</option>
@@ -134,8 +254,10 @@ function priorityLabel(priority: number | null): string {
           class="file-row"
           :class="{ selected: visible[row.index] && selected.has(visible[row.index]!.id) }"
           role="treeitem"
-          tabindex="0"
+          :tabindex="row.index === focusedIndex ? 0 : -1"
+          :data-file-index="row.index"
           :aria-level="(visible[row.index]?.depth ?? 0) + 1"
+          :aria-selected="visible[row.index] ? selected.has(visible[row.index]!.id) : false"
           :aria-expanded="
             visible[row.index]?.kind === 'folder' ? expanded.has(visible[row.index]!.id) : undefined
           "
@@ -144,15 +266,14 @@ function priorityLabel(priority: number | null): string {
             paddingLeft: `${8 + (visible[row.index]?.depth ?? 0) * 16}px`
           }"
           @click="selectNode(row.index, $event)"
-          @keydown.space.prevent="visible[row.index] && toggleSelected(visible[row.index]!.id)"
-          @keydown.enter="
-            visible[row.index]?.kind === 'folder' && toggleFolder(visible[row.index]!.id)
-          "
+          @focus="focusedIndex = row.index"
+          @keydown="onKeydown($event, row.index)"
         >
           <button
             v-if="visible[row.index]?.kind === 'folder'"
             class="expand-button"
             type="button"
+            tabindex="-1"
             :aria-label="expanded.has(visible[row.index]!.id) ? 'Collapse folder' : 'Expand folder'"
             @click.stop="toggleFolder(visible[row.index]!.id)"
           >
@@ -261,6 +382,11 @@ function priorityLabel(priority: number | null): string {
 .file-row.selected {
   background: rgb(var(--color-accent-soft) / 0.7);
 }
+.file-row:focus-visible {
+  z-index: 1;
+  outline: 2px solid rgb(var(--color-accent));
+  outline-offset: -2px;
+}
 .expand-button {
   display: grid;
   width: 20px;
@@ -292,12 +418,53 @@ function priorityLabel(priority: number | null): string {
   font-variant-numeric: tabular-nums;
   text-align: right;
 }
-@media (max-width: 600px) {
+@media (max-width: 767px) {
+  .file-toolbar {
+    flex-wrap: wrap;
+  }
+  .file-search {
+    min-width: min(100%, 190px);
+  }
+  .file-toolbar select {
+    min-height: 36px;
+  }
+  .file-space {
+    min-width: 0;
+  }
   .file-row {
-    grid-template-columns: 20px 19px minmax(130px, 1fr) 56px 72px;
+    height: 84px;
+    grid-template-areas:
+      'toggle icon name name'
+      '. . progress size'
+      '. . priority priority';
+    grid-template-columns: 40px 19px minmax(0, 1fr) auto;
+    grid-template-rows: 40px 18px 18px;
+    gap: 2px 6px;
+    padding-right: 10px;
+  }
+  .expand-button,
+  .expand-spacer {
+    grid-area: toggle;
+    width: 40px;
+    height: 40px;
+  }
+  .folder-icon,
+  .file-icon {
+    grid-area: icon;
+  }
+  .file-name {
+    grid-area: name;
+  }
+  .file-progress {
+    grid-area: progress;
+    text-align: left;
+  }
+  .file-size {
+    grid-area: size;
   }
   .file-priority {
-    display: none;
+    grid-area: priority;
+    text-align: left;
   }
 }
 </style>

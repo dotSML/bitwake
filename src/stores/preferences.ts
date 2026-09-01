@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref, watch } from 'vue'
+import { nextTick, ref, watch } from 'vue'
 import { useApi } from '@/app/providers/api'
 import { useSessionStore } from './session'
 
@@ -72,6 +72,7 @@ export const defaultUiPreferences: UiPreferences = {
 
 const storageKey = 'neotorrent:ui-preferences'
 const clientDataKey = 'neotorrent.ui-preferences.v2'
+const persistenceDelayMs = 150
 
 function sanitizeColumnIds(value: unknown): string[] {
   if (!Array.isArray(value)) return []
@@ -219,11 +220,20 @@ export const usePreferencesStore = defineStore('preferences', () => {
   const value = ref<UiPreferences>(readLocal())
   const loaded = ref(false)
   let suppressSave = false
+  let persistenceTimer: ReturnType<typeof setTimeout> | null = null
+  let scheduledSerialized: string | null = null
+  let queuedSerialized: string | null = null
+  let activePersistence: Promise<void> | null = null
   const colorSchemeMedia =
     typeof matchMedia === 'function' ? matchMedia('(prefers-color-scheme: dark)') : null
 
   async function load(): Promise<void> {
     suppressSave = true
+    if (persistenceTimer) clearTimeout(persistenceTimer)
+    persistenceTimer = null
+    scheduledSerialized = null
+    queuedSerialized = null
+    if (activePersistence) await activePersistence
     try {
       if (session.capabilities?.has('clientData')) {
         const loadedData = await api.clientData.load([clientDataKey])
@@ -238,17 +248,93 @@ export const usePreferencesStore = defineStore('preferences', () => {
       value.value = readLocal()
     } finally {
       loaded.value = true
-      suppressSave = false
       applyTheme()
+      await nextTick()
+      suppressSave = false
+    }
+  }
+
+  function serializeCurrent(): string | null {
+    try {
+      return JSON.stringify(value.value)
+    } catch {
+      return null
+    }
+  }
+
+  async function writeSnapshot(serialized: string): Promise<void> {
+    if (typeof localStorage !== 'undefined') {
+      try {
+        localStorage.setItem(storageKey, serialized)
+      } catch {
+        // A blocked or full localStorage must not prevent the server-side fallback.
+      }
+    }
+    if (!session.capabilities?.has('clientData')) return
+    try {
+      await api.clientData.store({
+        [clientDataKey]: JSON.parse(serialized) as UiPreferences
+      })
+    } catch {
+      // Persistence is best-effort. The next preference change can retry safely.
+    }
+  }
+
+  function startPersistence(): Promise<void> | null {
+    if (activePersistence) return activePersistence
+    if (queuedSerialized === null) return null
+    const task = (async () => {
+      while (queuedSerialized !== null) {
+        const serialized = queuedSerialized
+        queuedSerialized = null
+        await writeSnapshot(serialized)
+      }
+    })()
+    activePersistence = task
+    void task.finally(() => {
+      if (activePersistence === task) activePersistence = null
+      if (queuedSerialized !== null) void startPersistence()
+    })
+    return task
+  }
+
+  function queueScheduledSnapshot(): void {
+    if (scheduledSerialized === null) return
+    queuedSerialized = scheduledSerialized
+    scheduledSerialized = null
+    void startPersistence()
+  }
+
+  function schedulePersistence(): void {
+    const serialized = serializeCurrent()
+    if (serialized === null) return
+    scheduledSerialized = serialized
+    if (persistenceTimer) clearTimeout(persistenceTimer)
+    persistenceTimer = setTimeout(() => {
+      persistenceTimer = null
+      queueScheduledSnapshot()
+    }, persistenceDelayMs)
+  }
+
+  async function flushPersistence(): Promise<void> {
+    if (persistenceTimer) clearTimeout(persistenceTimer)
+    persistenceTimer = null
+    queueScheduledSnapshot()
+    while (queuedSerialized !== null || activePersistence) {
+      const task = startPersistence()
+      if (task) await task
+      queueScheduledSnapshot()
     }
   }
 
   async function persist(): Promise<void> {
-    const serialized = JSON.stringify(value.value)
-    localStorage.setItem(storageKey, serialized)
-    if (session.capabilities?.has('clientData')) {
-      await api.clientData.store({ [clientDataKey]: value.value }).catch(() => undefined)
-    }
+    const serialized = serializeCurrent()
+    if (serialized === null) return
+    if (persistenceTimer) clearTimeout(persistenceTimer)
+    persistenceTimer = null
+    scheduledSerialized = null
+    queuedSerialized = serialized
+    await flushPersistence()
   }
 
   function patch(update: Partial<UiPreferences>): void {
@@ -271,7 +357,7 @@ export const usePreferencesStore = defineStore('preferences', () => {
     value,
     () => {
       applyTheme()
-      if (!suppressSave) void persist()
+      if (!suppressSave) schedulePersistence()
     },
     { deep: true }
   )
@@ -279,5 +365,5 @@ export const usePreferencesStore = defineStore('preferences', () => {
     if (value.value.theme === 'system') applyTheme()
   })
 
-  return { value, loaded, load, patch, persist, applyTheme }
+  return { value, loaded, load, patch, persist, flushPersistence, applyTheme }
 })

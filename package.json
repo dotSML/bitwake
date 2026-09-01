@@ -3,13 +3,15 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "packageManager": "pnpm@10.15.0",
+  "packageManager": "pnpm@10.15.0+sha512.486ebc259d3e999a4e8691ce03b5cac4a71cbeca39372a9b762cb500cfdf0873e2cb16abe3d951b1ee2cf012503f027b98b6584e4df22524e0c7450d9ec7aa7b",
   "engines": {
     "node": ">=22.0.0"
   },
   "scripts": {
-    "dev": "vite",
+    "dev": "vite --mode standalone",
     "dev:mock": "vite --mode mock",
+    "dev:standalone-e2e": "vite --mode standalone-e2e",
+    "dev:alt-private-e2e": "vite --mode alt-private-e2e",
     "typecheck": "vue-tsc --noEmit",
     "lint": "eslint . --max-warnings 0",
     "format": "prettier --write .",
@@ -18,11 +20,14 @@
     "test:component": "vitest run --project component",
     "test:all": "vitest run",
     "test:e2e": "playwright test",
-    "build": "vue-tsc --noEmit && vite build",
+    "build": "vue-tsc --noEmit && vite build --mode standalone",
+    "build:standalone": "vue-tsc --noEmit && vite build --mode standalone",
     "build:alt-webui": "node scripts/build-alt-webui.mjs",
+    "container:build": "sh container/build-image.sh",
+    "container:test": "sh container/test-all.sh",
     "capture:screenshots": "node scripts/capture-screenshots.mjs",
     "licenses": "license-checker-rseidelsohn --production --summary",
-    "ci": "pnpm typecheck && pnpm lint && pnpm test:all && pnpm build:alt-webui"
+    "ci": "pnpm typecheck && pnpm lint && pnpm test:all && pnpm build:alt-webui && pnpm build:standalone"
   },
   "dependencies": {
     "@tanstack/vue-table": "^8.21.3",
