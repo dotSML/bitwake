@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { describe, expect, it, vi } from 'vitest'
+import { advanceAuthenticationEpoch } from '@/api/core/authenticationEpoch'
 import { kindForStatus, messageForStatus } from '@/api/core/errors'
 import { encodeUrlBody, HttpClient } from '@/api/core/httpClient'
 import { parseResponse } from '@/api/core/responseParsers'
@@ -61,6 +62,106 @@ describe('request body encoding', () => {
 })
 
 describe('HttpClient', () => {
+  it('cancels an old-session response without expiring the newer session', async () => {
+    let resolveResponse!: (response: Response) => void
+    let requestSignal: AbortSignal | undefined
+    const onAuthenticationExpired = vi.fn()
+    const client = new HttpClient({
+      fetch: vi.fn<typeof fetch>().mockImplementation((_input, init) => {
+        requestSignal = init?.signal ?? undefined
+        return new Promise<Response>((resolve) => {
+          resolveResponse = resolve
+        })
+      }),
+      baseUrl: 'https://example.test/api/v2/',
+      onAuthenticationExpired
+    })
+
+    const oldRequest = client.request('torrents/info')
+    await vi.waitFor(() => expect(requestSignal).toBeInstanceOf(AbortSignal))
+    advanceAuthenticationEpoch()
+    expect(requestSignal?.aborted).toBe(true)
+    resolveResponse(new Response('Forbidden', { status: 403 }))
+
+    await expect(oldRequest).rejects.toMatchObject({ kind: 'cancelled' })
+    expect(onAuthenticationExpired).not.toHaveBeenCalled()
+  })
+
+  it('discards a successful old-session response when the epoch changes during its body', async () => {
+    let markBodyStarted!: () => void
+    const bodyStarted = new Promise<void>((resolve) => {
+      markBodyStarted = resolve
+    })
+    let bodyController!: ReadableStreamDefaultController<Uint8Array>
+    const response = new Response(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          bodyController = controller
+        }
+      }),
+      { headers: { 'Content-Type': 'application/json' } }
+    )
+    const readText = response.text.bind(response)
+    vi.spyOn(response, 'text').mockImplementation(() => {
+      markBodyStarted()
+      return readText()
+    })
+    const finishBody = () => {
+      bodyController.enqueue(new TextEncoder().encode('{"session":"old"}'))
+      bodyController.close()
+    }
+    const client = new HttpClient({
+      fetch: vi.fn<typeof fetch>().mockResolvedValue(response),
+      baseUrl: 'https://example.test/api/v2/'
+    })
+
+    const oldRequest = client.request<{ session: string }>('sync/maindata', { response: 'json' })
+    await bodyStarted
+    advanceAuthenticationEpoch()
+    finishBody()
+
+    await expect(oldRequest).rejects.toMatchObject({ kind: 'cancelled' })
+  })
+
+  it('discards an old-session error when the epoch changes during its body', async () => {
+    let markBodyStarted!: () => void
+    const bodyStarted = new Promise<void>((resolve) => {
+      markBodyStarted = resolve
+    })
+    let bodyController!: ReadableStreamDefaultController<Uint8Array>
+    const response = new Response(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          bodyController = controller
+        }
+      }),
+      { status: 403 }
+    )
+    const readText = response.text.bind(response)
+    vi.spyOn(response, 'text').mockImplementation(() => {
+      markBodyStarted()
+      return readText()
+    })
+    const finishBody = () => {
+      bodyController.enqueue(new TextEncoder().encode('Forbidden'))
+      bodyController.close()
+    }
+    const onAuthenticationExpired = vi.fn()
+    const client = new HttpClient({
+      fetch: vi.fn<typeof fetch>().mockResolvedValue(response),
+      baseUrl: 'https://example.test/api/v2/',
+      onAuthenticationExpired
+    })
+
+    const oldRequest = client.request('torrents/info')
+    await bodyStarted
+    advanceAuthenticationEpoch()
+    finishBody()
+
+    await expect(oldRequest).rejects.toMatchObject({ kind: 'cancelled' })
+    expect(onAuthenticationExpired).not.toHaveBeenCalled()
+  })
+
   it('sends query parameters and the qBittorrent request defaults', async () => {
     const fetchMock = vi
       .fn<typeof fetch>()
@@ -157,7 +258,9 @@ describe('HttpClient', () => {
   })
 
   it.each([
-    { status: 401, kind: 'authentication', expires: true },
+    // qBittorrent 5.2.3 uses 401 for request-policy failures (Host/Origin/
+    // Referer validation) and 403 when a private API has no valid session.
+    { status: 401, kind: 'authentication', expires: false },
     { status: 403, kind: 'forbidden', expires: true },
     { status: 404, kind: 'not-found', expires: false },
     { status: 409, kind: 'conflict', expires: false }
@@ -179,6 +282,24 @@ describe('HttpClient', () => {
       expect(onAuthenticationExpired).toHaveBeenCalledTimes(expires ? 1 : 0)
     }
   )
+
+  it('keeps an endpoint-specific 403 failure visible without expiring the session', async () => {
+    const onAuthenticationExpired = vi.fn()
+    const client = new HttpClient({
+      fetch: vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(new Response('Cannot write to directory', { status: 403 })),
+      baseUrl: 'https://example.test/api/v2/',
+      onAuthenticationExpired
+    })
+
+    await expect(client.request('torrents/setSavePath')).rejects.toMatchObject({
+      kind: 'forbidden',
+      status: 403,
+      message: 'Cannot write to directory'
+    })
+    expect(onAuthenticationExpired).not.toHaveBeenCalled()
+  })
 
   it.each([401, 403])(
     'can suppress authentication expiry notifications for an expected HTTP %s response',
@@ -343,6 +464,7 @@ describe('response parsing and status errors', () => {
     expect(messageForStatus(404, '<html>proxy error</html>')).toBe(
       'This operation is not available on the connected qBittorrent version.'
     )
+    expect(messageForStatus(401)).toBe('qBittorrent rejected authentication or request validation.')
     expect(messageForStatus(503)).toBe('qBittorrent returned a server error (503).')
     expect(kindForStatus(401)).toBe('authentication')
     expect(kindForStatus(404)).toBe('not-found')

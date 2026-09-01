@@ -202,19 +202,23 @@ export const usePreferencesStore = defineStore('preferences', () => {
   let scheduledSerialized: string | null = null
   let queuedSerialized: string | null = null
   let activePersistence: Promise<void> | null = null
+  let loadGeneration = 0
   const colorSchemeMedia =
     typeof matchMedia === 'function' ? matchMedia('(prefers-color-scheme: dark)') : null
 
   async function load(): Promise<void> {
+    const generation = ++loadGeneration
     suppressSave = true
     if (persistenceTimer) clearTimeout(persistenceTimer)
     persistenceTimer = null
     scheduledSerialized = null
     queuedSerialized = null
     if (activePersistence) await activePersistence
+    if (generation !== loadGeneration) return
     try {
       if (session.capabilities?.has('clientData')) {
         const loadedData = await api.clientData.load([clientDataKey])
+        if (generation !== loadGeneration) return
         value.value =
           clientDataKey in loadedData
             ? migrateUiPreferences(loadedData[clientDataKey])
@@ -223,12 +227,15 @@ export const usePreferencesStore = defineStore('preferences', () => {
         value.value = readLocal()
       }
     } catch {
+      if (generation !== loadGeneration) return
       value.value = readLocal()
     } finally {
-      loaded.value = true
-      applyTheme()
-      await nextTick()
-      suppressSave = false
+      if (generation === loadGeneration) {
+        loaded.value = true
+        applyTheme()
+        await nextTick()
+        if (generation === loadGeneration) suppressSave = false
+      }
     }
   }
 

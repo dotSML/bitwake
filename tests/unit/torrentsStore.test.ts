@@ -142,6 +142,33 @@ describe('torrent incremental sync store', () => {
     expect(torrents.selected.map((torrent) => torrent.hash)).toEqual(['alpha'])
   })
 
+  it('merges incremental category field deltas without discarding its saved path', () => {
+    const { torrents } = createStores()
+    torrents.applyMainData({
+      rid: 1,
+      full_update: true,
+      torrents: {},
+      categories: {
+        Movies: { name: 'Movies', savePath: '/media/movies' }
+      }
+    })
+
+    // qBittorrent's processMap() only returns fields that changed. A share-limit
+    // edit therefore need not repeat the category name or savePath.
+    torrents.applyMainData({
+      rid: 2,
+      categories: {
+        Movies: { ratio_limit: 2.5 }
+      }
+    })
+
+    expect(torrents.categories.get('Movies')).toMatchObject({
+      name: 'Movies',
+      savePath: '/media/movies',
+      ratio_limit: 2.5
+    })
+  })
+
   it('rejects an incomplete torrent introduced by an incremental response', () => {
     const { torrents } = createStores()
     torrents.applyMainData({ rid: 4, full_update: true, torrents: {} })
@@ -180,6 +207,41 @@ describe('torrent incremental sync store', () => {
     expect([...torrents.categories.keys()]).toEqual(['Keep'])
     expect([...torrents.tags]).toEqual(['keep'])
     expect([...torrents.trackers.keys()]).toEqual(['keep'])
+  })
+
+  it('requests a full snapshot after an unusable incremental category and recovers', async () => {
+    const { api, torrents } = createStores()
+    torrents.applyMainData({
+      rid: 7,
+      full_update: true,
+      torrents: { stable: { name: 'Stable' } },
+      categories: { Keep: { name: 'Keep', savePath: '/keep' } }
+    })
+    const mainData = vi
+      .spyOn(api.sync, 'mainData')
+      .mockResolvedValueOnce({
+        rid: 8,
+        categories: { New: { ratio_limit: 2 } }
+      })
+      .mockResolvedValueOnce({
+        rid: 9,
+        full_update: true,
+        torrents: { recovered: { name: 'Recovered' } },
+        categories: {}
+      })
+
+    torrents.startSync()
+    await vi.waitFor(() => expect(torrents.responseId).toBe(0))
+    expect(torrents.byHash.has('stable')).toBe(true)
+    expect(torrents.lastError).toContain('incomplete category New')
+
+    torrents.refreshNow()
+    await vi.waitFor(() => expect(torrents.connectionState).toBe('connected'))
+    torrents.stopSync()
+
+    expect(mainData.mock.calls.map(([rid]) => rid)).toEqual([7, 0])
+    expect(torrents.responseId).toBe(9)
+    expect([...torrents.byHash.keys()]).toEqual(['recovered'])
   })
 
   it('updates a 5,000-torrent snapshot without replacing untouched row identities or its RID', () => {
@@ -228,6 +290,54 @@ describe('torrent incremental sync store', () => {
     expect(torrents.responseId).toBe(43)
     torrents.forceFullResync()
     expect(torrents.responseId).toBe(0)
+  })
+
+  it('keeps one poll, bounded history, and bounded torrent state over three simulated hours', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      vi.spyOn(document, 'hidden', 'get').mockReturnValue(false)
+      const { api, torrents, transfer } = createStores()
+      let rid = 0
+      let activeRequests = 0
+      let maximumActiveRequests = 0
+      const mainData = vi.spyOn(api.sync, 'mainData').mockImplementation(async () => {
+        activeRequests += 1
+        maximumActiveRequests = Math.max(maximumActiveRequests, activeRequests)
+        await Promise.resolve()
+        activeRequests -= 1
+        rid += 1
+        if (rid === 1) {
+          return {
+            rid,
+            full_update: true,
+            torrents: { stable: { name: 'Stable' } },
+            server_state: { dl_info_speed: rid, up_info_speed: rid }
+          }
+        }
+        return {
+          rid,
+          ...(rid % 2 === 0
+            ? { torrents: { transient: { name: 'Transient' } } }
+            : { torrents_removed: ['transient'] }),
+          server_state: { dl_info_speed: rid, up_info_speed: rid }
+        }
+      })
+
+      torrents.startSync()
+      await vi.advanceTimersByTimeAsync(3 * 60 * 60 * 1_000)
+
+      expect(mainData.mock.calls.length).toBeGreaterThanOrEqual(10_000)
+      expect(maximumActiveRequests).toBe(1)
+      expect(torrents.byHash.size).toBeLessThanOrEqual(2)
+      expect(transfer.graph.length).toBe(7_200)
+      expect(vi.getTimerCount()).toBe(1)
+
+      torrents.stopSync()
+      expect(activeRequests).toBe(0)
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('preserves torrent and selection identities for server-state-only updates', () => {

@@ -78,8 +78,14 @@ export interface TorrentInfo {
 export interface Category {
   name: string
   savePath: string
+  download_path?: string | false | null
+  ratio_limit?: number
+  seeding_time_limit?: number
+  inactive_seeding_time_limit?: number
+  share_limit_action?: 'Default' | 'Stop' | 'Remove' | 'RemoveWithContent' | 'EnableSuperSeeding'
   downloadLimit?: number
   uploadLimit?: number
+  [key: string]: unknown
 }
 
 export interface ServerState {
@@ -111,7 +117,7 @@ export interface MainDataResponse {
   full_update?: boolean
   torrents?: Record<string, Partial<TorrentInfo>>
   torrents_removed?: string[]
-  categories?: Record<string, Category>
+  categories?: Record<string, Partial<Category>>
   categories_removed?: string[]
   tags?: string[]
   tags_removed?: string[]

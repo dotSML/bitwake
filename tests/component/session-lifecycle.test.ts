@@ -25,7 +25,7 @@ function setup(mode: DeploymentMode) {
   vi.spyOn(mediaPlacement, 'resetPrivateState')
   vi.spyOn(torrents, 'startSync').mockImplementation(() => undefined)
   vi.spyOn(torrents, 'clearAll').mockImplementation(() => undefined)
-  vi.spyOn(notifications, 'clear').mockImplementation(() => undefined)
+  vi.spyOn(notifications, 'clear')
   const dependencies: SessionLifecycleDependencies = {
     api: context.api,
     router: context.router,
@@ -45,6 +45,7 @@ function setup(mode: DeploymentMode) {
     mediaPlacement,
     torrents,
     reload,
+    dependencies,
     lifecycle: createSessionLifecycle(dependencies)
   }
 }
@@ -126,6 +127,27 @@ describe('central session lifecycle', () => {
     expect(harness.reload).not.toHaveBeenCalled()
   })
 
+  it('keeps a target-5.2.3 HTTP 401 session-probe policy failure disconnected', async () => {
+    const harness = setup('standalone')
+    await harness.context.router.push('/rss')
+    vi.spyOn(harness.context.api.app, 'version').mockRejectedValue(
+      new ApiError('Unauthorized', {
+        kind: 'authentication',
+        status: 401,
+        responseText: 'Unauthorized'
+      })
+    )
+    vi.spyOn(harness.context.api.app, 'webApiVersion').mockResolvedValue('2.15.1')
+    vi.spyOn(harness.context.api.app, 'buildInfo').mockResolvedValue({})
+
+    await expect(harness.lifecycle.initialize()).resolves.toBe(false)
+
+    expect(harness.session.status).toBe('disconnected')
+    expect(harness.session.lastError).toBe('Unauthorized')
+    expect(harness.context.router.currentRoute.value.path).toBe('/rss')
+    expect(harness.torrents.clearAll).not.toHaveBeenCalled()
+  })
+
   it.each([
     new ApiError('Could not connect.', { kind: 'network' }),
     new ApiError('The request timed out.', { kind: 'timeout' }),
@@ -168,6 +190,36 @@ describe('central session lifecycle', () => {
     await expect(Promise.all([first, second])).resolves.toEqual([true, true])
   })
 
+  it('does not let an old private-state load activate a newer authenticated session', async () => {
+    const harness = setup('standalone')
+    await harness.context.router.push('/rss')
+    vi.spyOn(harness.session, 'detect').mockImplementation(() => {
+      harness.session.markAuthenticated()
+      return Promise.resolve(true)
+    })
+    let resolvePreferences: (() => void) | undefined
+    vi.mocked(harness.preferences.load).mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolvePreferences = resolve
+        })
+    )
+
+    const initialization = harness.lifecycle.initialize()
+    await vi.waitFor(() => expect(harness.preferences.load).toHaveBeenCalledOnce())
+    const secondLifecycle = createSessionLifecycle(harness.dependencies)
+    await secondLifecycle.expire('/rss')
+    // A user can complete a new login while an old response is still in flight.
+    // Authentication status alone cannot identify which session owns the load.
+    harness.session.markAuthenticated()
+    resolvePreferences?.()
+
+    await expect(initialization).resolves.toBe(false)
+    expect(harness.session.status).toBe('authenticated')
+    expect(harness.context.router.currentRoute.value.path).toBe('/login')
+    expect(harness.torrents.startSync).not.toHaveBeenCalled()
+  })
+
   it('completes standalone login, logout, and expiry without a document reload', async () => {
     const harness = setup('standalone')
     await harness.context.router.push('/login')
@@ -207,6 +259,82 @@ describe('central session lifecycle', () => {
     expect(harness.mediaPlacement.resetPrivateState).toHaveBeenCalledTimes(2)
     expect(harness.reload).not.toHaveBeenCalled()
   })
+
+  it('clears local state and warns without rejecting when qBittorrent logout fails', async () => {
+    const harness = setup('standalone')
+    await harness.context.router.push('/torrents')
+    harness.session.markAuthenticated()
+    harness.notifications.items.push({
+      id: 999,
+      message: 'Private-session notification',
+      tone: 'info'
+    })
+    vi.spyOn(harness.context.api.auth, 'logout').mockRejectedValue(
+      new ApiError('Could not connect.', { kind: 'network' })
+    )
+
+    await expect(harness.lifecycle.logout()).resolves.toBeUndefined()
+
+    expect(harness.session.status).toBe('anonymous')
+    expect(harness.context.router.currentRoute.value.path).toBe('/login')
+    expect(harness.torrents.clearAll).toHaveBeenCalledOnce()
+    expect(harness.mediaPlacement.resetPrivateState).toHaveBeenCalledOnce()
+    expect(harness.notifications.items).toEqual([
+      expect.objectContaining({
+        message:
+          'Signed out locally, but qBittorrent could not confirm logout. This browser session may still be active.',
+        tone: 'error'
+      })
+    ])
+    expect(harness.reload).not.toHaveBeenCalled()
+  })
+
+  it('coalesces logout across lifecycle consumers sharing the same session store', async () => {
+    const harness = setup('standalone')
+    await harness.context.router.push('/torrents')
+    harness.session.markAuthenticated()
+    let finishLogout!: () => void
+    const logout = vi.spyOn(harness.context.api.auth, 'logout').mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          finishLogout = resolve
+        })
+    )
+    const secondLifecycle = createSessionLifecycle(harness.dependencies)
+
+    const first = harness.lifecycle.logout()
+    const second = secondLifecycle.logout()
+    await vi.waitFor(() => expect(logout).toHaveBeenCalledOnce())
+    finishLogout()
+    await expect(Promise.all([first, second])).resolves.toEqual([undefined, undefined])
+
+    expect(harness.torrents.clearAll).toHaveBeenCalledOnce()
+    expect(harness.context.router.currentRoute.value.path).toBe('/login')
+    expect(harness.notifications.items).toHaveLength(0)
+  })
+
+  it.each(['alternative-public', 'alternative-private'] as const)(
+    'does not reload and reuse a still-valid SID after failed logout in %s mode',
+    async (mode) => {
+      const harness = setup(mode)
+      await harness.context.router.push('/torrents')
+      harness.session.markAuthenticated()
+      vi.spyOn(harness.context.api.auth, 'logout').mockRejectedValue(
+        new ApiError('Could not connect.', { kind: 'network' })
+      )
+
+      await expect(harness.lifecycle.logout()).resolves.toBeUndefined()
+
+      expect(harness.reload).not.toHaveBeenCalled()
+      expect(harness.session.status).toBe('anonymous')
+      expect(harness.context.router.currentRoute.value.path).toBe('/login')
+      expect(harness.notifications.items.at(-1)).toMatchObject({
+        message:
+          'Signed out locally, but qBittorrent could not confirm logout. This browser session may still be active.',
+        tone: 'error'
+      })
+    }
+  )
 
   it.each(['alternative-public', 'alternative-private'] as const)(
     'uses the native reload boundary in %s mode',

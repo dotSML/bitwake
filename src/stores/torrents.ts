@@ -58,6 +58,15 @@ function completeTorrent(hash: string, update: Partial<TorrentInfo>): TorrentInf
   }
 }
 
+function completeCategory(name: string, update: Partial<Category>): Category | null {
+  if (typeof update.savePath !== 'string') return null
+  return {
+    ...update,
+    name: typeof update.name === 'string' ? update.name : name,
+    savePath: update.savePath
+  }
+}
+
 export const useTorrentsStore = defineStore('torrents', () => {
   const api = useApi()
   const transfer = useTransferStore()
@@ -98,7 +107,9 @@ export const useTorrentsStore = defineStore('torrents', () => {
         if (!torrent) throw new Error(`Full update contained incomplete torrent ${hash}`)
         nextTorrents.set(hash, torrent)
       }
-      for (const [name, category] of Object.entries(update.categories ?? {})) {
+      for (const [name, delta] of Object.entries(update.categories ?? {})) {
+        const category = completeCategory(name, delta)
+        if (!category) throw new Error(`Full update contained incomplete category ${name}`)
         nextCategories.set(name, category)
       }
       for (const tag of update.tags ?? []) nextTags.add(tag)
@@ -124,8 +135,16 @@ export const useTorrentsStore = defineStore('torrents', () => {
     if (!full) {
       if (update.categories || update.categories_removed) {
         nextCategories = new Map(categories.value)
-        for (const [name, category] of Object.entries(update.categories ?? {})) {
-          nextCategories.set(name, category)
+        for (const [name, delta] of Object.entries(update.categories ?? {})) {
+          const current = nextCategories.get(name)
+          if (current) nextCategories.set(name, { ...current, ...delta })
+          else {
+            const category = completeCategory(name, delta)
+            if (!category) {
+              throw new Error(`Incremental update introduced incomplete category ${name}`)
+            }
+            nextCategories.set(name, category)
+          }
         }
         for (const name of update.categories_removed ?? []) nextCategories.delete(name)
       }
@@ -174,7 +193,15 @@ export const useTorrentsStore = defineStore('torrents', () => {
     try {
       const response = await api.sync.mainData(responseId.value, controller.signal)
       if (generation !== syncGeneration) return
-      applyMainData(response)
+      try {
+        applyMainData(response)
+      } catch (error) {
+        // A syntactically valid response can still be an unusable incremental
+        // shape. Preserve the last good maps, but request a complete snapshot
+        // instead of retrying the same broken RID forever.
+        responseId.value = 0
+        throw error
+      }
       failureCount = 0
       lastError.value = null
       connectionState.value = 'connected'
@@ -183,8 +210,6 @@ export const useTorrentsStore = defineStore('torrents', () => {
       failureCount += 1
       connectionState.value = 'disconnected'
       lastError.value = error instanceof Error ? error.message : 'Live synchronization failed.'
-      if (error instanceof Error && error.message.includes('incomplete torrent'))
-        responseId.value = 0
     } finally {
       if (pollController === controller) {
         pollController = null

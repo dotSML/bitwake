@@ -1,5 +1,6 @@
 import type { ZodType } from 'zod'
-import { ApiError, isRequestValidationFailure, kindForStatus, messageForStatus } from './errors'
+import { authenticationEpoch, authenticationSignal } from './authenticationEpoch'
+import { ApiError, isAuthenticationExpiryResponse, kindForStatus, messageForStatus } from './errors'
 import { parseResponse, type ResponseMode } from './responseParsers'
 import { defaultApiBase, resolveApiUrl, type QueryValue } from './urlResolver'
 
@@ -70,6 +71,12 @@ function combineSignals(signals: readonly AbortSignal[]): CombinedSignal {
   return { signal: controller.signal, cleanup }
 }
 
+function assertCurrentAuthenticationEpoch(epoch: number, signal: AbortSignal): void {
+  if (signal.aborted || epoch !== authenticationEpoch()) {
+    throw new DOMException('Private session changed', 'AbortError')
+  }
+}
+
 export class HttpClient {
   readonly baseUrl: URL
   readonly #fetch: typeof globalThis.fetch
@@ -92,6 +99,8 @@ export class HttpClient {
   }
 
   async request<T = void>(path: string, options: RequestOptions<T> = {}): Promise<T> {
+    const requestAuthenticationEpoch = authenticationEpoch()
+    const requestAuthenticationSignal = authenticationSignal()
     const method = options.method ?? 'GET'
     const headers = new Headers({
       Accept:
@@ -116,8 +125,8 @@ export class HttpClient {
       timeoutMs
     )
     const signals = options.signal
-      ? [options.signal, timeoutController.signal]
-      : [timeoutController.signal]
+      ? [options.signal, requestAuthenticationSignal, timeoutController.signal]
+      : [requestAuthenticationSignal, timeoutController.signal]
     const combinedSignal = combineSignals(signals)
 
     try {
@@ -135,13 +144,14 @@ export class HttpClient {
           signal: combinedSignal.signal
         }
       )
+      assertCurrentAuthenticationEpoch(requestAuthenticationEpoch, requestAuthenticationSignal)
       const accepted = options.acceptedStatuses ?? [200, 202, 204]
       if (!accepted.includes(response.status)) {
         const responseText = await response.text().catch(() => '')
+        assertCurrentAuthenticationEpoch(requestAuthenticationEpoch, requestAuthenticationSignal)
         const isAuthExpiry =
           !options.suppressAuthenticationExpiry &&
-          (response.status === 401 ||
-            (response.status === 403 && !isRequestValidationFailure(responseText)))
+          isAuthenticationExpiryResponse(response.status, responseText)
         if (isAuthExpiry) this.#onAuthenticationExpired?.()
         throw new ApiError(messageForStatus(response.status, responseText), {
           kind: kindForStatus(response.status),
@@ -150,8 +160,19 @@ export class HttpClient {
         })
       }
 
-      return await parseResponse<T>(response, options.response ?? 'auto', options.schema)
+      const result = await parseResponse<T>(response, options.response ?? 'auto', options.schema)
+      assertCurrentAuthenticationEpoch(requestAuthenticationEpoch, requestAuthenticationSignal)
+      return result
     } catch (error) {
+      if (
+        requestAuthenticationSignal.aborted ||
+        requestAuthenticationEpoch !== authenticationEpoch()
+      ) {
+        throw new ApiError('The request was cancelled.', {
+          kind: 'cancelled',
+          cause: error
+        })
+      }
       if (error instanceof ApiError) throw error
       if (timeoutController.signal.aborted && !options.signal?.aborted) {
         throw new ApiError('The request timed out.', { kind: 'timeout', cause: error })

@@ -182,6 +182,32 @@ describe('UI preference migrations', () => {
 })
 
 describe('UI preference persistence', () => {
+  it('ignores an older client-data load that settles after a newer session load', async () => {
+    const { api, preferences } = createPreferenceStore()
+    const older = deferred<Record<string, unknown>>()
+    const newer = deferred<Record<string, unknown>>()
+    const load = vi
+      .spyOn(api.clientData, 'load')
+      .mockImplementationOnce(() => older.promise)
+      .mockImplementationOnce(() => newer.promise)
+
+    const olderLoad = preferences.load()
+    const newerLoad = preferences.load()
+    expect(load).toHaveBeenCalledTimes(2)
+
+    newer.resolve({
+      'neotorrent.ui-preferences.v2': { schemaVersion: 2, theme: 'dark' }
+    })
+    await newerLoad
+    expect(preferences.value.theme).toBe('dark')
+
+    older.resolve({
+      'neotorrent.ui-preferences.v2': { schemaVersion: 2, theme: 'light' }
+    })
+    await olderLoad
+    expect(preferences.value.theme).toBe('dark')
+  })
+
   it('debounces rapid resize patches and persists only the final value', async () => {
     vi.useFakeTimers()
     const { api, preferences } = createPreferenceStore()

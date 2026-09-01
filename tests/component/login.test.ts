@@ -2,6 +2,7 @@ import { flushPromises } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiError } from '@/api/core/errors'
 import LoginView from '@/features/authentication/LoginView.vue'
+import { useNotificationsStore } from '@/stores/notifications'
 import { useSessionStore } from '@/stores/session'
 import { createTestContext, mountWithContext } from './support/mount'
 
@@ -73,5 +74,20 @@ describe('LoginView', () => {
     expect(alert.text()).toContain('username or password is incorrect')
     expect(wrapper.get<HTMLInputElement>('input[name="password"]').element.value).toBe('')
     expect(wrapper.get<HTMLButtonElement>('button[type="submit"]').element.disabled).toBe(true)
+  })
+
+  it('renders a local-logout warning after routing back to the public login view', async () => {
+    const context = createTestContext()
+    const notifications = context.run(() => useNotificationsStore(context.pinia))
+    notifications.push(
+      'Signed out locally, but qBittorrent could not confirm logout. This browser session may still be active.',
+      'error'
+    )
+
+    const wrapper = await mountWithContext(LoginView, context)
+
+    expect(wrapper.get('.toast-error').text()).toContain(
+      'Signed out locally, but qBittorrent could not confirm logout.'
+    )
   })
 })

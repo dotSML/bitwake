@@ -32,15 +32,16 @@ export function isApiError(error: unknown): error is ApiError {
   return error instanceof ApiError
 }
 
-export function isRequestValidationFailure(responseText: string | undefined): boolean {
+export function isAuthenticationExpiryResponse(
+  status: number,
+  responseText: string | undefined
+): boolean {
+  if (status !== 403) return false
   const detail = responseText?.trim().toLocaleLowerCase() ?? ''
-  return [
-    'invalid host header',
-    'invalid origin header',
-    'invalid referer header',
-    'csrf',
-    'cross-site request forgery'
-  ].some((marker) => detail.includes(marker))
+  // qBittorrent's private-scope guard throws a message-less ForbiddenHTTPError,
+  // which is serialized as the status text. Endpoint-specific 403 responses
+  // include a reason and must remain visible without destroying the session.
+  return detail === '' || detail === 'forbidden'
 }
 
 export function messageForStatus(status: number, responseText?: string): string {
@@ -51,7 +52,7 @@ export function messageForStatus(status: number, responseText?: string): string 
     case 400:
       return 'qBittorrent rejected the request. Check the supplied values.'
     case 401:
-      return 'Your qBittorrent session has expired.'
+      return 'qBittorrent rejected authentication or request validation.'
     case 403:
       return 'qBittorrent refused this request. Your session may have expired or access may be temporarily blocked.'
     case 404:

@@ -64,15 +64,18 @@ export function createSessionLifecycle(
   }
 
   function resetPrivateState(clearMediaPlacement = false): void {
+    session.advancePrivateStateEpoch()
     torrents.clearAll()
     notifications.clear()
     if (clearMediaPlacement) mediaPlacement.resetPrivateState()
   }
 
-  async function activatePrivateSession(): Promise<void> {
+  async function activatePrivateSession(epoch: number): Promise<boolean> {
     await Promise.all([preferences.load(), mediaPlacement.load()])
+    if (epoch !== session.privateStateEpoch || session.status !== 'authenticated') return false
     torrents.setPollingInterval(preferences.value.pollingInterval)
     torrents.startSync()
+    return true
   }
 
   async function showLogin(clearMediaPlacement = false): Promise<void> {
@@ -95,7 +98,8 @@ export function createSessionLifecycle(
       return false
     }
 
-    await activatePrivateSession()
+    const epoch = session.privateStateEpoch
+    if (!(await activatePrivateSession(epoch))) return false
     if (router.currentRoute.value.path === '/login') {
       await router.replace(safePrivateRoute(session.takeIntendedRoute()))
     }
@@ -122,19 +126,42 @@ export function createSessionLifecycle(
       })
     }
 
-    await activatePrivateSession()
+    const epoch = session.privateStateEpoch
+    if (!(await activatePrivateSession(epoch))) {
+      throw new ApiError('The qBittorrent session expired while signing in. Try again.', {
+        kind: 'authentication'
+      })
+    }
     await router.replace(safePrivateRoute(session.takeIntendedRoute()))
   }
 
-  async function logout(): Promise<void> {
+  async function performLogout(): Promise<void> {
+    let logoutFailed = false
     try {
       await api.auth.logout()
-    } finally {
-      resetPrivateState(true)
-      session.signOut()
-      if (nativeBoundary) reload()
-      else if (router.currentRoute.value.path !== '/login') await router.replace('/login')
+    } catch {
+      logoutFailed = true
     }
+
+    resetPrivateState(true)
+    session.signOut()
+    // A successful native logout must cross qBittorrent's public/private bundle
+    // boundary. If the server logout failed, reloading would immediately reuse
+    // the still-valid SID and appear to sign the user back in.
+    if (nativeBoundary && !logoutFailed) reload()
+    else if (router.currentRoute.value.path !== '/login') await router.replace('/login')
+
+    if (logoutFailed) {
+      notifications.push(
+        'Signed out locally, but qBittorrent could not confirm logout. This browser session may still be active.',
+        'error',
+        10_000
+      )
+    }
+  }
+
+  function logout(): Promise<void> {
+    return session.runLogoutOnce(performLogout)
   }
 
   async function expire(route = router.currentRoute.value.fullPath): Promise<void> {

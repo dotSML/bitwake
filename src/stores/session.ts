@@ -3,7 +3,8 @@ import { computed, ref } from 'vue'
 import type { BuildInfo } from '@/api/types/models'
 import type { CapabilityRegistry } from '@/api/capabilities/capabilityRegistry'
 import { createCapabilityRegistry } from '@/api/capabilities/capabilityRegistry'
-import { isApiError, isRequestValidationFailure } from '@/api/core/errors'
+import { advanceAuthenticationEpoch, authenticationEpoch } from '@/api/core/authenticationEpoch'
+import { isApiError, isAuthenticationExpiryResponse } from '@/api/core/errors'
 import { useApi } from '@/app/providers/api'
 
 export type SessionStatus = 'checking' | 'authenticated' | 'anonymous' | 'disconnected'
@@ -24,8 +25,10 @@ export const useSessionStore = defineStore('session', () => {
   const intendedRoute = ref<string | null>(null)
   const lastError = ref<string | null>(null)
   const retryableDisconnection = ref(false)
+  const privateStateEpoch = ref(authenticationEpoch())
   const initialized = computed(() => status.value !== 'checking')
   let detectionPromise: Promise<boolean> | null = null
+  let logoutPromise: Promise<void> | null = null
 
   async function performDetection(): Promise<boolean> {
     // Keep the unavailable screen stable while an automatic or manual recovery
@@ -54,8 +57,7 @@ export const useSessionStore = defineStore('session', () => {
       controller.abort()
       if (
         isApiError(error) &&
-        (error.kind === 'authentication' ||
-          (error.kind === 'forbidden' && !isRequestValidationFailure(error.responseText)))
+        isAuthenticationExpiryResponse(error.status ?? 0, error.responseText)
       ) {
         clearSensitiveState()
         retryableDisconnection.value = false
@@ -112,6 +114,20 @@ export const useSessionStore = defineStore('session', () => {
     return route
   }
 
+  function advancePrivateStateEpoch(): void {
+    privateStateEpoch.value = advanceAuthenticationEpoch()
+  }
+
+  function runLogoutOnce(operation: () => Promise<void>): Promise<void> {
+    if (logoutPromise) return logoutPromise
+    const task = Promise.resolve().then(operation)
+    const shared = task.finally(() => {
+      if (logoutPromise === shared) logoutPromise = null
+    })
+    logoutPromise = shared
+    return shared
+  }
+
   return {
     status,
     appVersion,
@@ -121,12 +137,15 @@ export const useSessionStore = defineStore('session', () => {
     intendedRoute,
     lastError,
     retryableDisconnection,
+    privateStateEpoch,
     initialized,
     detect,
     expire,
     markAuthenticated,
     clearSensitiveState,
     signOut,
-    takeIntendedRoute
+    takeIntendedRoute,
+    advancePrivateStateEpoch,
+    runLogoutOnce
   }
 })
