@@ -35,6 +35,9 @@ docker image inspect "$image" >/dev/null 2>&1 \
 
 [ "$(docker image inspect --format '{{.Config.User}}' "$image")" = '101:101' ] \
   || fail 'image Config.User is not 101:101'
+docker run --rm --entrypoint sh "$image" -c \
+  "if apk info -e libexpat; then apk info -e 'libexpat>=2.8.4-r0'; fi" \
+  || fail 'runtime image contains a libexpat version affected by fixed HIGH vulnerabilities'
 
 docker run -d --name "$pod_name" \
   --read-only --tmpfs /tmp:rw,noexec,nosuid,size=8m \
@@ -87,6 +90,8 @@ done
   || fail 'root filesystem is not read-only'
 docker inspect --format '{{json .HostConfig.CapDrop}}' "$proxy_name" | grep -q 'ALL' \
   || fail 'capabilities were not dropped'
+docker exec "$proxy_name" awk '$1 == "Seccomp:" { found = 1; enabled = ($2 == 2) } END { exit !(found && enabled) }' \
+  /proc/1/status || fail 'runtime-default seccomp filtering is not active'
 docker exec "$proxy_name" sh -c 'touch /tmp/neotorrent-write-test && rm /tmp/neotorrent-write-test' \
   || fail '/tmp is not writable'
 if docker exec "$proxy_name" sh -c 'touch /etc/neotorrent-must-fail' >/dev/null 2>&1; then
@@ -168,6 +173,12 @@ grep -qi '^x-upstream-referer: https://torrent.example.test:8443/' "$headers" \
 grep -qi '^cache-control: no-store' "$headers" \
   || fail 'API response was not marked no-store'
 
+private_query_marker="neotorrent-private-path-$run_id"
+curl -fsS "$base_url/api/echo?dirPath=%2Fdata%2F$private_query_marker" >/dev/null
+if docker logs "$proxy_name" 2>&1 | grep -F -q "$private_query_marker"; then
+  fail 'API query values containing private paths or torrent metadata reached the access log'
+fi
+
 form='hashes=abc%2Fdef&urls=https%3A%2F%2Fseed.example%2Fa%253Fb%3D1'
 [ "$(curl -fsS -X POST -H 'Content-Type: application/x-www-form-urlencoded' --data "$form" "$base_url/api/echo")" = "$form" ] \
   || fail 'URL-encoded form body changed'
@@ -183,7 +194,7 @@ grep -q 'name="category"' "$temporary_directory/multipart" \
   || fail 'multipart field metadata changed'
 grep -q 'local test' "$temporary_directory/multipart" || fail 'multipart field value changed'
 
-for status in 200 202 204 401 403 409; do
+for status in 200 202 204 400 401 403 409 500; do
   assert_status "$status" "$base_url/api/status/$status"
   if [ "$status" = '204' ]; then
     [ ! -s "$temporary_directory/response" ] || fail 'HTTP 204 response gained a body'

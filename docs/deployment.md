@@ -33,7 +33,7 @@ The placeholder itself is not deployable. Obtain an image from a successful cont
 
 ### Build and run locally
 
-The Dockerfile builds `dist/standalone` with pinned Node and Nginx base-image digests, then copies only the static runtime into `nginxinc/nginx-unprivileged`. The runtime pin is `nginxinc/nginx-unprivileged:1.30.4-alpine@sha256:45ce1e2e699234253d1def7baa96218a5d00b498d1ba0cbb1a17b6bdf73d1351` (Alpine 3.24.1). The final image runs as UID/GID `101:101` and contains no Node.js runtime, source tree, mock worker, or production source maps.
+The Dockerfile builds `dist/standalone` with pinned Node and Nginx base-image digests, then copies only the static runtime into `nginxinc/nginx-unprivileged`. The runtime pin is `nginxinc/nginx-unprivileged:1.30.4-alpine-slim@sha256:11f3f6249b4ae3d7a4ec2a51797060107b88ead52b33b6ed3c6c33f55ca96200` (Alpine 3.24.1). The final image runs as UID/GID `101:101` and contains no Node.js runtime, source tree, mock worker, or production source maps.
 
 ```bash
 NEOTORRENT_IMAGE=neotorrent:local corepack pnpm container:build
@@ -103,6 +103,8 @@ Two Kustomize bases are provided. They are examples to merge and customize, not 
 #### Sidecar: `deploy/kubernetes/sidecar`
 
 Use this when qBittorrent already runs in a Kubernetes Deployment and NeoTorrent should share its Pod network namespace. Copy the `neotorrent` container and `neotorrent-tmp` volume into the existing Pod template; keep the existing qBittorrent image, volumes, VPN sidecars, environment, ports, resources, security context, and scheduling rules. The checked-in `replace-with-your-existing-qbittorrent-image` entry is explanatory and must never be deployed.
+
+The sidecar Deployment uses the `Recreate` strategy. Existing Gluetun configurations commonly reserve a fixed `hostPort`, so a rolling-update surge Pod cannot be scheduled while the old Pod still owns that port. `Recreate` avoids a stuck rollout by terminating the old Pod first; upgrades therefore have a brief, intentional outage. Preserve this strategy when copying the sidecar into that topology.
 
 The sidecar uses `QBITTORRENT_URL=http://127.0.0.1:8080`. Change the existing Service to target NeoTorrent's named `webui` port at 8081, and route the Ingress to that Service. Do not expose the qBittorrent Web UI port through a second public Service.
 

@@ -10,6 +10,10 @@ metadata:
     app: torrent
 spec:
   replicas: 1
+  # Existing Gluetun/qBittorrent Pods commonly reserve a fixed hostPort. A
+  # surge Pod cannot bind that port while the old Pod is still running.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: torrent

@@ -49,7 +49,7 @@ const server = http.createServer(async (request, response) => {
     return
   }
 
-  const statusMatch = /^\/api\/status\/(200|202|204|401|403|409)$/.exec(url.pathname)
+  const statusMatch = /^\/api\/status\/(200|202|204|400|401|403|409|500)$/.exec(url.pathname)
   if (statusMatch) {
     const status = Number(statusMatch[1])
     response.writeHead(status, { ...headers, 'content-type': 'text/plain' })

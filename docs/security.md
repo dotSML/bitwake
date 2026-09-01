@@ -46,6 +46,7 @@ It does not claim to protect a session after the browser, qBittorrent host, admi
 - HTML is not in the Workbox precache glob.
 - There is no offline torrent-data mode.
 - Standalone Nginx applies `Cache-Control: no-store` to proxied API responses, disables proxy buffering, and never falls back from an unknown `/api/...` route to the SPA.
+- Standalone access logs omit query arguments because qBittorrent GET parameters can contain host paths, torrent hashes, RSS rule names, and other private metadata.
 - The standalone proxy discards caller-supplied `X-Forwarded-For`, sets it to the immediate peer address, preserves the external host in `X-Forwarded-Host`, and accepts only `http`/`https` as an inbound forwarded scheme. HTTPS upstream certificate verification defaults to `PROXY_SSL_VERIFY=on`.
 
 ### Untrusted content
@@ -111,7 +112,7 @@ The standalone image additionally:
 - Rejects embedded upstream credentials, unsafe characters, query/fragment text, and a URL ending in `/api/v2`.
 - Supports a read-only root filesystem with only a small `/tmp` writable, all Linux capabilities dropped, no privilege escalation, and `RuntimeDefault` seccomp in the Kubernetes examples.
 - Serves process-only health/readiness endpoints; these do not make a false claim that qBittorrent is reachable.
-- Pins the runtime to `nginxinc/nginx-unprivileged:1.30.4-alpine@sha256:45ce1e2e699234253d1def7baa96218a5d00b498d1ba0cbb1a17b6bdf73d1351`. The OCI license label remains `NOASSERTION` until the project owner selects a license; update it to match the repository `LICENSE` when one is added.
+- Pins the runtime to `nginxinc/nginx-unprivileged:1.30.4-alpine-slim@sha256:11f3f6249b4ae3d7a4ec2a51797060107b88ead52b33b6ed3c6c33f55ca96200`. The OCI license label remains `NOASSERTION` until the project owner selects a license; update it to match the repository `LICENSE` when one is added.
 
 ## qBittorrent settings that should remain enabled
 
