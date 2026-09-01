@@ -191,13 +191,13 @@ async function load(): Promise<void> {
     const values = sanitizePreferences(await api.app.preferences())
     serverValues.value = values
     draft.value = structuredClone(values)
-    await loadNetworkOptions(values)
+    loading.value = false
+    void loadNetworkOptions(values)
   } catch (cause) {
     notifications.push(
       cause instanceof Error ? cause.message : 'Settings could not be loaded.',
       'error'
     )
-  } finally {
     loading.value = false
   }
 }
