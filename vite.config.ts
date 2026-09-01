@@ -184,7 +184,7 @@ export default defineConfig(({ mode }) => {
       target: 'es2022',
       ...(alternativeBuild
         ? {
-            rollupOptions: {
+            rolldownOptions: {
               input: fileURLToPath(
                 new URL(
                   alternativePublic ? './public-entry.html' : './private-entry.html',

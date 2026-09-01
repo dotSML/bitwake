@@ -5,7 +5,6 @@ import { createQbittorrentApi } from '@/api'
 import App from '@/app/App.vue'
 import { apiKey } from '@/app/providers/api'
 import { router } from '@/app/router'
-import { mockBackendEnabled } from '@/config/deployment'
 import { i18n, readBootstrapLocalePreference, setApplicationLocale } from '@/i18n'
 import { useOperationsHistoryStore } from '@/stores/operationsHistory'
 import { usePwaStore } from '@/stores/pwa'
@@ -14,7 +13,7 @@ import '@/styles/main.css'
 
 async function bootstrap(): Promise<void> {
   setApplicationLocale(readBootstrapLocalePreference())
-  if (mockBackendEnabled) {
+  if (__MOCK_BACKEND__) {
     const { worker } = await import('@/mocks/browser')
     await worker.start({
       onUnhandledRequest: 'bypass',
