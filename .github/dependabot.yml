@@ -19,6 +19,11 @@ updates:
       - dependency-name: typescript
         versions:
           - '>=7.0.0'
+      # Tailwind CSS 4 requires a dedicated PostCSS and stylesheet migration;
+      # keep receiving supported Tailwind 3 updates until that work is ready.
+      - dependency-name: tailwindcss
+        versions:
+          - '>=4.0.0'
   - package-ecosystem: docker
     directory: /
     schedule:
