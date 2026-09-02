@@ -26,7 +26,6 @@ describe('Kubernetes deployment contracts', () => {
     expect(deployment).toContain('- name: BITWAKE_MEDIA_MODE')
     expect(deployment).toContain('- name: bitwake-tmp')
     expect(deployment).not.toContain('mountPath: /data')
-    expect(deployment).not.toContain('NEOTORRENT_')
     expect(service).toContain('name: torrent')
     expect(service).toContain('app: torrent')
     expect(ingress).toContain('name: torrent')

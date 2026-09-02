@@ -74,15 +74,12 @@ test('packaged Alternative WebUI keeps its public/private service-worker boundar
   ).toEqual([])
   expect(
     initialCacheEntries.filter(
-      (url) =>
-        url.includes('/api/') ||
-        url.includes('/_bitwake/runtime-config.json') ||
-        url.includes('/_neotorrent/runtime-config.json')
+      (url) => url.includes('/api/') || url.includes('/_bitwake/runtime-config.json')
     )
   ).toEqual([])
 
   expect(await nativeFetchResult(page, '/api/v2/app/version')).toEqual({ ok: true, status: 200 })
-  for (const runtimeUrl of ['/_bitwake/runtime-config.json', '/_neotorrent/runtime-config.json']) {
+  for (const runtimeUrl of ['/_bitwake/runtime-config.json']) {
     expect(await nativeFetchResult(page, runtimeUrl)).toEqual({ ok: true, status: 200 })
   }
 
@@ -90,10 +87,7 @@ test('packaged Alternative WebUI keeps its public/private service-worker boundar
   try {
     expect(await nativeFetchResult(page, worker.privateAsset)).toEqual({ ok: true, status: 200 })
     expect(await nativeFetchResult(page, '/api/v2/app/version')).toEqual({ ok: false, status: 0 })
-    for (const runtimeUrl of [
-      '/_bitwake/runtime-config.json',
-      '/_neotorrent/runtime-config.json'
-    ]) {
+    for (const runtimeUrl of ['/_bitwake/runtime-config.json']) {
       expect(await nativeFetchResult(page, runtimeUrl)).toEqual({ ok: false, status: 0 })
     }
 
@@ -112,10 +106,7 @@ test('packaged Alternative WebUI keeps its public/private service-worker boundar
 
   expect(
     (await allCachedUrls(page)).filter(
-      (url) =>
-        url.includes('/api/') ||
-        url.includes('/_bitwake/runtime-config.json') ||
-        url.includes('/_neotorrent/runtime-config.json')
+      (url) => url.includes('/api/') || url.includes('/_bitwake/runtime-config.json')
     )
   ).toEqual([])
 

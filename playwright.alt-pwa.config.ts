@@ -1,13 +1,7 @@
 import { defineConfig, devices } from '@playwright/test'
 
-const outputDirectory =
-  process.env.BITWAKE_ALT_PWA_TEST_OUTPUT ??
-  process.env.NEOTORRENT_ALT_PWA_TEST_OUTPUT ??
-  './test-results/alt-pwa'
-const reportDirectory =
-  process.env.BITWAKE_ALT_PWA_REPORT_OUTPUT ??
-  process.env.NEOTORRENT_ALT_PWA_REPORT_OUTPUT ??
-  'playwright-report/alt-pwa'
+const outputDirectory = process.env.BITWAKE_ALT_PWA_TEST_OUTPUT ?? './test-results/alt-pwa'
+const reportDirectory = process.env.BITWAKE_ALT_PWA_REPORT_OUTPUT ?? 'playwright-report/alt-pwa'
 
 export default defineConfig({
   testDir: './tests/pwa',

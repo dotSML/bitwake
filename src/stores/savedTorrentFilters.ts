@@ -13,7 +13,6 @@ import {
 } from '@/domains/torrents/savedFilters'
 import { useSessionStore } from './session'
 import { appStorageKeys } from '@/config/appIdentity'
-import { readMigratedBrowserStorage } from '@/utils/migrateBrowserStorage'
 
 const storageKeys = appStorageKeys.savedFilters
 
@@ -27,14 +26,15 @@ function createId(): string {
 
 function readSessionFallback(): PersistedSavedTorrentFilters {
   if (typeof window === 'undefined') return sanitizeSavedTorrentFilters(null)
-  return (
-    readMigratedBrowserStorage(
-      window.sessionStorage,
-      storageKeys.browser,
-      storageKeys.legacyBrowser,
-      parsePersistedSavedTorrentFilters
-    ).value ?? sanitizeSavedTorrentFilters(null)
-  )
+  try {
+    const serialized = window.sessionStorage.getItem(storageKeys.browser)
+    return serialized === null
+      ? sanitizeSavedTorrentFilters(null)
+      : (parsePersistedSavedTorrentFilters(JSON.parse(serialized) as unknown) ??
+          sanitizeSavedTorrentFilters(null))
+  } catch {
+    return sanitizeSavedTorrentFilters(null)
+  }
 }
 
 function writeSessionFallback(value: PersistedSavedTorrentFilters | null): boolean {
@@ -49,11 +49,10 @@ function writeSessionFallback(value: PersistedSavedTorrentFilters | null): boole
   }
 }
 
-function clearSessionFallbacks(): void {
+function clearSessionFallback(): void {
   if (typeof window === 'undefined') return
   try {
     window.sessionStorage.removeItem(storageKeys.browser)
-    window.sessionStorage.removeItem(storageKeys.legacyBrowser)
   } catch {
     // The in-memory reset still prevents cross-session reuse.
   }
@@ -91,25 +90,12 @@ export const useSavedTorrentFiltersStore = defineStore('saved-torrent-filters', 
       if (session.capabilities?.has('clientData')) {
         // Never reuse an unscoped browser fallback after the daemon advertises
         // authenticated client data: it may belong to an earlier account/session.
-        clearSessionFallbacks()
+        clearSessionFallback()
         try {
-          const loadedData = await api.clientData.load(
-            [storageKeys.clientData, storageKeys.legacyClientData],
-            controller.signal
-          )
+          const loadedData = await api.clientData.load([storageKeys.clientData], controller.signal)
           if (controller.signal.aborted || requestGeneration !== generation) return
           const canonical = parsePersistedSavedTorrentFilters(loadedData[storageKeys.clientData])
-          const legacy = parsePersistedSavedTorrentFilters(loadedData[storageKeys.legacyClientData])
-          value = canonical ?? legacy ?? sanitizeSavedTorrentFilters(null)
-          if (!canonical && legacy) {
-            try {
-              await api.clientData.store({ [storageKeys.clientData]: legacy }, controller.signal)
-            } catch {
-              if (controller.signal.aborted || requestGeneration !== generation) return
-              persistenceWarning.value =
-                'Saved filters were restored from a legacy key, but qBittorrent client data could not be migrated. A later change can retry.'
-            }
-          }
+          value = canonical ?? sanitizeSavedTorrentFilters(null)
         } catch {
           if (controller.signal.aborted || requestGeneration !== generation) return
           // Do not treat a transient read failure as an empty collection. That
@@ -146,7 +132,7 @@ export const useSavedTorrentFiltersStore = defineStore('saved-torrent-filters', 
         writeController = controller
         try {
           if (session.capabilities?.has('clientData')) {
-            clearSessionFallbacks()
+            clearSessionFallback()
             await api.clientData.store({ [storageKeys.clientData]: write.value }, controller.signal)
           } else {
             if (!writeSessionFallback(write.value)) {
@@ -251,7 +237,7 @@ export const useSavedTorrentFiltersStore = defineStore('saved-torrent-filters', 
     loading.value = false
     loadError.value = null
     persistenceWarning.value = null
-    clearSessionFallbacks()
+    clearSessionFallback()
   }
 
   return {

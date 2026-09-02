@@ -76,9 +76,6 @@ describe('diagnostics and system health', () => {
       },
       qbittorrent: { webApiVersion: '2.15.1' }
     })
-    // Pre-rename schema v0 readers may accept the documented legacy property,
-    // but canonical schema v1 exports intentionally never emit it.
-    expect(parsed).not.toHaveProperty('neotorrent')
     expect(snapshot).toContain('"endpoint": "torrents/setLocation"')
     expect(snapshot).not.toContain('Private Torrent Name')
     expect(snapshot).not.toContain('private-hash')

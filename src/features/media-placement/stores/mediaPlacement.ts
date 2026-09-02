@@ -3,7 +3,6 @@ import { defineStore } from 'pinia'
 import { useApi } from '@/app/providers/api'
 import { useSessionStore } from '@/stores/session'
 import { appStorageKeys } from '@/config/appIdentity'
-import { readMigratedBrowserStorage } from '@/utils/migrateBrowserStorage'
 import { isAbsoluteMediaPath, mediaLibraryRootsOverlap } from '../domain/pathUtils'
 import { containsControlCharacters } from '../domain/textSafety'
 import {
@@ -99,15 +98,16 @@ function readLocalSettings(): { value: MediaPlacementSettings; present: boolean 
   if (typeof localStorage === 'undefined') {
     return { value: { ...defaultMediaPlacementSettings }, present: false }
   }
-  const migrated = readMigratedBrowserStorage(
-    localStorage,
-    storageKeys.browser,
-    storageKeys.legacyBrowser,
-    parsePersistedSettings
-  )
-  return migrated.value
-    ? { value: migrated.value, present: true }
-    : { value: { ...defaultMediaPlacementSettings }, present: false }
+  try {
+    const serialized = localStorage.getItem(storageKeys.browser)
+    const settings =
+      serialized === null ? null : parsePersistedSettings(JSON.parse(serialized) as unknown)
+    return settings
+      ? { value: settings, present: true }
+      : { value: { ...defaultMediaPlacementSettings }, present: false }
+  } catch {
+    return { value: { ...defaultMediaPlacementSettings }, present: false }
+  }
 }
 
 function runtimeSettings(config: RuntimeMediaPlacementConfig): MediaPlacementSettings {
@@ -190,26 +190,13 @@ export const useMediaPlacementStore = defineStore('media-placement', () => {
 
       if (session.capabilities?.has('clientData')) {
         try {
-          const values = await api.clientData.load(
-            [storageKeys.clientData, storageKeys.legacyClientData],
-            controller.signal
-          )
+          const values = await api.clientData.load([storageKeys.clientData], controller.signal)
           if (controller.signal.aborted || generation !== loadGeneration) return
-          const canonical = parsePersistedSettings(values[storageKeys.clientData])
-          const legacy = parsePersistedSettings(values[storageKeys.legacyClientData])
-          const persisted = canonical ?? legacy
+          const persisted = parsePersistedSettings(values[storageKeys.clientData])
           if (persisted) {
             saved.value = persisted
             hasSavedSettings.value = true
             savedFromLocalFallback.value = false
-            if (!canonical && legacy) {
-              try {
-                await api.clientData.store({ [storageKeys.clientData]: legacy }, controller.signal)
-              } catch {
-                // Keep the valid legacy value active; a later save can retry migration.
-              }
-              if (controller.signal.aborted || generation !== loadGeneration) return
-            }
           } else {
             saved.value = { ...defaultMediaPlacementSettings }
             hasSavedSettings.value = false
@@ -313,7 +300,6 @@ export const useMediaPlacementStore = defineStore('media-placement', () => {
     if (typeof localStorage !== 'undefined') {
       try {
         localStorage.removeItem(storageKeys.browser)
-        localStorage.removeItem(storageKeys.legacyBrowser)
       } catch {
         // The in-memory reset still prevents cross-session reuse.
       }

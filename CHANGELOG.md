@@ -6,16 +6,11 @@ versions for published artifacts.
 
 ## [Unreleased]
 
-### Changed
-
-- Renamed the product from NeoTorrent to Bitwake while retaining compatibility
-  aliases and in-place upgrade paths for existing installations.
-
 ## [0.1.0] - 2026-09-01
 
 ### Added
 
-- Initial NeoTorrent implementation preview with responsive desktop, tablet,
+- Initial Bitwake implementation preview with responsive desktop, tablet,
   and mobile torrent management.
 - Native qBittorrent Alternative WebUI and standalone container deployment
   artifacts.

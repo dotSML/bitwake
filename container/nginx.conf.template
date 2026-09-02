@@ -79,22 +79,7 @@ http {
             include /etc/nginx/bitwake-security-headers.conf;
         }
 
-        # Deprecated compatibility endpoint retained for in-place upgrades.
-        location = /_neotorrent/runtime-config.json {
-            access_log off;
-            alias /tmp/bitwake-runtime-config.json;
-            default_type application/json;
-            etag off;
-            add_header Cache-Control "no-store" always;
-            include /etc/nginx/bitwake-security-headers.conf;
-        }
-
         location ^~ /_bitwake/ {
-            default_type text/plain;
-            return 404 'Not Found\n';
-        }
-
-        location ^~ /_neotorrent/ {
             default_type text/plain;
             return 404 'Not Found\n';
         }

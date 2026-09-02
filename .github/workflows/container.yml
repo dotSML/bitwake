@@ -10,7 +10,6 @@ on:
 env:
   REGISTRY: ghcr.io
   CANONICAL_IMAGE_NAME: dotsml/bitwake
-  LEGACY_IMAGE_NAME: dotsml/neotorrent
 
 concurrency:
   group: container-${{ github.workflow }}-${{ github.ref }}
@@ -43,6 +42,8 @@ jobs:
         run: pnpm release:verify -- --tag "$GITHUB_REF_NAME" --require-git-tag --require-license
       - name: Check formatting
         run: pnpm format:check
+      - name: Check canonical product identity
+        run: pnpm identity:check
       - name: Lint
         run: pnpm lint
       - name: Typecheck
@@ -148,7 +149,7 @@ jobs:
           severity: HIGH,CRITICAL
 
   publish:
-    name: Publish dual-name provenance and multi-architecture image
+    name: Publish provenance and multi-architecture image
     needs: verify
     if: >-
       github.event_name == 'push' &&
@@ -195,7 +196,7 @@ jobs:
             echo "release=${release}"
             echo "stable=${stable}"
           } >> "$GITHUB_OUTPUT"
-      - name: Reject existing immutable image tags in both packages
+      - name: Reject existing immutable image tags
         env:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
@@ -205,37 +206,35 @@ jobs:
           else
             immutable_tags=("sha-${GITHUB_SHA}")
           fi
-          for configured_image in "$CANONICAL_IMAGE_NAME" "$LEGACY_IMAGE_NAME"; do
-            image_name=${configured_image,,}
-            token=$(
-              curl --fail --silent --show-error \
-                --user "${GITHUB_ACTOR}:${GHCR_TOKEN}" \
-                "https://${REGISTRY}/token?service=${REGISTRY}&scope=repository:${image_name}:pull" \
-                | jq --exit-status --raw-output '.token // .access_token'
+          image_name=${CANONICAL_IMAGE_NAME,,}
+          token=$(
+            curl --fail --silent --show-error \
+              --user "${GITHUB_ACTOR}:${GHCR_TOKEN}" \
+              "https://${REGISTRY}/token?service=${REGISTRY}&scope=repository:${image_name}:pull" \
+              | jq --exit-status --raw-output '.token // .access_token'
+          )
+          for image_tag in "${immutable_tags[@]}"; do
+            status=$(
+              curl --silent --show-error \
+                --output /dev/null \
+                --write-out '%{http_code}' \
+                --header "Authorization: Bearer ${token}" \
+                --header 'Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json' \
+                "https://${REGISTRY}/v2/${image_name}/manifests/${image_tag}"
             )
-            for image_tag in "${immutable_tags[@]}"; do
-              status=$(
-                curl --silent --show-error \
-                  --output /dev/null \
-                  --write-out '%{http_code}' \
-                  --header "Authorization: Bearer ${token}" \
-                  --header 'Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json' \
-                  "https://${REGISTRY}/v2/${image_name}/manifests/${image_tag}"
-              )
-              case "$status" in
-                200)
-                  echo "Immutable image tag ${REGISTRY}/${image_name}:${image_tag} already exists; refusing to replace it." >&2
-                  exit 1
-                  ;;
-                404)
-                  echo "Image tag ${REGISTRY}/${image_name}:${image_tag} is available."
-                  ;;
-                *)
-                  echo "Could not safely determine whether ${REGISTRY}/${image_name}:${image_tag} exists (HTTP ${status}); refusing to publish." >&2
-                  exit 1
-                  ;;
-              esac
-            done
+            case "$status" in
+              200)
+                echo "Immutable image tag ${REGISTRY}/${image_name}:${image_tag} already exists; refusing to replace it." >&2
+                exit 1
+                ;;
+              404)
+                echo "Image tag ${REGISTRY}/${image_name}:${image_tag} is available."
+                ;;
+              *)
+                echo "Could not safely determine whether ${REGISTRY}/${image_name}:${image_tag} exists (HTTP ${status}); refusing to publish." >&2
+                exit 1
+                ;;
+            esac
           done
       - name: Generate image tags
         id: meta
@@ -243,7 +242,6 @@ jobs:
         with:
           images: |
             ${{ env.REGISTRY }}/${{ env.CANONICAL_IMAGE_NAME }}
-            ${{ env.REGISTRY }}/${{ env.LEGACY_IMAGE_NAME }}
           flavor: latest=false
           tags: |
             type=raw,value=edge,enable=${{ github.ref == 'refs/heads/main' }}
@@ -268,7 +266,7 @@ jobs:
           cache-to: type=gha,mode=max
           sbom: true
           provenance: mode=max
-      - name: Verify both published manifests
+      - name: Verify published manifest
         id: manifests
         shell: bash
         run: |
@@ -281,47 +279,35 @@ jobs:
           else
             verification_tags=(edge "sha-${GITHUB_SHA}")
           fi
-          for identity in canonical legacy; do
-            if [[ "$identity" == canonical ]]; then
-              image_name=$CANONICAL_IMAGE_NAME
-            else
-              image_name=$LEGACY_IMAGE_NAME
+          image_name=$CANONICAL_IMAGE_NAME
+          published_digest=
+          for image_tag in "${verification_tags[@]}"; do
+            tag_reference="${REGISTRY}/${image_name}:${image_tag}"
+            manifest=$(docker buildx imagetools inspect "$tag_reference" --format '{{json .Manifest}}')
+            digest=$(node -e 'const value=JSON.parse(process.argv[1]); const digest=value.digest; if (!/^sha256:[0-9a-f]{64}$/.test(digest ?? "")) process.exit(1); process.stdout.write(digest)' "$manifest")
+            if [[ -n "$published_digest" && "$digest" != "$published_digest" ]]; then
+              echo "Published tags for ${REGISTRY}/${image_name} resolve to different manifests." >&2
+              exit 1
             fi
-            published_digest=
-            for image_tag in "${verification_tags[@]}"; do
-              tag_reference="${REGISTRY}/${image_name}:${image_tag}"
-              manifest=$(docker buildx imagetools inspect "$tag_reference" --format '{{json .Manifest}}')
-              digest=$(node -e 'const value=JSON.parse(process.argv[1]); const digest=value.digest; if (!/^sha256:[0-9a-f]{64}$/.test(digest ?? "")) process.exit(1); process.stdout.write(digest)' "$manifest")
-              if [[ -n "$published_digest" && "$digest" != "$published_digest" ]]; then
-                echo "Published aliases for ${REGISTRY}/${image_name} resolve to different manifests." >&2
-                exit 1
-              fi
-              published_digest=$digest
-              immutable_reference="${REGISTRY}/${image_name}@${digest}"
-              docker buildx imagetools inspect "$immutable_reference"
-              for platform in linux/amd64 linux/arm64; do
-                image=$(docker buildx imagetools inspect "$immutable_reference" --format "{{json (index .Image \"$platform\")}}")
-                node -e '
-                  const value = JSON.parse(process.argv[1])
-                  const labels = value.config?.Labels ?? {}
-                  if (labels["org.opencontainers.image.title"] !== "Bitwake" || labels["org.opencontainers.image.revision"] !== process.argv[2] || labels["org.opencontainers.image.version"] !== process.argv[3]) process.exit(1)
-                ' "$image" '${{ steps.build.outputs.revision }}' '${{ steps.build.outputs.version }}'
-              done
+            published_digest=$digest
+            immutable_reference="${REGISTRY}/${image_name}@${digest}"
+            docker buildx imagetools inspect "$immutable_reference"
+            for platform in linux/amd64 linux/arm64; do
+              image=$(docker buildx imagetools inspect "$immutable_reference" --format "{{json (index .Image \"$platform\")}}")
+              node -e '
+                const value = JSON.parse(process.argv[1])
+                const labels = value.config?.Labels ?? {}
+                if (labels["org.opencontainers.image.title"] !== "Bitwake" || labels["org.opencontainers.image.revision"] !== process.argv[2] || labels["org.opencontainers.image.version"] !== process.argv[3]) process.exit(1)
+              ' "$image" '${{ steps.build.outputs.revision }}' '${{ steps.build.outputs.version }}'
             done
-            echo "${identity}_digest=${published_digest}" >> "$GITHUB_OUTPUT"
-            echo "${identity}_reference=${immutable_reference}" >> "$GITHUB_OUTPUT"
           done
+          echo "canonical_digest=${published_digest}" >> "$GITHUB_OUTPUT"
+          echo "canonical_reference=${immutable_reference}" >> "$GITHUB_OUTPUT"
       - name: Attest canonical Bitwake image
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
         with:
           subject-name: ${{ env.REGISTRY }}/${{ env.CANONICAL_IMAGE_NAME }}
           subject-digest: ${{ steps.manifests.outputs.canonical_digest }}
-          push-to-registry: true
-      - name: Attest deprecated compatibility image
-        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
-        with:
-          subject-name: ${{ env.REGISTRY }}/${{ env.LEGACY_IMAGE_NAME }}
-          subject-digest: ${{ steps.manifests.outputs.legacy_digest }}
           push-to-registry: true
       - name: Report immutable references
         run: |
@@ -329,10 +315,5 @@ jobs:
             echo "### Published Bitwake image"
             echo '```text'
             echo '${{ steps.manifests.outputs.canonical_reference }}'
-            echo '```'
-            echo
-            echo 'Deprecated compatibility publication:'
-            echo '```text'
-            echo '${{ steps.manifests.outputs.legacy_reference }}'
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"

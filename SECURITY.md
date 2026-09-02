@@ -28,10 +28,6 @@ Use GitHub's private vulnerability reporting form:
 
 <https://github.com/dotSML/bitwake/security/advisories/new>
 
-The repository may still be hosted under its former NeoTorrent name while the
-rename branch is reviewed; GitHub repository redirects are expected after the
-owner performs the separate repository cutover.
-
 Include, where relevant:
 
 - the affected Bitwake release or commit;

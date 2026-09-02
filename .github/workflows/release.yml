@@ -63,6 +63,8 @@ jobs:
           fi
       - name: Check formatting
         run: pnpm format:check
+      - name: Check canonical product identity
+        run: pnpm identity:check
       - name: Lint
         run: pnpm lint
       - name: Typecheck

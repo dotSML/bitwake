@@ -93,9 +93,6 @@ with the chosen terms.
    Scheduled/manual evidence is revision-specific; rerun those workflows for
    the release commit when needed.
 4. Verify `ghcr.io/dotsml/bitwake:<version>` resolves to the expected manifest.
-   During the rename compatibility period, also verify the deprecated
-   `ghcr.io/dotsml/neotorrent:<version>` publication was produced from the same
-   reviewed source revision and equivalent artifact content.
 5. Run the **Release** workflow from GitHub Actions and enter the exact tag. Its
    non-publishing verification job checks out that tag, rejects a package/tag or
    changelog mismatch, repeats the source release gates, builds the Alternative
@@ -139,9 +136,7 @@ Confirm that `release_image` is the expected `ghcr.io/dotsml/bitwake@sha256:…`
 reference and compare it to the Container workflow summary and deployment
 review. Prefer digest-pinned deployments over version tags.
 
-Release metadata and downloadable artifacts use Bitwake as their canonical
-identity. The NeoTorrent GHCR reference is a deprecated compatibility
-publication and does not change the canonical release subject.
+Release metadata and downloadable artifacts use Bitwake as their identity.
 
 ## Rollback
 

@@ -2,10 +2,7 @@ import { mkdir } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { chromium } from '@playwright/test'
 
-const baseUrl =
-  process.env.BITWAKE_SCREENSHOT_URL ??
-  process.env.NEOTORRENT_SCREENSHOT_URL ??
-  'http://127.0.0.1:4173/'
+const baseUrl = process.env.BITWAKE_SCREENSHOT_URL ?? 'http://127.0.0.1:4173/'
 const chromePath = process.env.PLAYWRIGHT_CHROME_PATH ?? '/usr/bin/google-chrome'
 const output = resolve('docs/screenshots')
 await mkdir(output, { recursive: true })

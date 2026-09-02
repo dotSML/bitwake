@@ -2,13 +2,7 @@
 set -eu
 
 repository_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-if [ "${BITWAKE_IMAGE+x}" = x ]; then
-  image=$BITWAKE_IMAGE
-elif [ "${NEOTORRENT_IMAGE+x}" = x ]; then
-  image=$NEOTORRENT_IMAGE
-else
-  image=bitwake:test
-fi
+image=${BITWAKE_IMAGE-bitwake:test}
 node_image='node:22.23.2-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32'
 run_id="bitwake-contract-$$"
 pod_name="$run_id-pod"
@@ -107,11 +101,11 @@ if docker run --rm --entrypoint sh "$image" -c 'command -v node' >/dev/null 2>&1
   fail 'final image contains a Node.js runtime'
 fi
 docker run --rm --entrypoint sh "$image" -c \
-  'test ! -e /app/src && test -s /usr/share/nginx/html/THIRD_PARTY_NOTICES.txt && test ! -e /usr/share/nginx/html/mockServiceWorker.js && test ! -e /usr/share/nginx/html/_bitwake/runtime-config.json && test ! -e /usr/share/nginx/html/_neotorrent/runtime-config.json && ! find /usr/share/nginx/html -name "*.map" -print -quit | grep -q .'
+  'test ! -e /app/src && test -s /usr/share/nginx/html/THIRD_PARTY_NOTICES.txt && test ! -e /usr/share/nginx/html/mockServiceWorker.js && test ! -e /usr/share/nginx/html/_bitwake/runtime-config.json && ! find /usr/share/nginx/html -name "*.map" -print -quit | grep -q .'
 docker run --rm --entrypoint sh "$image" -c '
   worker=/usr/share/nginx/html/sw.js
   test -f "$worker"
-  grep -Eq "bitwake.{0,20}neotorrent.{0,40}runtime-config|runtime-config.{0,40}bitwake.{0,20}neotorrent" "$worker"
+  grep -Eq "bitwake.{0,40}runtime-config" "$worker"
   grep -Eq "runtime-config.{0,100}NetworkOnly.{0,20}GET" "$worker"
 ' || fail 'service worker did not exclude runtime configuration from precaching and use NetworkOnly'
 
@@ -121,11 +115,9 @@ curl -fsS "$base_url/" | grep -q '<div id="app"></div>' || fail 'SPA index did n
 curl -fsSI "$base_url/" | grep -qi "content-security-policy: .*script-src 'self'" \
   || fail 'compatible CSP header is missing'
 
-canonical_runtime_body="$temporary_directory/_bitwake-runtime-config.json"
-legacy_runtime_body="$temporary_directory/_neotorrent-runtime-config.json"
-for runtime_namespace in _bitwake _neotorrent; do
+runtime_body="$temporary_directory/_bitwake-runtime-config.json"
+for runtime_namespace in _bitwake; do
   runtime_headers="$temporary_directory/${runtime_namespace}-headers"
-  runtime_body="$temporary_directory/${runtime_namespace}-runtime-config.json"
   curl -fsS -D "$runtime_headers" -o "$runtime_body" \
     "$base_url/$runtime_namespace/runtime-config.json"
   [ "$(grep -ci '^cache-control:' "$runtime_headers")" = '1' ] \
@@ -135,9 +127,6 @@ for runtime_namespace in _bitwake _neotorrent; do
   grep -qi '^content-type: application/json' "$runtime_headers" \
     || fail "$runtime_namespace runtime configuration did not use the JSON content type"
 done
-cmp "$canonical_runtime_body" "$legacy_runtime_body" \
-  || fail 'canonical and legacy runtime endpoints returned different data'
-runtime_body=$canonical_runtime_body
 node -e '
   const assert = require("node:assert/strict")
   const fs = require("node:fs")
@@ -153,7 +142,7 @@ node -e '
     }
   })
 ' "$runtime_body" || fail 'existing deployments did not receive the safe off defaults'
-for runtime_namespace in _bitwake _neotorrent; do
+for runtime_namespace in _bitwake; do
   assert_status 404 "$base_url/$runtime_namespace/not-a-resource"
   ! grep -q '<div id="app"></div>' "$temporary_directory/response" \
     || fail "$runtime_namespace unknown runtime resource fell back to the SPA"
@@ -290,36 +279,6 @@ fi
 grep -q 'QBITTORRENT_URL port must be an integer from 1 through 65535' "$invalid_log" \
   || fail 'out-of-range upstream port error was not clear'
 
-# Deprecated aliases must continue to produce the same validated runtime data.
-legacy_runtime="$temporary_directory/legacy-runtime-config.json"
-docker run --rm --read-only --tmpfs /tmp:rw,noexec,nosuid,size=8m \
-  -e 'NEOTORRENT_MEDIA_MODE=assist' \
-  -e 'NEOTORRENT_MEDIA_CONFIG_LOCKED=true' \
-  -e 'NEOTORRENT_TV_ROOT=/runtime/bitwake-legacy-only-tv-9f31c2 "quoted"\shows' \
-  -e 'NEOTORRENT_MOVIES_ROOT=/runtime/bitwake-legacy-only-movies-7a84d6/Français' \
-  -e 'NEOTORRENT_MEDIA_BROWSE_ROOT=/data' \
-  -e 'NEOTORRENT_TV_CATEGORY=TV "Prime"\Archive' \
-  -e 'NEOTORRENT_MOVIE_CATEGORY=Movies & more' \
-  "$image" sh -c 'cat /tmp/bitwake-runtime-config.json' > "$legacy_runtime"
-node -e '
-  const assert = require("node:assert/strict")
-  const fs = require("node:fs")
-  const value = JSON.parse(fs.readFileSync(process.argv[1], "utf8"))
-  assert.deepStrictEqual(value, {
-    mediaPlacement: {
-      mode: "assist",
-      locked: true,
-      tvRoot: "/runtime/bitwake-legacy-only-tv-9f31c2 \"quoted\"\\shows",
-      moviesRoot: "/runtime/bitwake-legacy-only-movies-7a84d6/Français",
-      browseRoot: "/data",
-      tvCategory: "TV \"Prime\"\\Archive",
-      movieCategory: "Movies & more"
-    }
-  })
-  assert.equal("QBITTORRENT_URL" in value, false)
-  assert.equal("credentials" in value, false)
-' "$legacy_runtime" || fail 'legacy environment aliases did not produce valid, escaped JSON'
-
 canonical_runtime="$temporary_directory/canonical-runtime-config.json"
 docker run --rm --read-only --tmpfs /tmp:rw,noexec,nosuid,size=8m \
   -e 'BITWAKE_MEDIA_MODE=assist' \
@@ -346,45 +305,9 @@ node -e '
   })
 ' "$canonical_runtime" || fail 'canonical environment settings did not produce runtime JSON'
 
-conflict_runtime="$temporary_directory/conflict-runtime-config.json"
-conflict_runtime_log="$temporary_directory/conflict-runtime.log"
-docker run --rm --read-only --tmpfs /tmp:rw,noexec,nosuid,size=8m \
-  -e 'BITWAKE_MEDIA_MODE=assist' -e 'NEOTORRENT_MEDIA_MODE=off' \
-  -e 'BITWAKE_MEDIA_CONFIG_LOCKED=true' -e 'NEOTORRENT_MEDIA_CONFIG_LOCKED=false' \
-  -e 'BITWAKE_TV_ROOT=/canonical/tv' -e 'NEOTORRENT_TV_ROOT=/private/legacy-tv-root' \
-  -e 'BITWAKE_MOVIES_ROOT=/canonical/movies' -e 'NEOTORRENT_MOVIES_ROOT=/private/legacy-movies-root' \
-  -e 'BITWAKE_MEDIA_BROWSE_ROOT=/canonical' -e 'NEOTORRENT_MEDIA_BROWSE_ROOT=/private/legacy-browse-root' \
-  -e 'BITWAKE_TV_CATEGORY=' -e 'NEOTORRENT_TV_CATEGORY=private legacy TV category' \
-  -e 'BITWAKE_MOVIE_CATEGORY=Canonical Movies' -e 'NEOTORRENT_MOVIE_CATEGORY=private legacy movie category' \
-  "$image" sh -c 'cat /tmp/bitwake-runtime-config.json' \
-  > "$conflict_runtime" 2> "$conflict_runtime_log"
-node -e '
-  const assert = require("node:assert/strict")
-  const fs = require("node:fs")
-  assert.deepStrictEqual(JSON.parse(fs.readFileSync(process.argv[1], "utf8")), {
-    mediaPlacement: {
-      mode: "assist",
-      locked: true,
-      tvRoot: "/canonical/tv",
-      moviesRoot: "/canonical/movies",
-      browseRoot: "/canonical",
-      tvCategory: "",
-      movieCategory: "Canonical Movies"
-    }
-  })
-' "$conflict_runtime" || fail 'canonical settings did not win conflicts, including an explicit empty value'
-for setting in MEDIA_MODE MEDIA_CONFIG_LOCKED TV_ROOT MOVIES_ROOT MEDIA_BROWSE_ROOT TV_CATEGORY MOVIE_CATEGORY; do
-  grep -Fx "BITWAKE_$setting overrides deprecated NEOTORRENT_$setting" "$conflict_runtime_log" >/dev/null \
-    || fail "missing safe conflict warning for $setting"
-done
-if grep -F -q 'private legacy' "$conflict_runtime_log" \
-    || grep -F -q '/private/' "$conflict_runtime_log"; then
-  fail 'environment conflict warning disclosed a legacy path or category value'
-fi
-
 docker run --rm --entrypoint sh "$image" -c '
-  ! grep -R -F -q "bitwake-legacy-only-tv-9f31c2" /usr/share/nginx/html/assets
-  ! grep -R -F -q "bitwake-legacy-only-movies-7a84d6" /usr/share/nginx/html/assets
+  ! grep -R -F -q "bitwake-canonical-tv" /usr/share/nginx/html/assets
+  ! grep -R -F -q "bitwake-canonical-movies" /usr/share/nginx/html/assets
 ' || fail 'environment-specific media roots were compiled into frontend assets'
 
 invalid_runtime="$temporary_directory/invalid-runtime-config.json"
@@ -414,80 +337,77 @@ assert_invalid_media_runtime() {
     || fail "$invalid_case did not log the generic fallback warning"
 }
 
-# Exercise the full validation matrix through the deprecated prefix as explicit
-# compatibility coverage; canonical-only validation is checked above and again
-# through the running invalid configuration case below.
 assert_invalid_media_runtime 'invalid media mode' \
-  -e 'NEOTORRENT_MEDIA_MODE=enforce'
+  -e 'BITWAKE_MEDIA_MODE=enforce'
 assert_invalid_media_runtime 'invalid media configuration lock' \
-  -e 'NEOTORRENT_MEDIA_CONFIG_LOCKED=yes'
+  -e 'BITWAKE_MEDIA_CONFIG_LOCKED=yes'
 
 control_character_path=$(printf '/data/tv\tshows')
 assert_invalid_media_runtime 'media path with an ASCII control character' \
-  -e "NEOTORRENT_TV_ROOT=$control_character_path"
+  -e "BITWAKE_TV_ROOT=$control_character_path"
 
 c1_control_path=$(printf '/data/tv\302\205shows')
 assert_invalid_media_runtime 'media path with UTF-8 U+0085' \
-  -e "NEOTORRENT_TV_ROOT=$c1_control_path"
+  -e "BITWAKE_TV_ROOT=$c1_control_path"
 
 bidi_control_category=$(printf 'TV\342\200\256Spoof')
 assert_invalid_media_runtime 'media category with UTF-8 U+202E bidi control' \
-  -e "NEOTORRENT_TV_CATEGORY=$bidi_control_category"
+  -e "BITWAKE_TV_CATEGORY=$bidi_control_category"
 
 line_separator_category=$(printf 'Movies\342\200\250Injected')
 assert_invalid_media_runtime 'media category with UTF-8 U+2028 line separator' \
-  -e "NEOTORRENT_MOVIE_CATEGORY=$line_separator_category"
+  -e "BITWAKE_MOVIE_CATEGORY=$line_separator_category"
 
 newline_path=$(printf '/data/tv\nshows')
 assert_invalid_media_runtime 'media path with a newline' \
-  -e "NEOTORRENT_TV_ROOT=$newline_path"
+  -e "BITWAKE_TV_ROOT=$newline_path"
 
 assert_invalid_media_runtime 'relative TV root' \
-  -e 'NEOTORRENT_TV_ROOT=data/tv-shows'
+  -e 'BITWAKE_TV_ROOT=data/tv-shows'
 assert_invalid_media_runtime 'relative Movies root' \
-  -e 'NEOTORRENT_MOVIES_ROOT=data/movies'
+  -e 'BITWAKE_MOVIES_ROOT=data/movies'
 assert_invalid_media_runtime 'relative browse root' \
-  -e 'NEOTORRENT_MEDIA_BROWSE_ROOT=data'
+  -e 'BITWAKE_MEDIA_BROWSE_ROOT=data'
 assert_invalid_media_runtime 'drive-relative TV root' \
-  -e 'NEOTORRENT_TV_ROOT=C:Media\TV'
+  -e 'BITWAKE_TV_ROOT=C:Media\TV'
 assert_invalid_media_runtime 'Windows root with an invalid segment' \
-  -e 'NEOTORRENT_MOVIES_ROOT=C:\Media\Bad<Name'
+  -e 'BITWAKE_MOVIES_ROOT=C:\Media\Bad<Name'
 assert_invalid_media_runtime 'Windows root with a reserved segment' \
-  -e 'NEOTORRENT_MOVIES_ROOT=C:\Media\CON'
+  -e 'BITWAKE_MOVIES_ROOT=C:\Media\CON'
 assert_invalid_media_runtime 'UNC root without a share' \
-  -e 'NEOTORRENT_MOVIES_ROOT=\\media-server'
+  -e 'BITWAKE_MOVIES_ROOT=\\media-server'
 assert_invalid_media_runtime 'locked assist without a Movies root' \
-  -e 'NEOTORRENT_MEDIA_MODE=assist' \
-  -e 'NEOTORRENT_MEDIA_CONFIG_LOCKED=true' \
-  -e 'NEOTORRENT_TV_ROOT=/data/tv-shows'
+  -e 'BITWAKE_MEDIA_MODE=assist' \
+  -e 'BITWAKE_MEDIA_CONFIG_LOCKED=true' \
+  -e 'BITWAKE_TV_ROOT=/data/tv-shows'
 assert_invalid_media_runtime 'equal POSIX TV and Movies roots' \
-  -e 'NEOTORRENT_TV_ROOT=/data/media' \
-  -e 'NEOTORRENT_MOVIES_ROOT=/data/media/'
+  -e 'BITWAKE_TV_ROOT=/data/media' \
+  -e 'BITWAKE_MOVIES_ROOT=/data/media/'
 assert_invalid_media_runtime 'normalized POSIX filesystem roots' \
-  -e 'NEOTORRENT_TV_ROOT=/' \
-  -e 'NEOTORRENT_MOVIES_ROOT=//'
+  -e 'BITWAKE_TV_ROOT=/' \
+  -e 'BITWAKE_MOVIES_ROOT=//'
 assert_invalid_media_runtime 'normalized nested POSIX TV and Movies roots' \
-  -e 'NEOTORRENT_TV_ROOT=/data/media/series/../tv' \
-  -e 'NEOTORRENT_MOVIES_ROOT=/data/./media'
+  -e 'BITWAKE_TV_ROOT=/data/media/series/../tv' \
+  -e 'BITWAKE_MOVIES_ROOT=/data/./media'
 private_overlap_marker='bitwake-private-root-4f9c7a'
 assert_invalid_media_runtime 'private overlapping POSIX TV and Movies roots' \
-  -e "NEOTORRENT_TV_ROOT=/data/$private_overlap_marker" \
-  -e "NEOTORRENT_MOVIES_ROOT=/data/$private_overlap_marker/movies"
+  -e "BITWAKE_TV_ROOT=/data/$private_overlap_marker" \
+  -e "BITWAKE_MOVIES_ROOT=/data/$private_overlap_marker/movies"
 if grep -F -q "$private_overlap_marker" "$invalid_runtime" "$invalid_runtime_log"; then
   fail 'invalid media configuration disclosed a configured root'
 fi
 assert_invalid_media_runtime 'nested Windows TV and Movies roots' \
-  -e 'NEOTORRENT_TV_ROOT=C:\Media' \
-  -e 'NEOTORRENT_MOVIES_ROOT=c:\media\Movies'
+  -e 'BITWAKE_TV_ROOT=C:\Media' \
+  -e 'BITWAKE_MOVIES_ROOT=c:\media\Movies'
 assert_invalid_media_runtime 'normalized equal Windows TV and Movies roots' \
-  -e 'NEOTORRENT_TV_ROOT=C:\Media\.\TV\..' \
-  -e 'NEOTORRENT_MOVIES_ROOT=c:/media/'
+  -e 'BITWAKE_TV_ROOT=C:\Media\.\TV\..' \
+  -e 'BITWAKE_MOVIES_ROOT=c:/media/'
 assert_invalid_media_runtime 'nested UNC TV and Movies roots' \
-  -e 'NEOTORRENT_TV_ROOT=\\NAS\Media' \
-  -e 'NEOTORRENT_MOVIES_ROOT=\\nas\media\Movies'
+  -e 'BITWAKE_TV_ROOT=\\NAS\Media' \
+  -e 'BITWAKE_MOVIES_ROOT=\\nas\media\Movies'
 assert_invalid_media_runtime 'normalized equal UNC TV and Movies roots' \
-  -e 'NEOTORRENT_TV_ROOT=\\NAS\\Media\TV\..' \
-  -e 'NEOTORRENT_MOVIES_ROOT=//nas/media/'
+  -e 'BITWAKE_TV_ROOT=\\NAS\\Media\TV\..' \
+  -e 'BITWAKE_MOVIES_ROOT=//nas/media/'
 
 docker run -d --name "$invalid_runtime_name" \
   --read-only --cap-drop ALL --security-opt no-new-privileges:true \

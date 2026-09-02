@@ -54,12 +54,6 @@ Bitwake is an independent project and is not affiliated with or endorsed by the 
 
 Bitwake uses qBittorrent 5's `torrents/start` and `torrents/stop` routes and does not fall back to the older pause/resume route names. Version-dependent behavior is documented in [docs/api-capabilities.md](docs/api-capabilities.md).
 
-Existing NeoTorrent installations upgrade in place. Preferences, client data,
-saved filters, Media Placement settings, and an installed PWA are migrated
-without changing the PWA origin or scope. Legacy environment variables,
-runtime URL, and container image remain compatibility aliases; see
-[Upgrading from NeoTorrent to Bitwake](docs/rename-from-neotorrent.md).
-
 ## Try it with mock data
 
 No qBittorrent process is required for mock mode.
@@ -115,9 +109,6 @@ Build a local image from the checked-out revision:
 BITWAKE_IMAGE=bitwake:local corepack pnpm container:build
 ```
 
-`NEOTORRENT_IMAGE` remains a deprecated compatibility alias for existing build
-automation. New commands should use `BITWAKE_IMAGE`.
-
 `QBITTORRENT_URL` must be the qBittorrent base HTTP(S) URL without credentials, query text, fragments, or `/api/v2`. The image listens on port `8081`, runs as UID/GID `101:101`, and supports a read-only root filesystem with `/tmp` writable.
 
 Media Placement defaults to off for compatibility. Standalone deployments can enable it with
@@ -127,16 +118,12 @@ qBittorrent host/container; Bitwake does not mount the media filesystem. See the
 [Media Placement guide](docs/media-placement.md) for all variables, warnings, and Manual-path
 behavior.
 
-The corresponding `NEOTORRENT_*` media variables remain deprecated aliases.
-When both forms are set, the `BITWAKE_*` value wins.
-
 The container workflow verifies pull requests without publishing. A successful
-`main` build publishes `edge` and `sha-<commit>` to both
-`ghcr.io/dotsml/bitwake` and the deprecated `ghcr.io/dotsml/neotorrent`
-package. A reviewed stable version tag publishes `vX.Y.Z`, `X.Y.Z`, and `X.Y`
-to both packages after its verification gates pass. A reviewed prerelease tag
-publishes its raw `vX.Y.Z-prerelease` tag and corresponding unprefixed SemVer tag
-to both packages, but does not move the floating `X.Y` tag. The workflow never
+`main` build publishes `edge` and `sha-<commit>` to
+`ghcr.io/dotsml/bitwake`. A reviewed stable version tag publishes `vX.Y.Z`, `X.Y.Z`, and `X.Y`
+after its verification gates pass. A reviewed prerelease tag
+publishes its raw `vX.Y.Z-prerelease` tag and corresponding unprefixed SemVer tag,
+but does not move the floating `X.Y` tag. The workflow never
 publishes `latest`. For deployments, select and verify the resulting immutable
 image digest rather than relying on a mutable tag.
 
@@ -154,8 +141,6 @@ ghcr.io/dotsml/bitwake@sha256:REPLACE_WITH_PUBLISHED_DIGEST
 ```
 
 Replace the entire placeholder with a reviewed digest. See [docs/deployment.md](docs/deployment.md) for container, proxy, subpath, sidecar, separate-Deployment, upgrade, and rollback guidance.
-During the rename compatibility period, the same reviewed build is also
-published under the deprecated `ghcr.io/dotsml/neotorrent` package.
 
 ## Development commands
 
@@ -207,7 +192,6 @@ Read [docs/architecture.md](docs/architecture.md) for design details and [docs/s
 - [Media Placement](docs/media-placement.md)
 - [API capabilities](docs/api-capabilities.md)
 - [Deployment guide](docs/deployment.md)
-- [Upgrading from NeoTorrent to Bitwake](docs/rename-from-neotorrent.md)
 - [Release guide](docs/releasing.md)
 - [License decision](docs/license-decision.md)
 - [Performance and memory verification](docs/performance.md)

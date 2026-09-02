@@ -29,11 +29,6 @@ ghcr.io/dotsml/bitwake@sha256:REPLACE_WITH_PUBLISHED_DIGEST
 
 The placeholder itself is not deployable. Obtain an image from a successful container workflow for the exact revision you reviewed, or build and publish that revision to a registry you control. Before deployment, verify the reported source revision, supported platforms, vulnerability-scan results, SBOM, provenance, and artifact attestation. Then replace the entire placeholder with the inspected immutable registry digest; never substitute a mutable tag.
 
-During the rename compatibility period, equivalent builds are also published
-under deprecated `ghcr.io/dotsml/neotorrent` references. New manifests and
-documentation use `ghcr.io/dotsml/bitwake`; retain a final immutable NeoTorrent
-digest only as an upgrade rollback target.
-
 ## Standalone container
 
 ### Build and run locally
@@ -43,9 +38,6 @@ The Dockerfile builds `dist/standalone` with pinned Node and Nginx base-image di
 ```bash
 BITWAKE_IMAGE=bitwake:local corepack pnpm container:build
 ```
-
-`NEOTORRENT_IMAGE` remains a deprecated alias for existing automation. If both
-are set, `BITWAKE_IMAGE` wins.
 
 An illustrative hardened invocation is:
 
@@ -84,11 +76,6 @@ docker run --rm --name bitwake \
 | `BITWAKE_TV_CATEGORY`         | empty                            | Optional existing TV category suggestion; it is not created automatically                                                                                         |
 | `BITWAKE_MOVIE_CATEGORY`      | empty                            | Optional existing Movie category suggestion; it is not created automatically                                                                                      |
 
-The seven corresponding `NEOTORRENT_*` media variables remain deprecated
-compatibility aliases. An explicitly set `BITWAKE_*` value takes precedence;
-when both forms differ, the warning names the variables but never prints a path
-or category value.
-
 `QBITTORRENT_URL` is routing configuration, not a secret. Never embed a username, password, cookie, token, or API key in it. The entrypoint validates values before rendering `/tmp/nginx.conf` and runs `nginx -t` before starting.
 
 The entrypoint also writes the non-secret `/_bitwake/runtime-config.json` resource into
@@ -100,10 +87,9 @@ valid proxy from starting. Values are JSON-escaped and served with `Cache-Contro
 resource contains no qBittorrent URL or credential. Existing deployments that omit every Media
 Placement variable continue with the feature Off.
 
-For compatibility, the exact `/_neotorrent/runtime-config.json` URL serves the
-same effective JSON. Both URLs use `Content-Type: application/json`, remain
-NetworkOnly and `no-store`, return 404 for unknown namespace resources, and
-never fall back to `index.html`.
+The runtime URL uses `Content-Type: application/json`, remains NetworkOnly and
+`no-store`, returns 404 for unknown namespace resources, and never falls back
+to `index.html`.
 
 The standalone server exposes `/healthz` and `/readyz`. Both report whether Bitwake's static proxy process is alive and configured; they intentionally remain 200 while qBittorrent is unavailable. API availability is represented by proxied 502/504 responses and the application's connection state, not these probes.
 
@@ -124,7 +110,7 @@ Two Kustomize bases are provided. They are examples to merge and customize, not 
 
 #### Sidecar: `deploy/kubernetes/sidecar`
 
-Use this when qBittorrent already runs in a Kubernetes Deployment and Bitwake should share its Pod network namespace. For a new installation, copy the example `bitwake` container and `bitwake-tmp` volume into the existing Pod template. For an in-place upgrade, retain the actual container and volume names—even historical values such as `vuetorrent` or `neotorrent`—and change the image and canonical environment configuration only. Keep the existing qBittorrent image, volumes, VPN sidecars, environment, ports, resources, security context, and scheduling rules. The checked-in `replace-with-your-existing-qbittorrent-image` entry is explanatory and must never be deployed.
+Use this when qBittorrent already runs in a Kubernetes Deployment and Bitwake should share its Pod network namespace. For a new installation, copy the example `bitwake` container and `bitwake-tmp` volume into the existing Pod template. Keep the existing qBittorrent image, volumes, VPN sidecars, environment, ports, resources, security context, and scheduling rules. The checked-in `replace-with-your-existing-qbittorrent-image` entry is explanatory and must never be deployed.
 
 The sidecar Deployment uses the `Recreate` strategy. Existing Gluetun configurations commonly reserve a fixed `hostPort`, so a rolling-update surge Pod cannot be scheduled while the old Pod still owns that port. `Recreate` avoids a stuck rollout by terminating the old Pod first; upgrades therefore have a brief, intentional outage. Preserve this strategy when copying the sidecar into that topology.
 
@@ -177,9 +163,6 @@ Before applying either base:
 5. Verify login, upload, mutations, logout, expiry, outage behavior, and rollback in the actual cluster.
 
 ### Migration from an existing qBittorrent Web UI
-
-For the product-rename-specific state, PWA, environment, image, and rollback
-contract, also read [Upgrading from NeoTorrent to Bitwake](rename-from-neotorrent.md).
 
 1. Back up qBittorrent configuration and retain a desktop/config-file recovery path.
 2. Record the current Service, Ingress, volumes, VPN/network namespace, qBittorrent Web UI port, allowed domains, and proxy-trust settings.
@@ -250,9 +233,6 @@ alt-webui/
 ```
 
 Do not point qBittorrent to `public/`, `private/`, the zip file, or `dist/standalone`.
-
-The parent directory may keep a historical name such as `neotorrent` or
-`/opt/neotorrent`; qBittorrent does not require it to be renamed for Bitwake.
 
 The archive contains `public/`, `private/`, `THIRD_PARTY_NOTICES.txt`, and any recognized repository
 license/notice files at its top level. Extract it into an otherwise dedicated directory so unrelated
@@ -431,8 +411,6 @@ BITWAKE_SCREENSHOT_URL=http://127.0.0.1:4173/ \
 node scripts/capture-screenshots.mjs
 ```
 
-`NEOTORRENT_SCREENSHOT_URL` remains a deprecated helper alias.
-
 The checked-in screenshots are mock-mode snapshots. The script defaults to `/usr/bin/google-chrome`; set `PLAYWRIGHT_CHROME_PATH` when needed. Screenshots contain deterministic mock data, not private torrents, and are not real-qBittorrent or live-deployment evidence.
 
 ## Upgrade procedure
@@ -460,23 +438,15 @@ HTML is versioned with the worker's precache and refreshed through the in-app up
 registered older service worker may still need a browser reload or site-data cleanup when debugging
 an upgrade.
 
-The NeoTorrent-to-Bitwake rename keeps the same origin, manifest `id`, start
-URL, and scope so an installed PWA can update in place. It does not require a
-second installation. Canonical icon paths change to Bitwake while the former
-paths remain temporary stale-manifest aliases.
-
 Interface preference schema migrations run when Bitwake loads. Current schema version is 2; migrations validate/clamp every known field, discard unknown keys, and fall back safely for corrupt input. Server settings are not migrated by Bitwake.
 
 ## Rollback
 
-For standalone deployment, roll back the existing Deployment to the previously recorded immutable image digest and restore the previous Service/Ingress route if an unrelated migration changed it. A product rename alone must not replace those resources. For a rename rollback, use the final reviewed `ghcr.io/dotsml/neotorrent@sha256:…` digest, never floating `edge`. For native installation, point qBittorrent's Alternative WebUI path back to the previous complete directory, or disable Alternative WebUI using the desktop/configuration recovery path. Reload in a fresh tab. Do not combine `public/` from one revision with `private/` from another.
+For standalone deployment, roll back the existing Deployment to the previously recorded immutable image digest and restore the previous Service/Ingress route if an unrelated migration changed it. For native installation, point qBittorrent's Alternative WebUI path back to the previous complete directory, or disable Alternative WebUI using the desktop/configuration recovery path. Reload in a fresh tab. Do not combine `public/` from one revision with `private/` from another.
 
-UI preferences are namespaced and generally safe to retain. Bitwake migrates
-valid `neotorrent:ui-preferences` and `neotorrent.ui-preferences.v2` values to
-their canonical `bitwake` keys and leaves the legacy copies in place. If a
-preference migration itself is suspected, first preserve both values for
-diagnosis; do not clear qBittorrent cookies or unrelated browser storage as a
-first step.
+UI preferences are namespaced and generally safe to retain. If a preference
+schema migration is suspected, preserve the current value for diagnosis; do
+not clear qBittorrent cookies or unrelated browser storage as a first step.
 
 ## Troubleshooting
 

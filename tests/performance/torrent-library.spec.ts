@@ -18,11 +18,10 @@ interface PerformanceSample {
 
 function positiveInteger(
   name: string,
-  legacyName: string,
   fallback: number,
   maximum = Number.MAX_SAFE_INTEGER
 ): number {
-  const raw = process.env[name] ?? process.env[legacyName]
+  const raw = process.env[name]
   if (raw === undefined) return fallback
   const value = Number(raw)
   if (!Number.isInteger(value) || value <= 0 || value > maximum) {
@@ -204,43 +203,15 @@ test('measures calibrated torrent-library timing and retained browser memory', a
 }, testInfo) => {
   test.slow()
   const scales = [10, 500, 5_000] as const
-  const iterations = positiveInteger('BITWAKE_PERF_ITERATIONS', 'NEOTORRENT_PERF_ITERATIONS', 3, 10)
+  const iterations = positiveInteger('BITWAKE_PERF_ITERATIONS', 3, 10)
   const budgets = {
-    startupP95Ms: positiveInteger(
-      'BITWAKE_PERF_STARTUP_P95_MS',
-      'NEOTORRENT_PERF_STARTUP_P95_MS',
-      15_000
-    ),
-    filterP95Ms: positiveInteger(
-      'BITWAKE_PERF_FILTER_P95_MS',
-      'NEOTORRENT_PERF_FILTER_P95_MS',
-      3_000
-    ),
-    heapUsedMaxBytes:
-      positiveInteger('BITWAKE_PERF_HEAP_MAX_MB', 'NEOTORRENT_PERF_HEAP_MAX_MB', 256) * 1024 * 1024,
-    heapGrowthMaxBytes:
-      positiveInteger(
-        'BITWAKE_PERF_HEAP_GROWTH_MAX_MB',
-        'NEOTORRENT_PERF_HEAP_GROWTH_MAX_MB',
-        160
-      ) *
-      1024 *
-      1024,
-    domNodesMax: positiveInteger(
-      'BITWAKE_PERF_DOM_NODES_MAX',
-      'NEOTORRENT_PERF_DOM_NODES_MAX',
-      10_000
-    ),
-    renderedRowsMax: positiveInteger(
-      'BITWAKE_PERF_RENDERED_ROWS_MAX',
-      'NEOTORRENT_PERF_RENDERED_ROWS_MAX',
-      100
-    ),
-    startupScaleRatioMax: positiveInteger(
-      'BITWAKE_PERF_STARTUP_SCALE_RATIO_MAX',
-      'NEOTORRENT_PERF_STARTUP_SCALE_RATIO_MAX',
-      12
-    )
+    startupP95Ms: positiveInteger('BITWAKE_PERF_STARTUP_P95_MS', 15_000),
+    filterP95Ms: positiveInteger('BITWAKE_PERF_FILTER_P95_MS', 3_000),
+    heapUsedMaxBytes: positiveInteger('BITWAKE_PERF_HEAP_MAX_MB', 256) * 1024 * 1024,
+    heapGrowthMaxBytes: positiveInteger('BITWAKE_PERF_HEAP_GROWTH_MAX_MB', 160) * 1024 * 1024,
+    domNodesMax: positiveInteger('BITWAKE_PERF_DOM_NODES_MAX', 10_000),
+    renderedRowsMax: positiveInteger('BITWAKE_PERF_RENDERED_ROWS_MAX', 100),
+    startupScaleRatioMax: positiveInteger('BITWAKE_PERF_STARTUP_SCALE_RATIO_MAX', 12)
   }
 
   for (const scale of scales) await measure(browser, scale, -1)
@@ -296,9 +267,7 @@ test('measures calibrated torrent-library timing and retained browser memory', a
     samples
   }
   const reportPath = resolve(
-    process.env.BITWAKE_PERFORMANCE_OUTPUT ??
-      process.env.NEOTORRENT_PERFORMANCE_OUTPUT ??
-      'test-results/performance/metrics.json'
+    process.env.BITWAKE_PERFORMANCE_OUTPUT ?? 'test-results/performance/metrics.json'
   )
   await mkdir(dirname(reportPath), { recursive: true })
   await writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`)

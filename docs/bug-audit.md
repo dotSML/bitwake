@@ -1,13 +1,8 @@
-# NeoTorrent adversarial bug audit — 2026-09-01
-
-> [!NOTE]
-> This audit was performed before NeoTorrent was renamed to Bitwake. Product
-> names, paths, image tags, commands, and other recorded evidence below remain
-> unchanged intentionally.
+# Bitwake adversarial bug audit — 2026-09-01
 
 ## Scope and outcome
 
-This was a bug hunt and repair pass against NeoTorrent's existing behavior. It started from commit `ca497f60feec3099d21d7be42c85f60c5819cf12` on a clean worktree and was performed on branch `bug-audit/2026-09-01`. No image was published and the branch was not pushed or merged.
+This was a bug hunt and repair pass against Bitwake's existing behavior. It started from commit `ca497f60feec3099d21d7be42c85f60c5819cf12` on a clean worktree and was performed on branch `bug-audit/2026-09-01`. No image was published and the branch was not pushed or merged.
 
 The audit reproduced and fixed 39 findings: 0 P0, 10 P1, 25 P2, and 4 P3. The fixes are in four root-cause commits plus one scale-test commit:
 
@@ -76,7 +71,7 @@ The detailed endpoint/method/parameter/status/scope matrix remains in [`docs/api
 - **Reproduction:** Return 401 for Host/Origin/Referer validation, a message-less `403 Forbidden` for an unauthenticated private request, and a reasoned 403 such as `Cannot write to directory` for an operation.
 - **Expected behavior:** Only the private-scope, message-less 403 expires the session. Policy and endpoint errors remain visible without destroying authenticated state.
 - **Actual behavior:** 401 always expired the session, while most 403 responses also passed an imprecise heuristic and could expire it.
-- **Root cause:** NeoTorrent inferred authentication from generic HTTP status instead of qBittorrent's 5.2.3 private-scope guard behavior.
+- **Root cause:** Bitwake inferred authentication from generic HTTP status instead of qBittorrent's 5.2.3 private-scope guard behavior.
 - **Fix:** Recognize only an empty/`Forbidden` 403 as private-session expiry; retain 401 and reasoned 403 as request errors.
 - **Regression test:** `tests/unit/httpCore.test.ts`; `tests/component/session-lifecycle.test.ts`.
 - **Verification:** 31 HTTP-core tests and 19 session-lifecycle tests passed; real expiry and policy behavior was checked against qBittorrent [`webapplication.cpp`](https://github.com/qbittorrent/qBittorrent/blob/release-5.2.3/src/webui/webapplication.cpp#L658-L678).
@@ -405,7 +400,7 @@ The detailed endpoint/method/parameter/status/scope matrix remains in [`docs/api
 - **Affected versions/modes:** Both modes.
 - **Reproduction:** Open confirmation for selected hashes, remove one/all torrents through another client, sync the removal, then confirm.
 - **Expected behavior:** Block, refresh, and require review of current torrents.
-- **Actual behavior:** qBittorrent's multi-hash no-op semantics could return success and NeoTorrent showed a misleading deletion toast.
+- **Actual behavior:** qBittorrent's multi-hash no-op semantics could return success and Bitwake showed a misleading deletion toast.
 - **Root cause:** The dialog correctly snapshotted hashes but did not revalidate their existence before the API call.
 - **Fix:** Compare captured hashes with the synchronized map immediately before deletion; block missing targets and refresh.
 - **Regression test:** `tests/component/torrent-dialogs.test.ts`.
@@ -631,7 +626,7 @@ The detailed endpoint/method/parameter/status/scope matrix remains in [`docs/api
 - **Reproduction:** Scan the baseline image with Trivy 0.74.0 at HIGH/CRITICAL severity.
 - **Expected behavior:** The final pinned runtime has no known HIGH/CRITICAL OS-package vulnerabilities at audit time.
 - **Actual behavior:** `libexpat 2.8.3` was reported for CVE-2026-66046 and CVE-2026-76641; 2.8.4 is fixed.
-- **Root cause:** The old pinned full runtime digest included vulnerable libexpat although NeoTorrent did not require it.
+- **Root cause:** The old pinned full runtime digest included vulnerable libexpat although Bitwake did not require it.
 - **Fix:** Pin the official `nginxinc/nginx-unprivileged:1.30.4-alpine-slim` digest with 21 runtime packages and no libexpat; add a container guard if it reappears.
 - **Regression test:** `container/test-container.sh` checks any installed libexpat is at least the fixed Alpine revision.
 - **Verification:** Final amd64 and arm64 Trivy scans each reported 0 HIGH/CRITICAL vulnerabilities.
@@ -649,7 +644,7 @@ The detailed endpoint/method/parameter/status/scope matrix remains in [`docs/api
 - **Root cause:** The example inherited Deployment's default RollingUpdate strategy.
 - **Fix:** Set `strategy.type: Recreate` and document the intentional brief upgrade outage.
 - **Regression test:** `tests/unit/deployment.test.ts` asserts the manifest contract.
-- **Verification:** Kustomize 5.7.1 rendered both bases; the sidecar output contains `Recreate` and preserves service/Ingress routing to NeoTorrent.
+- **Verification:** Kustomize 5.7.1 rendered both bases; the sidecar output contains `Recreate` and preserves service/Ingress routing to Bitwake.
 - **Commit:** `06c3ef07dc1e6a010ff02e3a194c5a9be4171630`.
 
 ## Final verification
@@ -686,9 +681,9 @@ The final browser command used the official image because of the documented Fedo
 
 ```bash
 docker run --rm --network host \
-  -v /home/stenml/code/neotorrent:/work:ro -w /work -e CI= \
+  -v /home/stenml/code/bitwake:/work:ro -w /work -e CI= \
   mcr.microsoft.com/playwright:v1.62.1-noble \
-  /bin/bash -lc "corepack pnpm exec playwright test --reporter=list --output=/tmp/neotorrent-pw-results"
+  /bin/bash -lc "corepack pnpm exec playwright test --reporter=list --output=/tmp/bitwake-pw-results"
 ```
 
 Result: 204 project cases, 77 passed, 127 intentional viewport/project-scope skips, 0 failures, 1.1 minutes. This exercised Chromium and WebKit, 320×700, 375×812, 430×932, 768×1024, 1024×768, and 1440×900 paths. The mobile route/overflow/keyboard test changes viewport through all three phone sizes in both the Chromium mobile-320 path and WebKit mobile-375 path. Axe reported no serious violations on login, torrents, settings, or more routes.
@@ -700,10 +695,10 @@ corepack pnpm container:build
 corepack pnpm container:test
 corepack pnpm audit --prod
 
-docker run --rm -v /home/stenml/code/neotorrent:/work:ro \
+docker run --rm -v /home/stenml/code/bitwake:/work:ro \
   registry.k8s.io/kustomize/kustomize:v5.7.1 \
   build /work/deploy/kubernetes/separate
-docker run --rm -v /home/stenml/code/neotorrent:/work:ro \
+docker run --rm -v /home/stenml/code/bitwake:/work:ro \
   registry.k8s.io/kustomize/kustomize:v5.7.1 \
   build /work/deploy/kubernetes/sidecar
 ```
@@ -717,22 +712,22 @@ Both Kustomize bases rendered successfully with Kustomize 5.7.1. Production depe
 Final image scan commands used pinned Trivy `0.74.0@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969`:
 
 ```bash
-docker buildx build --platform linux/amd64 --load -t neotorrent:audit-final-amd64 .
-docker save -o /tmp/neotorrent-audit-final-amd64.tar neotorrent:audit-final-amd64
+docker buildx build --platform linux/amd64 --load -t bitwake:audit-final-amd64 .
+docker save -o /tmp/bitwake-audit-final-amd64.tar bitwake:audit-final-amd64
 docker run --rm \
-  -v /tmp/neotorrent-audit-final-amd64.tar:/scan/image.tar:ro \
-  -v /tmp/neotorrent-trivy-cache:/root/.cache/ \
+  -v /tmp/bitwake-audit-final-amd64.tar:/scan/image.tar:ro \
+  -v /tmp/bitwake-trivy-cache:/root/.cache/ \
   aquasec/trivy:0.74.0@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969 \
   image --input /scan/image.tar --scanners vuln --severity HIGH,CRITICAL --exit-code 1
 
 docker buildx build --platform linux/arm64 \
-  --output type=oci,dest=/tmp/neotorrent-audit-final-arm64.oci.tar .
-mkdir /tmp/neotorrent-audit-final-arm64-oci
-tar -xf /tmp/neotorrent-audit-final-arm64.oci.tar \
-  -C /tmp/neotorrent-audit-final-arm64-oci
+  --output type=oci,dest=/tmp/bitwake-audit-final-arm64.oci.tar .
+mkdir /tmp/bitwake-audit-final-arm64-oci
+tar -xf /tmp/bitwake-audit-final-arm64.oci.tar \
+  -C /tmp/bitwake-audit-final-arm64-oci
 docker run --rm \
-  -v /tmp/neotorrent-audit-final-arm64-oci:/scan/oci:ro \
-  -v /tmp/neotorrent-trivy-cache:/root/.cache/ \
+  -v /tmp/bitwake-audit-final-arm64-oci:/scan/oci:ro \
+  -v /tmp/bitwake-trivy-cache:/root/.cache/ \
   aquasec/trivy:0.74.0@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969 \
   image --input /scan/oci --scanners vuln --severity HIGH,CRITICAL --exit-code 1
 ```
@@ -758,7 +753,7 @@ Bounded graph/timer/map/list behavior was asserted directly. Component unmount t
 
 ## Investigated but not reproduced
 
-- All 104 qBittorrent preference keys referenced by NeoTorrent were checked against the 5.2.3 target; no missing/legacy key or unit correction was found. Unknown and sensitive fields are not rendered or resent.
+- All 104 qBittorrent preference keys referenced by Bitwake were checked against the 5.2.3 target; no missing/legacy key or unit correction was found. Unknown and sensitive fields are not rendered or resent.
 - `1883.S01E01` was already classified as TV correctly. Numeric show/movie examples without demonstrated failure were retained as regression coverage, not reported as bugs.
 - Independent per-source Add Torrent workers already isolated one API failure from unrelated sources; no “one failure aborts all” defect was reproduced.
 - Set Location completion has no arbitrary wall-clock failure threshold: valid cross-filesystem/NAS moves can take an unknown duration. Completion remains based on synchronized path/state; a timeout was not invented.
@@ -772,12 +767,12 @@ Bounded graph/timer/map/list behavior was asserted directly. Component unmount t
 
 ## Remaining risks and anything not verified
 
-- Separate-container Docker service-DNS recreation was not executed. Static Nginx `proxy_pass` hostname resolution can retain an old container IP until NeoTorrent restarts; Kubernetes Service DNS is less exposed because it normally resolves to a stable ClusterIP. This remains a deployment risk, not a fixed/tested claim.
+- Separate-container Docker service-DNS recreation was not executed. Static Nginx `proxy_pass` hostname resolution can retain an old container IP until Bitwake restarts; Kubernetes Service DNS is less exposed because it normally resolves to a stable ClusterIP. This remains a deployment risk, not a fixed/tested claim.
 - Live HTTPS upstream proxying, invalid upstream-certificate rejection, and an explicit client-disconnect test were not executed. Configuration validation and default `PROXY_SSL_VERIFY=on` were checked, but that is not equivalent to those live cases.
 - Kubernetes bases were rendered, not admitted or rolled out in a real cluster. Ingress TLS/controller behavior, admission policies, network policies, storage, and an actual Gluetun `hostPort` upgrade remain environment-specific verification.
 - The arm64 image was built as OCI and scanned without emulation; it was not booted on arm64 hardware.
 - The deterministic container contract executes qBittorrent in the same localhost network namespace. The real daemon suite did not use an external service-DNS topology.
-- An in-flight request already accepted by qBittorrent cannot be “unsent” when a dialog closes or logout begins. NeoTorrent now stops queued work and ignores stale completions, but server-side acceptance before cancellation remains authoritative.
+- An in-flight request already accepted by qBittorrent cannot be “unsent” when a dialog closes or logout begins. Bitwake now stops queued work and ignores stale completions, but server-side acceptance before cancellation remains authoritative.
 - Delete has an unavoidable narrow race between the preflight synchronized-map check and qBittorrent's delete handler. Because the target returns success for nonexistent hashes, a removal in that interval cannot be distinguished from successful deletion.
 - Logs fetch application and peer logs together; failure of either preserves both previous snapshots and retries both, so a healthy half is not appended during a partial outage.
 - The conservative regex policy intentionally rejects some valid advanced JavaScript regexes. A single allowed unbounded quantifier can still be superlinear on unusually long strings, though qBittorrent names/hashes and the source-length cap bound the audited UI path.

@@ -1,7 +1,6 @@
 import { delay, http, HttpResponse } from 'msw'
 import { createFiles, createTorrents } from './fixtures'
 import { appStorageKeys } from '@/config/appIdentity'
-import { readMigratedBrowserStorage } from '@/utils/migrateBrowserStorage'
 
 const api = (path: string) => new RegExp(`/api/v2/${path.replace('/', '\\/')}(?:\\?.*)?$`)
 const torrents = createTorrents(24)
@@ -18,14 +17,8 @@ function parseMockClientData(value: unknown): Record<string, unknown> | null {
 
 function readClientData(): Record<string, unknown> {
   try {
-    return (
-      readMigratedBrowserStorage(
-        globalThis.sessionStorage,
-        clientDataStorageKeys.browser,
-        clientDataStorageKeys.legacyBrowser,
-        parseMockClientData
-      ).value ?? {}
-    )
+    const serialized = globalThis.sessionStorage.getItem(clientDataStorageKeys.browser)
+    return serialized === null ? {} : (parseMockClientData(JSON.parse(serialized) as unknown) ?? {})
   } catch {
     return {}
   }

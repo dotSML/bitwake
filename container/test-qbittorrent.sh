@@ -2,13 +2,7 @@
 set -eu
 
 repository_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-if [ "${BITWAKE_IMAGE+x}" = x ]; then
-  image=$BITWAKE_IMAGE
-elif [ "${NEOTORRENT_IMAGE+x}" = x ]; then
-  image=$NEOTORRENT_IMAGE
-else
-  image=bitwake:test
-fi
+image=${BITWAKE_IMAGE-bitwake:test}
 qbit_image=${QBITTORRENT_IMAGE:-ghcr.io/qbittorrent/docker-qbittorrent-nox@sha256:9ebb534fe30bab98622cb84a8c3acecfd88319b2d540f52ecdec7b9f866374d7}
 expected_qbit_version=${QBITTORRENT_EXPECTED_VERSION:-v5.2.3}
 expected_webapi_version=${QBITTORRENT_EXPECTED_WEBAPI_VERSION:-2.15.1}

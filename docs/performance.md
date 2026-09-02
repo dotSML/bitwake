@@ -76,9 +76,6 @@ BITWAKE_PERFORMANCE_OUTPUT
 
 All numeric overrides must be positive integers. Record overrides with the
 result; an overridden local pass does not replace the repository defaults.
-The corresponding `NEOTORRENT_*` names remain deprecated compatibility aliases
-for existing automation; a canonical `BITWAKE_*` value takes precedence when
-both are present.
 
 ## Interpretation and limits
 

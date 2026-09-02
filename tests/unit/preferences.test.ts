@@ -7,17 +7,13 @@ import { apiKey } from '@/app/providers/api'
 import {
   defaultUiPreferences,
   migrateUiPreferences,
-  usePreferencesStore,
-  type UiPreferences
+  usePreferencesStore
 } from '@/stores/preferences'
 import { useSessionStore } from '@/stores/session'
 import { appStorageKeys } from '@/config/appIdentity'
-import { readMigratedBrowserStorage } from '@/utils/migrateBrowserStorage'
 
 const clientDataKey = appStorageKeys.uiPreferences.clientData
-const legacyNeoTorrentClientDataKey = appStorageKeys.uiPreferences.legacyClientData
 const browserKey = appStorageKeys.uiPreferences.browser
-const legacyNeoTorrentBrowserKey = appStorageKeys.uiPreferences.legacyBrowser
 
 function createPreferenceStore() {
   const api = createQbittorrentApi()
@@ -298,113 +294,5 @@ describe('UI preference persistence', () => {
     expect(JSON.parse(localStorage.getItem(browserKey) ?? '{}')).toMatchObject({
       density: 'extra-compact'
     })
-  })
-
-  it('migrates every UI preference from the legacy NeoTorrent client-data key with canonical-first validation', async () => {
-    const complete: UiPreferences = {
-      ...structuredClone(defaultUiPreferences),
-      theme: 'dark',
-      locale: 'et',
-      density: 'extra-compact',
-      mobileDensity: 'comfortable',
-      sidebarCollapsed: true,
-      sidebarWidth: 321,
-      inspectorWidth: 612,
-      inspectorOpen: false,
-      visibleColumns: ['name', 'eta'],
-      columnOrder: ['eta', 'name'],
-      columnWidths: { name: 410, eta: 91 },
-      sort: [{ id: 'eta', desc: true }],
-      graphRange: '30m',
-      dateDisplay: 'relative',
-      speedUnit: 'decimal',
-      detailTab: 'files',
-      pollingInterval: 5000,
-      confirmStop: true
-    }
-    const { api, preferences } = createPreferenceStore()
-    vi.spyOn(api.clientData, 'load').mockResolvedValue({
-      [clientDataKey]: { schemaVersion: 99, theme: 'light' },
-      [legacyNeoTorrentClientDataKey]: complete
-    })
-    const persist = vi.spyOn(api.clientData, 'store').mockResolvedValue()
-
-    await preferences.load()
-
-    expect(preferences.value).toEqual(complete)
-    expect(api.clientData.load).toHaveBeenCalledWith(
-      [clientDataKey, legacyNeoTorrentClientDataKey],
-      expect.any(AbortSignal)
-    )
-    expect(persist).toHaveBeenCalledWith({ [clientDataKey]: complete }, expect.any(AbortSignal))
-    expect(persist.mock.calls[0]?.[0]).not.toHaveProperty(legacyNeoTorrentClientDataKey)
-  })
-
-  it('keeps canonical browser preferences authoritative and migrates a valid NeoTorrent fallback', () => {
-    localStorage.setItem(
-      legacyNeoTorrentBrowserKey,
-      JSON.stringify({ schemaVersion: 2, theme: 'light' })
-    )
-    localStorage.setItem(browserKey, JSON.stringify({ schemaVersion: 2, theme: 'dark' }))
-    expect(createPreferenceStore().preferences.value.theme).toBe('dark')
-
-    localStorage.setItem(browserKey, '{broken')
-    expect(createPreferenceStore().preferences.value.theme).toBe('light')
-    expect(JSON.parse(localStorage.getItem(browserKey) ?? '{}')).toMatchObject({ theme: 'light' })
-    expect(JSON.parse(localStorage.getItem(legacyNeoTorrentBrowserKey) ?? '{}')).toMatchObject({
-      theme: 'light'
-    })
-  })
-
-  it('verifies browser migration writes and never copies malformed legacy JSON', () => {
-    const values = new Map<string, string>([
-      [legacyNeoTorrentBrowserKey, JSON.stringify({ theme: 'dark' })]
-    ])
-    const silentStorage = {
-      getItem: (key: string) => values.get(key) ?? null,
-      setItem: vi.fn()
-    }
-    const parse = (candidate: unknown) =>
-      candidate && typeof candidate === 'object' ? migrateUiPreferences(candidate) : null
-
-    const migration = readMigratedBrowserStorage(
-      silentStorage,
-      browserKey,
-      legacyNeoTorrentBrowserKey,
-      parse
-    )
-    expect(migration.value?.theme).toBe('dark')
-    expect(migration.canonicalWriteVerified).toBe(false)
-
-    values.set(legacyNeoTorrentBrowserKey, '{broken')
-    silentStorage.setItem.mockClear()
-    expect(
-      readMigratedBrowserStorage(silentStorage, browserKey, legacyNeoTorrentBrowserKey, parse).value
-    ).toBeNull()
-    expect(silentStorage.setItem).not.toHaveBeenCalled()
-  })
-
-  it('does not complete a deferred NeoTorrent migration after the private session changes', async () => {
-    const { api, session, preferences } = createPreferenceStore()
-    const migration = deferred<void>()
-    vi.spyOn(api.clientData, 'load')
-      .mockResolvedValueOnce({
-        [legacyNeoTorrentClientDataKey]: { schemaVersion: 2, theme: 'light' }
-      })
-      .mockResolvedValueOnce({
-        [clientDataKey]: { schemaVersion: 2, theme: 'dark' }
-      })
-    vi.spyOn(api.clientData, 'store').mockImplementationOnce(() => migration.promise)
-
-    const oldLoad = preferences.load()
-    await vi.waitFor(() => expect(api.clientData.store).toHaveBeenCalledOnce())
-    session.advancePrivateStateEpoch()
-    const newLoad = preferences.load()
-    await newLoad
-    migration.resolve()
-    await oldLoad
-
-    expect(preferences.value.theme).toBe('dark')
-    expect(preferences.loaded).toBe(true)
   })
 })

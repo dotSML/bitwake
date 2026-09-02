@@ -39,10 +39,8 @@ configuration warning while the rest of the WebUI continues to work. Logout, ses
 anonymous cold start clear the user-scoped Media Placement fallback before another account can reuse
 the standalone SPA.
 
-Canonical saved keys are `bitwake.media-placement.v1` in qBittorrent client
-data and `bitwake:media-placement` in local storage. Valid values under the
-former `neotorrent.media-placement.v1` and `neotorrent:media-placement` keys are
-sanitized and migrated automatically; malformed data is not copied.
+Saved keys are `bitwake.media-placement.v1` in qBittorrent client data and
+`bitwake:media-placement` in local storage.
 
 ## Runtime variables
 
@@ -58,16 +56,10 @@ The standalone image accepts these non-secret variables:
 | `BITWAKE_TV_CATEGORY`         | empty   | optional existing TV category suggestion    |
 | `BITWAKE_MOVIE_CATEGORY`      | empty   | optional existing Movie category suggestion |
 
-The equivalent `NEOTORRENT_*` variables remain deprecated aliases. Canonical
-`BITWAKE_*` values take precedence when both forms are set, and warnings do not
-include configured path or category values.
-
 The container generates `/_bitwake/runtime-config.json` at startup. It contains only the fields
 above, is served with `Cache-Control: no-store`, and is excluded from PWA precaching. It never
 contains qBittorrent credentials or `QBITTORRENT_URL`. Media roots are not compiled into frontend
 JavaScript.
-The exact legacy URL `/_neotorrent/runtime-config.json` temporarily serves the
-same effective JSON with the same no-store and NetworkOnly behavior.
 
 TV and Movies roots may use POSIX, Windows-drive, or UNC path styles, but two non-empty roots must
 not be equal and neither may contain the other. Comparisons are segment-aware and Windows/UNC roots

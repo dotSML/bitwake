@@ -14,7 +14,6 @@ import {
 import { useSessionStore } from './session'
 import { setApplicationLocale, type ApplicationLocalePreference } from '@/i18n'
 import { appStorageKeys } from '@/config/appIdentity'
-import { readMigratedBrowserStorage } from '@/utils/migrateBrowserStorage'
 
 export type ThemePreference = 'system' | 'light' | 'dark'
 export type DensityPreference = 'comfortable' | 'compact' | 'extra-compact'
@@ -224,14 +223,15 @@ export function parsePersistedUiPreferences(value: unknown): UiPreferences | nul
 
 function readLocal(): UiPreferences {
   if (typeof localStorage === 'undefined') return structuredClone(defaultUiPreferences)
-  return (
-    readMigratedBrowserStorage(
-      localStorage,
-      storageKeys.browser,
-      storageKeys.legacyBrowser,
-      parsePersistedUiPreferences
-    ).value ?? structuredClone(defaultUiPreferences)
-  )
+  try {
+    const serialized = localStorage.getItem(storageKeys.browser)
+    return serialized === null
+      ? structuredClone(defaultUiPreferences)
+      : (parsePersistedUiPreferences(JSON.parse(serialized) as unknown) ??
+          structuredClone(defaultUiPreferences))
+  } catch {
+    return structuredClone(defaultUiPreferences)
+  }
 }
 
 export const usePreferencesStore = defineStore('preferences', () => {
@@ -265,10 +265,7 @@ export const usePreferencesStore = defineStore('preferences', () => {
     if (generation !== loadGeneration) return
     try {
       if (session.capabilities?.has('clientData')) {
-        const loadedData = await api.clientData.load(
-          [storageKeys.clientData, storageKeys.legacyClientData],
-          controller.signal
-        )
+        const loadedData = await api.clientData.load([storageKeys.clientData], controller.signal)
         if (
           controller.signal.aborted ||
           generation !== loadGeneration ||
@@ -276,21 +273,7 @@ export const usePreferencesStore = defineStore('preferences', () => {
         )
           return
         const canonical = parsePersistedUiPreferences(loadedData[storageKeys.clientData])
-        const legacy = parsePersistedUiPreferences(loadedData[storageKeys.legacyClientData])
-        value.value = canonical ?? legacy ?? readLocal()
-        if (!canonical && legacy) {
-          try {
-            await api.clientData.store({ [storageKeys.clientData]: legacy }, controller.signal)
-          } catch {
-            // A valid legacy value remains active; a later save can retry migration.
-          }
-          if (
-            controller.signal.aborted ||
-            generation !== loadGeneration ||
-            privateStateEpoch !== session.privateStateEpoch
-          )
-            return
-        }
+        value.value = canonical ?? readLocal()
       } else {
         value.value = readLocal()
       }

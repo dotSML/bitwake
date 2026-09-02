@@ -54,15 +54,7 @@ export default defineConfig(({ mode }) => {
       VitePWA({
         disable: alternativePublic,
         registerType: 'prompt',
-        includeAssets: [
-          'icons/bitwake.svg',
-          'icons/bitwake-192.png',
-          'icons/bitwake-512.png',
-          // Legacy icon paths remain aliases for one upgrade window.
-          'icons/neotorrent.svg',
-          'icons/neotorrent-192.png',
-          'icons/neotorrent-512.png'
-        ],
+        includeAssets: ['icons/bitwake.svg', 'icons/bitwake-192.png', 'icons/bitwake-512.png'],
         manifest: {
           id: './',
           name: appIdentity.name,
@@ -105,14 +97,12 @@ export default defineConfig(({ mode }) => {
           globPatterns: alternativePrivate
             ? ['**/*.{js,css,svg,png,woff2}']
             : ['**/*.{html,js,css,svg,png,woff2}'],
-          globIgnores: ['**/_bitwake/**', '**/_neotorrent/**', '**/runtime-config.json'],
+          globIgnores: ['**/_bitwake/**', '**/runtime-config.json'],
           runtimeCaching: [
             {
               // Match the runtime resource relative to any deployment scope;
-              // a root-only equality check misses reverse-proxy subpaths. The
-              // NeoTorrent path is a one-release NetworkOnly compatibility alias.
-              urlPattern: ({ url }) =>
-                /\/_(?:bitwake|neotorrent)\/runtime-config\.json$/u.test(url.pathname),
+              // a root-only equality check misses reverse-proxy subpaths.
+              urlPattern: ({ url }) => /\/_bitwake\/runtime-config\.json$/u.test(url.pathname),
               handler: 'NetworkOnly',
               method: 'GET'
             },
@@ -150,18 +140,11 @@ export default defineConfig(({ mode }) => {
     define: {
       __DEPLOYMENT_MODE__: JSON.stringify(deploymentMode),
       __MOCK_BACKEND__: JSON.stringify(mockBackendEnabled),
-      __BITWAKE_VERSION__: JSON.stringify(
-        env.BITWAKE_BUILD_VERSION ?? env.NEOTORRENT_BUILD_VERSION ?? packageMetadata.version
-      ),
+      __BITWAKE_VERSION__: JSON.stringify(env.BITWAKE_BUILD_VERSION ?? packageMetadata.version),
       __BITWAKE_REVISION__: JSON.stringify(
-        env.BITWAKE_BUILD_REVISION ??
-          env.NEOTORRENT_BUILD_REVISION ??
-          env.GITHUB_SHA ??
-          'development'
+        env.BITWAKE_BUILD_REVISION ?? env.GITHUB_SHA ?? 'development'
       ),
-      __BITWAKE_BUILD_DATE__: JSON.stringify(
-        env.BITWAKE_BUILD_DATE ?? env.NEOTORRENT_BUILD_DATE ?? ''
-      )
+      __BITWAKE_BUILD_DATE__: JSON.stringify(env.BITWAKE_BUILD_DATE ?? '')
     },
     ...(proxyTarget
       ? {

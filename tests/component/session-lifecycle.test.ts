@@ -58,9 +58,9 @@ function setup(mode: DeploymentMode) {
 }
 
 describe('central session lifecycle', () => {
-  it('clears canonical and legacy Media Placement fallbacks before a different user logs in', async () => {
+  it('clears the Media Placement fallback before a different user logs in', async () => {
     localStorage.setItem(
-      appStorageKeys.mediaPlacement.legacyBrowser,
+      appStorageKeys.mediaPlacement.browser,
       JSON.stringify({
         mode: 'assist',
         tvRoot: '/user-a/private-tv',
@@ -69,10 +69,6 @@ describe('central session lifecycle', () => {
         tvCategory: 'User A TV',
         movieCategory: 'User A Movies'
       })
-    )
-    localStorage.setItem(
-      appStorageKeys.mediaPlacement.browser,
-      localStorage.getItem(appStorageKeys.mediaPlacement.legacyBrowser) ?? ''
     )
     const harness = setup('standalone')
     await harness.context.router.push('/torrents')
@@ -89,7 +85,6 @@ describe('central session lifecycle', () => {
 
     await harness.lifecycle.initialize()
     expect(localStorage.getItem(appStorageKeys.mediaPlacement.browser)).toBeNull()
-    expect(localStorage.getItem(appStorageKeys.mediaPlacement.legacyBrowser)).toBeNull()
     expect(harness.mediaPlacement.config.tvRoot).toBe('')
 
     await harness.lifecycle.login({ username: 'user-b', password: 'secret' })

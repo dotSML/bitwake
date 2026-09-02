@@ -548,7 +548,6 @@ export function readBootstrapLocalePreference(
   try {
     return (
       localeFromSerializedPreference(storage.getItem(appStorageKeys.uiPreferences.browser)) ??
-      localeFromSerializedPreference(storage.getItem(appStorageKeys.uiPreferences.legacyBrowser)) ??
       'system'
     )
   } catch {

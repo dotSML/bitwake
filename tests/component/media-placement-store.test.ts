@@ -7,9 +7,7 @@ import { createTestContext } from './support/mount'
 import { appStorageKeys } from '@/config/appIdentity'
 
 const clientDataKey = appStorageKeys.mediaPlacement.clientData
-const legacyNeoTorrentClientDataKey = appStorageKeys.mediaPlacement.legacyClientData
 const browserKey = appStorageKeys.mediaPlacement.browser
-const legacyNeoTorrentBrowserKey = appStorageKeys.mediaPlacement.legacyBrowser
 
 const runtimeAssist = {
   mode: 'assist' as const,
@@ -76,56 +74,6 @@ describe('Media Placement configuration precedence', () => {
     await store.load()
 
     expect(store.config).toMatchObject({ source: 'saved', locked: false, ...savedAssist })
-  })
-
-  it('migrates valid legacy NeoTorrent client data without writing the legacy key', async () => {
-    vi.spyOn(runtimeConfig, 'loadRuntimeMediaConfig').mockResolvedValue({
-      source: 'none',
-      config: { ...runtimeConfig.OFF_RUNTIME_MEDIA_CONFIG }
-    })
-    const { context, store } = createStore()
-    vi.spyOn(context.api.clientData, 'load').mockResolvedValue({
-      [clientDataKey]: { ...savedAssist, mode: 'broken' },
-      [legacyNeoTorrentClientDataKey]: savedAssist
-    })
-    const persist = vi.spyOn(context.api.clientData, 'store').mockResolvedValue()
-
-    await store.load()
-
-    expect(store.config).toMatchObject({ source: 'saved', ...savedAssist })
-    expect(context.api.clientData.load).toHaveBeenCalledWith(
-      [clientDataKey, legacyNeoTorrentClientDataKey],
-      expect.any(AbortSignal)
-    )
-    expect(persist).toHaveBeenCalledWith({ [clientDataKey]: savedAssist }, expect.any(AbortSignal))
-    expect(persist.mock.calls[0]?.[0]).not.toHaveProperty(legacyNeoTorrentClientDataKey)
-  })
-
-  it('migrates a valid legacy NeoTorrent browser fallback and ignores malformed values', async () => {
-    localStorage.setItem(legacyNeoTorrentBrowserKey, JSON.stringify(savedAssist))
-    vi.spyOn(runtimeConfig, 'loadRuntimeMediaConfig').mockResolvedValue({
-      source: 'none',
-      config: { ...runtimeConfig.OFF_RUNTIME_MEDIA_CONFIG }
-    })
-    const { store } = createStore(false)
-
-    await store.load()
-
-    expect(store.config).toMatchObject({ source: 'saved', ...savedAssist })
-    expect(JSON.parse(localStorage.getItem(browserKey) ?? '{}')).toEqual(savedAssist)
-    expect(JSON.parse(localStorage.getItem(legacyNeoTorrentBrowserKey) ?? '{}')).toEqual(
-      savedAssist
-    )
-
-    localStorage.clear()
-    localStorage.setItem(
-      legacyNeoTorrentBrowserKey,
-      JSON.stringify({ ...savedAssist, tvRoot: 'relative' })
-    )
-    const malformed = createStore(false).store
-    await malformed.load()
-    expect(malformed.config).toMatchObject({ source: 'default', mode: 'off' })
-    expect(localStorage.getItem(browserKey)).toBeNull()
   })
 
   it('ignores malformed persisted data and retains a valid unlocked runtime configuration', async () => {
@@ -351,33 +299,5 @@ describe('Media Placement configuration precedence', () => {
     await store.load()
     expect(store.config.tvRoot).toBe('/user-b/private-tv')
     expect(loadClientData).toHaveBeenCalledTimes(2)
-  })
-
-  it('does not restore a legacy NeoTorrent path when migration settles after reset', async () => {
-    vi.spyOn(runtimeConfig, 'loadRuntimeMediaConfig').mockResolvedValue({
-      source: 'none',
-      config: { ...runtimeConfig.OFF_RUNTIME_MEDIA_CONFIG }
-    })
-    const { context, store } = createStore()
-    vi.spyOn(context.api.clientData, 'load').mockResolvedValue({
-      [legacyNeoTorrentClientDataKey]: { ...savedAssist, tvRoot: '/old-session/private-tv' }
-    })
-    let finishMigration!: () => void
-    vi.spyOn(context.api.clientData, 'store').mockImplementation(
-      () =>
-        new Promise<void>((resolve) => {
-          finishMigration = resolve
-        })
-    )
-
-    const oldLoad = store.load()
-    await vi.waitFor(() => expect(context.api.clientData.store).toHaveBeenCalledOnce())
-    store.resetPrivateState()
-    finishMigration()
-    await oldLoad
-
-    expect(store.loaded).toBe(false)
-    expect(store.config).toMatchObject({ source: 'default', mode: 'off', tvRoot: '' })
-    expect(localStorage.getItem(browserKey)).toBeNull()
   })
 })

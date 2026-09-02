@@ -49,17 +49,6 @@ describe('internationalization catalog', () => {
     ).toBe('system')
   })
 
-  it('uses canonical locale first, then a valid legacy locale when canonical data is malformed', () => {
-    const values = new Map<string, string>([
-      [appStorageKeys.uiPreferences.browser, JSON.stringify({ locale: 'en' })],
-      [appStorageKeys.uiPreferences.legacyBrowser, JSON.stringify({ locale: 'et' })]
-    ])
-    expect(readBootstrapLocalePreference({ getItem: (key) => values.get(key) ?? null })).toBe('en')
-
-    values.set(appStorageKeys.uiPreferences.browser, '{broken')
-    expect(readBootstrapLocalePreference({ getItem: (key) => values.get(key) ?? null })).toBe('et')
-  })
-
   it('keeps native number and date formatting aligned with the selected language', () => {
     const timestamp = 1_700_000_000
     setApplicationLocale('et')

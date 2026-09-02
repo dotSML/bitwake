@@ -7,7 +7,7 @@ import { dirname, join } from 'node:path'
 import { URL } from 'node:url'
 import { chromium } from '@playwright/test'
 
-const baseUrl = process.env.BITWAKE_TEST_URL ?? process.env.NEOTORRENT_TEST_URL
+const baseUrl = process.env.BITWAKE_TEST_URL
 const initialPassword = process.env.QBITTORRENT_TEST_PASSWORD
 const qbitContainer = process.env.QBITTORRENT_TEST_CONTAINER
 const chromePath = process.env.PLAYWRIGHT_CHROME_PATH
@@ -16,7 +16,7 @@ const expectedWebApiVersion = process.env.QBITTORRENT_EXPECTED_WEBAPI_VERSION ??
 
 if (!baseUrl || !initialPassword || !qbitContainer) {
   throw new Error(
-    'BITWAKE_TEST_URL (or deprecated NEOTORRENT_TEST_URL), QBITTORRENT_TEST_PASSWORD, and QBITTORRENT_TEST_CONTAINER are required'
+    'BITWAKE_TEST_URL, QBITTORRENT_TEST_PASSWORD, and QBITTORRENT_TEST_CONTAINER are required'
   )
 }
 
