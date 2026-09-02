@@ -108,9 +108,7 @@ describe('torrent list interactions', () => {
 
     const expectDensity = (preference: string, height: number) => {
       expect(preferences.value.density).toBe(preference)
-      expect(grid.element.style.getPropertyValue('--torrent-row-height')).toBe(
-        `${height}px`
-      )
+      expect(grid.element.style.getPropertyValue('--torrent-row-height')).toBe(`${height}px`)
     }
 
     expectDensity('compact', 36)

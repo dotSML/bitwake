@@ -233,10 +233,10 @@ const table = useVueTable({
 const rows = computed(() => table.getRowModel().rows)
 const rowHeight = computed(() =>
   preferences.value.density === 'comfortable'
-      ? 46
-      : preferences.value.density === 'extra-compact'
-        ? 30
-        : 36
+    ? 46
+    : preferences.value.density === 'extra-compact'
+      ? 30
+      : 36
 )
 const virtualizer = useVirtualizer({
   get count() {
