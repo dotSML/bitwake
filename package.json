@@ -56,7 +56,7 @@
     "ci": "pnpm identity:check && pnpm typecheck && pnpm lint && pnpm test:all && pnpm build:alt-webui && pnpm build:standalone"
   },
   "dependencies": {
-    "@tanstack/vue-table": "^8.21.3",
+    "@tanstack/vue-table": "^9.2.4",
     "@tanstack/vue-virtual": "^3.13.12",
     "dompurify": "^3.2.6",
     "lucide-vue-next": "^0.542.0",
