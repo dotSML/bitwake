@@ -8,7 +8,7 @@ import {
   FolderOpen,
   LoaderCircle,
   Search
-} from 'lucide-vue-next'
+} from '@lucide/vue'
 import { useVirtualizer } from '@tanstack/vue-virtual'
 import { computed, nextTick, ref, watch } from 'vue'
 import type { TorrentFile } from '@/api/types/models'

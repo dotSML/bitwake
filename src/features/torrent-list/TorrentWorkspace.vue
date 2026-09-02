@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Inbox, Plus, RefreshCw } from 'lucide-vue-next'
+import { Inbox, Plus, RefreshCw } from '@lucide/vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import TransferGraph from '@/features/statistics/TransferGraph.vue'

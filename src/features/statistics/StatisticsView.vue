@@ -8,7 +8,7 @@ import {
   HardDrive,
   Network,
   Timer
-} from 'lucide-vue-next'
+} from '@lucide/vue'
 import { computed, onMounted, ref } from 'vue'
 import { useApi } from '@/app/providers/api'
 import { useSessionStore } from '@/stores/session'

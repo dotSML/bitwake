@@ -9,7 +9,7 @@ import {
   RefreshCw,
   Trash2,
   X
-} from 'lucide-vue-next'
+} from '@lucide/vue'
 import { useVirtualizer } from '@tanstack/vue-virtual'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type {

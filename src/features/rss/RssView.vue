@@ -9,7 +9,7 @@ import {
   Rss,
   Settings2,
   Trash2
-} from 'lucide-vue-next'
+} from '@lucide/vue'
 import { useVirtualizer } from '@tanstack/vue-virtual'
 import { computed, onMounted, ref, toRaw } from 'vue'
 import type { RssArticle, RssItems } from '@/api/rss/rssApi'

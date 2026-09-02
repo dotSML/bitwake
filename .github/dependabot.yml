@@ -4,6 +4,10 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      semver-major-days: 30
+      semver-minor-days: 7
+      semver-patch-days: 3
     groups:
       # Routine updates share CI coverage; majors remain isolated migrations.
       frontend-dependencies:
@@ -24,6 +28,10 @@ updates:
       - dependency-name: tailwindcss
         versions:
           - '>=4.0.0'
+      # The reviewed runtime is Node 22; keep compile-time APIs aligned with it.
+      - dependency-name: '@types/node'
+        versions:
+          - '>=23.0.0'
   - package-ecosystem: docker
     directory: /
     schedule:

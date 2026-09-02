@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { CloudOff, LoaderCircle, RefreshCw } from 'lucide-vue-next'
+import { CloudOff, LoaderCircle, RefreshCw } from '@lucide/vue'
 import { useTorrentsStore } from '@/stores/torrents'
 
 const torrents = useTorrentsStore()

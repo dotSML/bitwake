@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { X } from 'lucide-vue-next'
+import { X } from '@lucide/vue'
 import { replaceControlCharacters } from '@/features/media-placement/domain/textSafety'
 import { useNotificationsStore } from '@/stores/notifications'
 

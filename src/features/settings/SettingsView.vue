@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { AlertTriangle, Check, LoaderCircle, Search, ShieldAlert } from 'lucide-vue-next'
+import { AlertTriangle, Check, LoaderCircle, Search, ShieldAlert } from '@lucide/vue'
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useApi } from '@/app/providers/api'

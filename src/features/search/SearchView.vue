@@ -1,14 +1,5 @@
 <script setup lang="ts">
-import {
-  Download,
-  LoaderCircle,
-  Pause,
-  Play,
-  Plug,
-  RefreshCw,
-  Search,
-  Trash2
-} from 'lucide-vue-next'
+import { Download, LoaderCircle, Pause, Play, Plug, RefreshCw, Search, Trash2 } from '@lucide/vue'
 import { useVirtualizer } from '@tanstack/vue-virtual'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import type { SearchPlugin, SearchResult } from '@/api/types/models'

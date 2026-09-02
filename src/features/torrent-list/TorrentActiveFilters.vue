@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, ref } from 'vue'
-import { X } from 'lucide-vue-next'
+import { X } from '@lucide/vue'
 import type { TorrentFilters } from '@/domains/torrents/filtering'
 import { useTorrentsStore } from '@/stores/torrents'
 

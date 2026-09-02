@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ChevronRight, Folder, FolderOpen, LoaderCircle, MoveUp, Search, X } from 'lucide-vue-next'
+import { ChevronRight, Folder, FolderOpen, LoaderCircle, MoveUp, Search, X } from '@lucide/vue'
 import { computed, nextTick, onBeforeUnmount, ref, useId } from 'vue'
 import { useApi } from '@/app/providers/api'
 import { directoryNames, hostJoinPath, hostParentPath } from '../domain/hostDirectory'

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Eye, EyeOff, LoaderCircle, Waves } from 'lucide-vue-next'
+import { Eye, EyeOff, LoaderCircle, Waves } from '@lucide/vue'
 import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { LoginCredentials } from '@/api/auth/authApi'

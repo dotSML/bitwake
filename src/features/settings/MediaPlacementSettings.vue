@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Check, FolderCheck, LoaderCircle, LockKeyhole } from 'lucide-vue-next'
+import { Check, FolderCheck, LoaderCircle, LockKeyhole } from '@lucide/vue'
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { isApiError } from '@/api/core/errors'

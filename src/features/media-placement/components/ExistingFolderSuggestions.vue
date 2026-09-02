@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { FolderSearch, LoaderCircle } from 'lucide-vue-next'
+import { FolderSearch, LoaderCircle } from '@lucide/vue'
 import { onBeforeUnmount, ref, watch } from 'vue'
 import { useApi } from '@/app/providers/api'
 import { formatNumber } from '@/utils/format'

@@ -9,7 +9,7 @@ import {
   LoaderCircle,
   Plus,
   XCircle
-} from 'lucide-vue-next'
+} from '@lucide/vue'
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import type { AddTorrentResult } from '@/api/types/models'
 import { useApi } from '@/app/providers/api'

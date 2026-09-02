@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { FolderTree } from 'lucide-vue-next'
+import { FolderTree } from '@lucide/vue'
 import { replaceControlCharacters } from '../domain/textSafety'
 
 withDefaults(

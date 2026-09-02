@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Clipboard, Pause, Play, Search, Trash2 } from 'lucide-vue-next'
+import { Clipboard, Pause, Play, Search, Trash2 } from '@lucide/vue'
 import { useVirtualizer } from '@tanstack/vue-virtual'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'

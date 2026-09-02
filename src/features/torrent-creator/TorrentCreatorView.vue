@@ -7,7 +7,7 @@ import {
   RefreshCw,
   Trash2,
   WandSparkles
-} from 'lucide-vue-next'
+} from '@lucide/vue'
 import { computed, onMounted, ref } from 'vue'
 import type { TorrentCreatorTask } from '@/api/torrentCreator/torrentCreatorApi'
 import { useApi } from '@/app/providers/api'

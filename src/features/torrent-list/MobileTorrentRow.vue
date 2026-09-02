@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { AlertTriangle, MoreVertical } from 'lucide-vue-next'
+import { AlertTriangle, MoreVertical } from '@lucide/vue'
 import { computed } from 'vue'
 import type { TorrentInfo } from '@/api/types/models'
 import { torrentStateLabel } from '@/domains/torrents/state'

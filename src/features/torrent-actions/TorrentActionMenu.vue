@@ -20,7 +20,7 @@ import {
   Trash2,
   Undo2,
   X
-} from 'lucide-vue-next'
+} from '@lucide/vue'
 import { computed, nextTick, ref, watch, type CSSProperties } from 'vue'
 import { useApi } from '@/app/providers/api'
 import { isApiError } from '@/api/core/errors'

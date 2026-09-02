@@ -59,7 +59,7 @@
     "@tanstack/vue-table": "^8.21.3",
     "@tanstack/vue-virtual": "^3.13.12",
     "dompurify": "^3.2.6",
-    "lucide-vue-next": "^0.542.0",
+    "@lucide/vue": "^1.39.0",
     "pinia": "^3.0.3",
     "reka-ui": "^2.5.0",
     "vue": "^3.5.21",
@@ -71,7 +71,7 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.55.0",
-    "@types/node": "^24.3.0",
+    "@types/node": "^22.20.1",
     "@vitejs/plugin-vue": "6.0.8",
     "@vue/test-utils": "^2.4.6",
     "autoprefixer": "^10.4.21",

@@ -20,7 +20,7 @@ import {
   Sun,
   Tags,
   WandSparkles
-} from 'lucide-vue-next'
+} from '@lucide/vue'
 import { computed, ref } from 'vue'
 import { versionAtLeast } from '@/api/capabilities/versions'
 import type { Category } from '@/api/types/models'

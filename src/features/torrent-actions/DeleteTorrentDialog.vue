@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { AlertTriangle } from 'lucide-vue-next'
+import { AlertTriangle } from '@lucide/vue'
 import { ref, watch } from 'vue'
 import { useApi } from '@/app/providers/api'
 import { useNotificationsStore } from '@/stores/notifications'

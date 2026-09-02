@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { AlertTriangle, ChevronDown, ChevronUp, ChevronsUpDown } from 'lucide-vue-next'
+import { AlertTriangle, ChevronDown, ChevronUp, ChevronsUpDown } from '@lucide/vue'
 import {
   createColumnHelper,
   FlexRender,

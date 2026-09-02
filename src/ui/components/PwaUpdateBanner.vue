@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Download, RefreshCw, X } from 'lucide-vue-next'
+import { Download, RefreshCw, X } from '@lucide/vue'
 import { nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { usePwaStore } from '@/stores/pwa'

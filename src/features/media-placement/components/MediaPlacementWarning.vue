@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { AlertTriangle, CircleAlert, Info } from 'lucide-vue-next'
+import { AlertTriangle, CircleAlert, Info } from '@lucide/vue'
 import type { MediaPlacementWarning } from '../domain/types'
 import { replaceControlCharacters } from '../domain/textSafety'
 

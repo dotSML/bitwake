@@ -1,12 +1,5 @@
 <script setup lang="ts">
-import {
-  AlertTriangle,
-  ChevronRight,
-  Folder,
-  FolderOpen,
-  LoaderCircle,
-  MoveUp
-} from 'lucide-vue-next'
+import { AlertTriangle, ChevronRight, Folder, FolderOpen, LoaderCircle, MoveUp } from '@lucide/vue'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { isApiError } from '@/api/core/errors'
 import type { ShareLimitAction } from '@/api/torrents/torrentsApi'
