@@ -231,18 +231,19 @@ const table = useVueTable({
 })
 
 const rows = computed(() => table.getRowModel().rows)
-const estimatedRowSize = () =>
+const rowHeight = computed(() =>
   preferences.value.density === 'comfortable'
-    ? 46
-    : preferences.value.density === 'extra-compact'
-      ? 30
-      : 36
+      ? 46
+      : preferences.value.density === 'extra-compact'
+        ? 30
+        : 36
+)
 const virtualizer = useVirtualizer({
   get count() {
     return rows.value.length
   },
   getScrollElement: () => scrollElement.value,
-  estimateSize: estimatedRowSize,
+  estimateSize: () => rowHeight.value,
   overscan: 12
 })
 
@@ -258,6 +259,13 @@ watch(rows, (items) => {
   focusedIndex.value = Math.max(0, Math.min(focusedIndex.value, Math.max(0, items.length - 1)))
   if (selectionAnchor !== null && selectionAnchor >= items.length) selectionAnchor = null
 })
+watch(
+  () => preferences.value.density,
+  async () => {
+    await nextTick()
+    virtualizer.value.measure()
+  }
+)
 watch(
   () => preferences.value.columnWidths,
   (widths) => {
@@ -301,7 +309,7 @@ async function focusRow(index: number): Promise<void> {
   if (!rendered && scrollElement.value) {
     scrollElement.value.scrollTop = Math.max(
       0,
-      nextIndex * estimatedRowSize() - scrollElement.value.clientHeight / 2
+      nextIndex * rowHeight.value - scrollElement.value.clientHeight / 2
     )
   }
   scrollElement.value?.dispatchEvent(new Event('scroll'))
@@ -357,6 +365,7 @@ async function onKeydown(event: KeyboardEvent, index: number): Promise<void> {
     role="grid"
     aria-label="Torrents"
     :aria-rowcount="rows.length + 1"
+    :style="{ '--torrent-row-height': `${rowHeight}px` }"
   >
     <div class="table-head" role="row" :style="{ width: `${table.getTotalSize()}px` }">
       <div

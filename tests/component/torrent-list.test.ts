@@ -96,6 +96,34 @@ describe('torrent list interactions', () => {
     expect(start).toHaveBeenCalledWith([torrent.hash])
   })
 
+  it('keeps desktop row density synchronized with the toolbar preference', async () => {
+    const context = createTestContext()
+    const torrents = context.run(() => useTorrentsStore(context.pinia))
+    const preferences = context.run(() => usePreferencesStore(context.pinia))
+    const torrent = createTorrents(1)[0]!
+    torrents.applyMainData({ rid: 1, full_update: true, torrents: { [torrent.hash]: torrent } })
+    const table = await mountWithContext(TorrentTable, context, { attachTo: document.body })
+    const toolbar = await mountWithContext(TorrentToolbar, context, { attachTo: document.body })
+    const grid = table.get<HTMLElement>('[role="grid"]')
+
+    const expectDensity = (preference: string, height: number) => {
+      expect(preferences.value.density).toBe(preference)
+      expect(grid.element.style.getPropertyValue('--torrent-row-height')).toBe(
+        `${height}px`
+      )
+    }
+
+    expectDensity('compact', 36)
+
+    await toolbar.get('.density-button').trigger('click')
+    await nextTick()
+    expectDensity('extra-compact', 30)
+
+    await toolbar.get('.density-button').trigger('click')
+    await nextTick()
+    expectDensity('comfortable', 46)
+  })
+
   it('reorders columns from the toolbar and resets the persisted layout', async () => {
     const context = createTestContext()
     const preferences = context.run(() => usePreferencesStore(context.pinia))
