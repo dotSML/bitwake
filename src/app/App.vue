@@ -8,7 +8,6 @@ import { useSessionStore } from '@/stores/session'
 import { useTorrentsStore } from '@/stores/torrents'
 import { useOperationsHistoryStore } from '@/stores/operationsHistory'
 import { appEvents } from '@/config/appIdentity'
-import LegalNotice from '@/ui/components/LegalNotice.vue'
 
 const session = useSessionStore()
 const torrents = useTorrentsStore()
@@ -147,7 +146,6 @@ onBeforeUnmount(() => {
   </div>
   <RouterView v-else-if="session.status === 'anonymous'" />
   <AppShell v-else />
-  <LegalNotice />
 </template>
 
 <style scoped>
