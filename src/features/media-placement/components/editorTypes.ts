@@ -328,7 +328,9 @@ function canonicalResolutionErrorsFor(
     return [
       resolution.reason === 'tv-root-unconfigured'
         ? 'A configured TV root is required for Suggested TV placement.'
-        : 'The TV library could not be inspected. Retry discovery, choose an existing folder, or use Manual Path.'
+        : resolution.reason === 'mapping-load-failed'
+          ? 'Saved TV series mappings could not be loaded. Retry before using Suggested TV placement, or use Manual Path.'
+          : 'The TV library could not be inspected. Retry discovery, choose an existing folder, or use Manual Path.'
     ]
   }
   return []

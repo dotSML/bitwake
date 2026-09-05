@@ -29,7 +29,7 @@ export type CanonicalTvSeriesResolution =
     }
   | {
       status: 'unavailable'
-      reason: 'directory-listing-failed' | 'tv-root-unconfigured'
+      reason: 'directory-listing-failed' | 'mapping-load-failed' | 'tv-root-unconfigured'
     }
 
 export interface ResolveCanonicalTvSeriesOptions {

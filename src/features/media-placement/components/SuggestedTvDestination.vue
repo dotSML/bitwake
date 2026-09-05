@@ -123,10 +123,19 @@ function candidatePath(root: string | undefined, folderName: string): string {
         </button>
       </template>
       <template v-else>
-        <strong>TV library discovery unavailable</strong>
-        <span>
-          Retry discovery, browse an existing folder, or switch to Manual Path before continuing.
-        </span>
+        <template v-if="canonicalResolution.reason === 'mapping-load-failed'">
+          <strong>Saved TV series mappings unavailable</strong>
+          <span>
+            Saved TV series mappings could not be loaded. Retry before using Suggested TV placement,
+            or use Manual Path.
+          </span>
+        </template>
+        <template v-else>
+          <strong>TV library discovery unavailable</strong>
+          <span>
+            Retry discovery, browse an existing folder, or switch to Manual Path before continuing.
+          </span>
+        </template>
         <button
           v-if="retryCanonicalDiscovery"
           class="btn retry-discovery"

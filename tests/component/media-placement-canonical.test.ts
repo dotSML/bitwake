@@ -1,9 +1,11 @@
 import { DOMWrapper, flushPromises } from '@vue/test-utils'
 import { nextTick } from 'vue'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { createCapabilityRegistry } from '@/api/capabilities/capabilityRegistry'
 import AddTorrentDialog from '@/features/add-torrent/AddTorrentDialog.vue'
 import { appStorageKeys } from '@/config/appIdentity'
 import { useMediaPlacementStore } from '@/features/media-placement/stores/mediaPlacement'
+import { useSessionStore } from '@/stores/session'
 import { createTestContext, mountWithContext } from './support/mount'
 
 function contextWithAssist() {
@@ -205,5 +207,79 @@ describe('canonical Suggested TV Add flow', () => {
     await flushPromises()
 
     expect(sessionStorage.getItem(appStorageKeys.tvSeriesMappings.browser)).toBeNull()
+  })
+
+  it('blocks Suggested TV when authenticated mappings fail to load but keeps Manual Path usable', async () => {
+    const context = contextWithAssist()
+    context.run(() => {
+      useSessionStore(context.pinia).capabilities = createCapabilityRegistry('5.2.3', '2.15.1')
+    })
+    vi.spyOn(context.api.app, 'directoryContent').mockResolvedValue([])
+    vi.spyOn(context.api.clientData, 'load').mockRejectedValue(new Error('temporary outage'))
+    const add = vi.spyOn(context.api.torrents, 'add').mockResolvedValue({ legacySuccess: true })
+
+    await openStepTwo(
+      context,
+      'magnet:?xt=urn:btih:5555555555555555555555555555555555555555&dn=Unlisted.Show.S01E01'
+    )
+
+    expect(document.body.textContent).toContain('Saved TV series mappings could not be loaded')
+    await button('Continue').trigger('click')
+    expect(document.body.textContent).toContain('Review the media destination')
+    expect(document.querySelector('.review-plan')).toBeNull()
+    expect(add).not.toHaveBeenCalled()
+
+    await button('Edit destination manually').trigger('click')
+    await nextTick()
+    await button('Continue').trigger('click')
+    await nextTick()
+    expect(document.body.textContent).toContain('Review destinations')
+    expect(add).not.toHaveBeenCalled()
+  })
+
+  it('recovers a failed mapping load through Retry discovery and reuses the returned alias', async () => {
+    const context = contextWithAssist()
+    context.run(() => {
+      useSessionStore(context.pinia).capabilities = createCapabilityRegistry('5.2.3', '2.15.1')
+    })
+    const directoryContent = vi
+      .spyOn(context.api.app, 'directoryContent')
+      .mockResolvedValue(['/data/tv-shows/Canonical Show'])
+    vi.spyOn(context.api.clientData, 'load')
+      .mockRejectedValueOnce(new Error('temporary outage'))
+      .mockResolvedValue({
+        [appStorageKeys.tvSeriesMappings.clientData]: {
+          schemaVersion: 1,
+          items: [{ normalizedTitle: 'alternate release title', folderName: 'Canonical Show' }]
+        }
+      })
+    const add = vi.spyOn(context.api.torrents, 'add').mockResolvedValue({ legacySuccess: true })
+
+    await openStepTwo(
+      context,
+      'magnet:?xt=urn:btih:6666666666666666666666666666666666666666&dn=Alternate.Release.Title.S01E01'
+    )
+    expect(document.body.textContent).toContain('Saved TV series mappings could not be loaded')
+
+    await button('Retry discovery').trigger('click')
+    await flushPromises()
+    await nextTick()
+
+    expect(directoryContent).toHaveBeenCalledTimes(2)
+    expect(document.body.textContent).toContain('Existing series')
+    expect(document.body.textContent).toContain('/data/tv-shows/Canonical Show/Season 01')
+    expect(document.body.textContent).not.toContain('New series folder')
+
+    await new DOMWrapper(
+      document.querySelector<HTMLInputElement>('.pack-choice input[value="single"]')
+    ).setValue(true)
+    await button('Continue').trigger('click')
+    await nextTick()
+    expect(document.body.textContent).toContain('Review destinations')
+    await button('Add torrents').trigger('click')
+    await flushPromises()
+    expect(add).toHaveBeenCalledWith(
+      expect.objectContaining({ savepath: '/data/tv-shows/Canonical Show/Season 01' })
+    )
   })
 })

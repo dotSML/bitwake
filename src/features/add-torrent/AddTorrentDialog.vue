@@ -353,6 +353,11 @@ function canonicalResolutionFor(
   )
     return undefined
   if (!tvDirectorySettled.value) return undefined
+  if (!tvSeriesMappings.loaded) {
+    return tvSeriesMappings.loadError
+      ? { status: 'unavailable', reason: 'mapping-load-failed' }
+      : undefined
+  }
   const yearText = destination.year.trim()
   const year = /^\d{4}$/u.test(yearText) ? Number(yearText) : undefined
   return resolveCanonicalTvSeries({
@@ -365,9 +370,14 @@ function canonicalResolutionFor(
   })
 }
 
-function retryCanonicalDiscovery(): void {
+async function retryCanonicalDiscovery(): Promise<void> {
   if (!props.open || !assistMode.value || !editorConfig.value.tvRoot) return
-  void refreshTvDirectorySnapshot(openGeneration).then(() => void reconcilePlans())
+  const generation = openGeneration
+  if (!tvSeriesMappings.loaded || tvSeriesMappings.loadError) await tvSeriesMappings.load()
+  if (disposed || generation !== openGeneration || !props.open) return
+  await refreshTvDirectorySnapshot(generation)
+  if (disposed || generation !== openGeneration || !props.open) return
+  await reconcilePlans()
 }
 
 function planDestination(
