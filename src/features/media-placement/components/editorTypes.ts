@@ -234,7 +234,7 @@ export function evaluateMediaDestination(
   const canonicalResolutionErrors =
     value.kind === 'tv' &&
     value.destinationMethod === 'suggested' &&
-    value.existingSeriesPathOrigin !== 'manual'
+    (value.existingSeriesPathOrigin !== 'manual' || canonicalResolution?.status === 'pending')
       ? canonicalResolutionErrorsFor(canonicalResolution)
       : []
   const strictSuggestedTv =
@@ -317,6 +317,9 @@ function canonicalResolutionErrorsFor(
   resolution: CanonicalTvSeriesResolution | undefined
 ): string[] {
   if (!resolution) return []
+  if (resolution.status === 'pending') {
+    return ['Checking existing TV series folders and saved mappings…']
+  }
   if (resolution.status === 'needs-selection') {
     return [
       resolution.reason === 'listing-truncated'

@@ -12,6 +12,10 @@ import type { TvSeriesMapping } from './tvSeriesMappings'
 
 export type CanonicalTvSeriesResolution =
   | {
+      status: 'pending'
+      reason: 'canonical-discovery-loading'
+    }
+  | {
       status: 'existing'
       folderName: string
       seriesPath: string

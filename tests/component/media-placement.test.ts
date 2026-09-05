@@ -257,11 +257,13 @@ describe('Media Placement UI', () => {
 
   it('splits unrelated suggested destinations into independent add requests', async () => {
     const context = assistContext()
+    vi.spyOn(context.api.app, 'directoryContent').mockResolvedValue([])
     const add = vi.spyOn(context.api.torrents, 'add').mockResolvedValue({ legacySuccess: true })
     await mountWithContext(AddTorrentDialog, context, {
       props: { open: true },
       attachTo: document.body
     })
+    await flushPromises()
 
     await new DOMWrapper(document.querySelector('#torrent-sources')).setValue(
       [
@@ -302,11 +304,13 @@ describe('Media Placement UI', () => {
 
   it('lets related episodes share one placement while submitting each source independently', async () => {
     const context = assistContext()
+    vi.spyOn(context.api.app, 'directoryContent').mockResolvedValue([])
     const add = vi.spyOn(context.api.torrents, 'add').mockResolvedValue({ legacySuccess: true })
     await mountWithContext(AddTorrentDialog, context, {
       props: { open: true },
       attachTo: document.body
     })
+    await flushPromises()
 
     await new DOMWrapper(document.querySelector('#torrent-sources')).setValue(
       [
@@ -634,10 +638,12 @@ describe('Media Placement UI', () => {
     'allows an existing $kind folder to replace a title for an unknown source',
     async ({ kind, existingSelector, existingPath, titleSelector }) => {
       const context = assistContext()
+      vi.spyOn(context.api.app, 'directoryContent').mockResolvedValue([])
       await mountWithContext(AddTorrentDialog, context, {
         props: { open: true },
         attachTo: document.body
       })
+      await flushPromises()
       await new DOMWrapper(document.querySelector('#torrent-sources')).setValue(
         `magnet:?xt=urn:btih:${(kind === 'movie' ? 'b' : 'c').repeat(40)}`
       )
@@ -651,7 +657,7 @@ describe('Media Placement UI', () => {
       await nextTick()
       if (kind === 'tv') {
         await new DOMWrapper(
-          document.querySelector<HTMLInputElement>('.pack-choice input[value="multi"]')
+          document.querySelector<HTMLInputElement>('.pack-choice input[value="single"]')
         ).setValue(true)
       }
       await new DOMWrapper(document.querySelector<HTMLInputElement>(existingSelector)).setValue(

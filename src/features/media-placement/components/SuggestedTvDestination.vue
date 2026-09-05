@@ -84,7 +84,11 @@ function candidatePath(root: string | undefined, folderName: string): string {
       :class="`resolution-${canonicalResolution.status}`"
       role="status"
     >
-      <template v-if="canonicalResolution.status === 'existing'">
+      <template v-if="canonicalResolution.status === 'pending'">
+        <strong>Checking existing TV library…</strong>
+        <span> Bitwake is checking existing series folders before choosing a destination. </span>
+      </template>
+      <template v-else-if="canonicalResolution.status === 'existing'">
         <strong>Existing series</strong>
         <span>{{ canonicalResolution.folderName }}</span>
         <small>Canonical existing folder<br />{{ canonicalResolution.seriesPath }}</small>

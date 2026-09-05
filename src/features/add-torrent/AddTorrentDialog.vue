@@ -352,11 +352,13 @@ function canonicalResolutionFor(
     !editorConfig.value.tvRoot
   )
     return undefined
-  if (!tvDirectorySettled.value) return undefined
+  if (!tvDirectorySettled.value) {
+    return { status: 'pending', reason: 'canonical-discovery-loading' }
+  }
   if (!tvSeriesMappings.loaded) {
     return tvSeriesMappings.loadError
       ? { status: 'unavailable', reason: 'mapping-load-failed' }
-      : undefined
+      : { status: 'pending', reason: 'canonical-discovery-loading' }
   }
   const yearText = destination.year.trim()
   const year = /^\d{4}$/u.test(yearText) ? Number(yearText) : undefined

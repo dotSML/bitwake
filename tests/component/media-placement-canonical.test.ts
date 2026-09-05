@@ -30,6 +30,14 @@ function button(label: string): DOMWrapper<HTMLButtonElement> {
   return new DOMWrapper(found)
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((complete) => {
+    resolve = complete
+  })
+  return { promise, resolve }
+}
+
 async function openStepTwo(
   context: ReturnType<typeof createTestContext>,
   source = 'magnet:?xt=urn:btih:1111111111111111111111111111111111111111&dn=Show.Name.S01E01'
@@ -144,6 +152,74 @@ describe('canonical Suggested TV Add flow', () => {
     await button('Continue').trigger('click')
     expect(document.body.textContent).toContain('Review the media destination')
     expect(document.querySelector('.review-plan')).toBeNull()
+  })
+
+  it('fails closed while canonical TV discovery is pending, then resolves before review', async () => {
+    const context = contextWithAssist()
+    const directoryListing = deferred<string[]>()
+    vi.spyOn(context.api.app, 'directoryContent').mockReturnValue(directoryListing.promise)
+    const add = vi.spyOn(context.api.torrents, 'add').mockResolvedValue({ legacySuccess: true })
+
+    await openStepTwo(
+      context,
+      'magnet:?xt=urn:btih:7777777777777777777777777777777777777777&dn=Pending.Show.S01E01'
+    )
+
+    expect(document.body.textContent).toContain('Checking existing TV library…')
+    expect(document.body.textContent).toContain(
+      'Bitwake is checking existing series folders before choosing a destination.'
+    )
+    expect(document.body.textContent).not.toContain('Retry discovery')
+
+    const singleSeason = document.querySelector<HTMLInputElement>(
+      '.pack-choice input[value="single"]'
+    )
+    if (!singleSeason) throw new Error('Single-season choice not rendered')
+    await new DOMWrapper(singleSeason).setValue(true)
+    await button('Continue').trigger('click')
+
+    expect(document.body.textContent).toContain('Review the media destination')
+    expect(document.body.textContent).toContain(
+      'Checking existing TV series folders and saved mappings…'
+    )
+    expect(document.querySelector('.review-plan')).toBeNull()
+    expect(add).not.toHaveBeenCalled()
+
+    directoryListing.resolve(['/data/tv-shows/Pending Show'])
+    await flushPromises()
+    await nextTick()
+
+    expect(document.body.textContent).toContain('Existing series')
+    expect(document.body.textContent).toContain('/data/tv-shows/Pending Show/Season 01')
+
+    await button('Continue').trigger('click')
+    await nextTick()
+
+    expect(document.body.textContent).toContain('Review destinations')
+    expect(add).not.toHaveBeenCalled()
+  })
+
+  it('keeps Manual Path available while canonical TV discovery is pending', async () => {
+    const context = contextWithAssist()
+    const directoryListing = deferred<string[]>()
+    vi.spyOn(context.api.app, 'directoryContent').mockReturnValue(directoryListing.promise)
+    const add = vi.spyOn(context.api.torrents, 'add').mockResolvedValue({ legacySuccess: true })
+
+    await openStepTwo(
+      context,
+      'magnet:?xt=urn:btih:8888888888888888888888888888888888888888&dn=Manual.Pending.Show.S01E01'
+    )
+
+    expect(document.body.textContent).toContain('Checking existing TV library…')
+    await button('Edit destination manually').trigger('click')
+    await nextTick()
+    await button('Continue').trigger('click')
+    await nextTick()
+
+    expect(document.body.textContent).toContain('Review destinations')
+    await button('Add torrents').trigger('click')
+    await flushPromises()
+    expect(add).toHaveBeenCalledOnce()
   })
 
   it('learns only an explicitly selected alias after qBittorrent accepts the Add', async () => {

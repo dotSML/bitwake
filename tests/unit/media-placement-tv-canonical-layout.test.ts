@@ -39,6 +39,59 @@ const newSeries = {
 }
 
 describe('canonical Suggested TV layout validation', () => {
+  it('fails closed for pending canonical TV discovery without blocking Manual Path', () => {
+    const source = analysis({ filePaths: ['Show.S01E01.mkv'] })
+    const suggested = createMediaDestinationValue(source, config)
+    const pending = { status: 'pending' as const, reason: 'canonical-discovery-loading' as const }
+
+    const pendingEvaluation = evaluateMediaDestination(
+      suggested,
+      source,
+      config,
+      false,
+      '',
+      'may-change-destination',
+      pending
+    )
+    expect(pendingEvaluation.valid).toBe(false)
+    expect(pendingEvaluation.errors).toContain(
+      'Checking existing TV series folders and saved mappings…'
+    )
+
+    const explicitFolderEvaluation = evaluateMediaDestination(
+      {
+        ...suggested,
+        existingSeriesPath: '/data/tv-shows/Show',
+        existingSeriesPathOrigin: 'manual'
+      },
+      source,
+      config,
+      false,
+      '',
+      'may-change-destination',
+      pending
+    )
+    expect(explicitFolderEvaluation.valid).toBe(false)
+    expect(explicitFolderEvaluation.errors).toContain(
+      'Checking existing TV series folders and saved mappings…'
+    )
+
+    const manualEvaluation = evaluateMediaDestination(
+      {
+        ...suggested,
+        destinationMethod: 'manual',
+        manualPath: '/data/tv-shows/Show/Season 01'
+      },
+      source,
+      config,
+      false,
+      '',
+      'may-change-destination',
+      pending
+    )
+    expect(manualEvaluation.valid).toBe(true)
+  })
+
   it('keeps single episodes and flat single-season packs under Series/Season NN', () => {
     const episode = analysis({ filePaths: ['Show.S01E01.mkv'] })
     const episodeValue = createMediaDestinationValue(episode, config)
