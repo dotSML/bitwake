@@ -6,7 +6,8 @@ describe('open-source legal notice', () => {
   it('exposes source, license, copyright, and no-warranty information', () => {
     const wrapper = mount(LegalNotice)
 
-    expect(wrapper.text()).toContain('Bitwake © 2026 Sten-Mark Laur')
+    expect(wrapper.text()).toContain('Bitwake is open source')
+    expect(wrapper.text()).toContain('© 2026 Sten-Mark Laur')
     expect(wrapper.text()).toContain('AGPL-3.0-or-later')
     expect(wrapper.text()).toContain('no warranty')
 
