@@ -27,6 +27,10 @@ describe('application identity', () => {
       },
       mockClientData: {
         browser: 'bitwake:mock-client-data'
+      },
+      tvSeriesMappings: {
+        browser: 'bitwake:tv-series-mappings',
+        clientData: 'bitwake.tv-series-mappings.v1'
       }
     })
   })

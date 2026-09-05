@@ -3,11 +3,17 @@ import MediaDirectoryPicker from './MediaDirectoryPicker.vue'
 import ExistingFolderSuggestions from './ExistingFolderSuggestions.vue'
 import { computed } from 'vue'
 import type { TvPackChoice } from './editorTypes'
+import type { CanonicalTvSeriesResolution } from '../domain/resolveCanonicalTvSeries'
+import { hostJoinPath } from '../domain/hostDirectory'
 
 defineProps<{
   multiSeasonDetected?: boolean
   choiceRequired?: boolean
   browseRoot?: string | undefined
+  seriesRoot?: string | undefined
+  canonicalResolution?: CanonicalTvSeriesResolution | undefined
+  existingSeriesPathOrigin?: 'none' | 'automatic' | 'manual'
+  retryCanonicalDiscovery?: (() => void) | undefined
 }>()
 const title = defineModel<string>('title', { required: true })
 const year = defineModel<string>('year', { required: true })
@@ -21,6 +27,10 @@ const candidateYear = computed(() => (/^\d{4}$/u.test(year.value) ? Number(year.
 function selectExistingSeries(path: string): void {
   existingSeriesPath.value = path
   existingSeasonPath.value = ''
+}
+
+function candidatePath(root: string | undefined, folderName: string): string {
+  return root ? hostJoinPath(root, folderName) : folderName
 }
 </script>
 
@@ -68,6 +78,65 @@ function selectExistingSeries(path: string): void {
     <p v-if="multiSeasonDetected" class="detected-note">
       Several season folders were detected in this source.
     </p>
+    <div
+      v-if="canonicalResolution && existingSeriesPathOrigin !== 'manual'"
+      class="canonical-resolution"
+      :class="`resolution-${canonicalResolution.status}`"
+      role="status"
+    >
+      <template v-if="canonicalResolution.status === 'existing'">
+        <strong>Existing series</strong>
+        <span>{{ canonicalResolution.folderName }}</span>
+        <small>Canonical existing folder<br />{{ canonicalResolution.seriesPath }}</small>
+      </template>
+      <template v-else-if="canonicalResolution.status === 'new'">
+        <strong>New series folder</strong>
+        <span>{{ canonicalResolution.suggestedFolderName }}</span>
+        <small>{{ canonicalResolution.suggestedSeriesPath }}</small>
+      </template>
+      <template v-else-if="canonicalResolution.status === 'needs-selection'">
+        <strong>Choose the canonical existing series folder</strong>
+        <span v-if="canonicalResolution.reason === 'listing-truncated'"
+          >The TV library listing was truncated. Retry discovery or choose a folder manually.</span
+        >
+        <span v-else
+          >Multiple existing series folders match this title. Choose the correct folder before
+          continuing.</span
+        >
+        <ul v-if="canonicalResolution.candidates.length" class="canonical-candidates">
+          <li v-for="candidate in canonicalResolution.candidates" :key="candidate">
+            <button
+              type="button"
+              @click="selectExistingSeries(candidatePath(seriesRoot, candidate))"
+            >
+              {{ candidate }}
+            </button>
+          </li>
+        </ul>
+        <button
+          v-if="retryCanonicalDiscovery"
+          class="btn retry-discovery"
+          type="button"
+          @click="retryCanonicalDiscovery"
+        >
+          Retry discovery
+        </button>
+      </template>
+      <template v-else>
+        <strong>TV library discovery unavailable</strong>
+        <span>
+          Retry discovery, browse an existing folder, or switch to Manual Path before continuing.
+        </span>
+        <button
+          v-if="retryCanonicalDiscovery"
+          class="btn retry-discovery"
+          type="button"
+          @click="retryCanonicalDiscovery"
+        >
+          Retry discovery
+        </button>
+      </template>
+    </div>
     <details class="existing-folders">
       <summary>Use an existing series or season folder</summary>
       <div class="existing-field">
@@ -203,6 +272,55 @@ label small {
   grid-column: 1 / -1;
   border-top: 1px solid rgb(var(--color-line));
   padding-top: 8px;
+}
+.canonical-resolution {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 3px;
+  border: 1px solid rgb(var(--color-line-strong));
+  border-radius: 8px;
+  padding: 9px 10px;
+}
+.canonical-resolution strong {
+  font-size: 11px;
+}
+.canonical-resolution span,
+.canonical-resolution small {
+  color: rgb(var(--color-muted));
+  font-size: 11px;
+}
+.canonical-resolution small {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  overflow-wrap: anywhere;
+}
+.resolution-needs-selection,
+.resolution-unavailable {
+  border-color: rgb(var(--color-danger));
+}
+.canonical-candidates {
+  display: grid;
+  gap: 4px;
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.canonical-candidates button {
+  width: 100%;
+  border: 1px solid rgb(var(--color-line-strong));
+  border-radius: 6px;
+  background: rgb(var(--color-surface));
+  padding: 6px 8px;
+  text-align: left;
+  cursor: pointer;
+}
+.canonical-candidates button:hover {
+  border-color: rgb(var(--color-accent));
+  background: rgb(var(--color-accent-soft));
+}
+.retry-discovery {
+  justify-self: start;
+  min-height: 30px;
+  font-size: 11px;
 }
 .existing-folders summary {
   color: rgb(var(--color-accent));

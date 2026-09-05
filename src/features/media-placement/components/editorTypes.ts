@@ -12,6 +12,8 @@ import {
 } from '../domain/calculateEffectiveLayout'
 import { formatSeasonFolderName } from '../domain/sanitizeMediaFolderName'
 import { validateManualPath } from '../domain/validateManualPath'
+import type { CanonicalTvSeriesResolution } from '../domain/resolveCanonicalTvSeries'
+import { relativeMediaPath } from '../domain/pathUtils'
 import type { EffectiveMediaPlacementConfig } from '../stores/mediaPlacement'
 
 export type TvPackChoice = 'single' | 'multi' | null
@@ -34,6 +36,7 @@ export interface MediaDestinationValue {
   tags: string[]
   acknowledgedWarningIds: string[]
   existingSeriesPath: string
+  existingSeriesPathOrigin: 'none' | 'automatic' | 'manual'
   existingSeasonPath: string
   existingMoviePath: string
 }
@@ -85,6 +88,7 @@ export function createMediaDestinationValue(
     tags: mediaTags(kind),
     acknowledgedWarningIds: [],
     existingSeriesPath: '',
+    existingSeriesPathOrigin: 'none',
     existingSeasonPath: '',
     existingMoviePath: ''
   }
@@ -184,7 +188,8 @@ export function evaluateMediaDestination(
   autoManagement = false,
   categoryPath = '',
   autoManagementEffect:
-    'may-change-destination' | 'set-location-disables' = 'may-change-destination'
+    'may-change-destination' | 'set-location-disables' = 'may-change-destination',
+  canonicalResolution?: CanonicalTvSeriesResolution
 ): MediaDestinationEvaluation {
   const suggestion = suggestedDestination(value, config, analysis)
   const tvShapeErrors =
@@ -205,7 +210,7 @@ export function evaluateMediaDestination(
   const effectiveSavePath =
     value.destinationMethod === 'manual' ? value.manualPath : suggestion.path
   const pathValid = value.destinationMethod === 'manual' ? Boolean(manual?.valid) : suggestion.valid
-  const errors =
+  const baseErrors =
     value.destinationMethod === 'manual'
       ? (manual?.errors ?? [])
       : [...tvShapeErrors, ...suggestion.errors]
@@ -225,6 +230,28 @@ export function evaluateMediaDestination(
           tvRoot: config.tvRoot,
           moviesRoot: config.moviesRoot
         })
+      : null
+  const canonicalResolutionErrors =
+    value.kind === 'tv' &&
+    value.destinationMethod === 'suggested' &&
+    value.existingSeriesPathOrigin !== 'manual'
+      ? canonicalResolutionErrorsFor(canonicalResolution)
+      : []
+  const strictSuggestedTv =
+    value.kind === 'tv' &&
+    value.destinationMethod === 'suggested' &&
+    canonicalResolution !== undefined
+  const structuralWarnings = strictSuggestedTv
+    ? (layout?.warnings.filter((item) => promotedSuggestedTvWarningCodes.has(item.code)) ?? [])
+    : []
+  const canonicalLayoutErrors = structuralWarnings.map((item) => item.message)
+  const multiSeasonError =
+    strictSuggestedTv && layoutAnalysis.shape === 'multi-season-pack'
+      ? validateCanonicalMultiSeasonLayout(
+          layout?.predictedPaths ?? [],
+          layout?.savePath ?? '',
+          layoutAnalysis
+        )
       : null
   const autoTmmWarning: MediaPlacementWarning[] = autoManagement
     ? [
@@ -248,9 +275,19 @@ export function evaluateMediaDestination(
     : []
   const warnings = uniqueWarnings([
     ...(manual?.warnings ?? []),
-    ...(layout?.warnings ?? []),
+    ...(layout?.warnings ?? []).map((item) =>
+      structuralWarnings.some((structural) => structural.id === item.id)
+        ? { ...item, acknowledgementRequired: false }
+        : item
+    ),
     ...autoTmmWarning
   ])
+  const errors = [
+    ...baseErrors,
+    ...canonicalResolutionErrors,
+    ...canonicalLayoutErrors,
+    ...(multiSeasonError ? [multiSeasonError] : [])
+  ]
   const acknowledged = new Set(value.acknowledgedWarningIds)
   const outstandingAcknowledgements = warnings
     .filter((warning) => warning.acknowledgementRequired && !acknowledged.has(warning.id))
@@ -267,4 +304,58 @@ export function evaluateMediaDestination(
     acknowledgementRequired: outstandingAcknowledgements.length > 0,
     outstandingAcknowledgements
   }
+}
+
+const promotedSuggestedTvWarningCodes = new Set<MediaPlacementWarning['code']>([
+  'double-nesting',
+  'missing-series-folder',
+  'missing-season-folder',
+  'loose-content'
+])
+
+function canonicalResolutionErrorsFor(
+  resolution: CanonicalTvSeriesResolution | undefined
+): string[] {
+  if (!resolution) return []
+  if (resolution.status === 'needs-selection') {
+    return [
+      resolution.reason === 'listing-truncated'
+        ? 'The TV library listing was truncated before Bitwake could verify the canonical series folder. Select an existing folder or retry discovery.'
+        : 'Multiple existing series folders match this title. Choose the correct canonical series folder before continuing.'
+    ]
+  }
+  if (resolution.status === 'unavailable') {
+    return [
+      resolution.reason === 'tv-root-unconfigured'
+        ? 'A configured TV root is required for Suggested TV placement.'
+        : 'The TV library could not be inspected. Retry discovery, choose an existing folder, or use Manual Path.'
+    ]
+  }
+  return []
+}
+
+function mediaFilePath(path: string): boolean {
+  return /\.(?:mkv|mp4|m4v|avi|mov|wmv|webm|mpg|mpeg|ts|m2ts|iso)$/iu.test(path)
+}
+
+function validateCanonicalMultiSeasonLayout(
+  predictedPaths: readonly string[],
+  savePath: string,
+  analysis: MediaSourceAnalysis
+): string | null {
+  const expectedFileCount = analysis.filePaths?.length ?? 0
+  if (!expectedFileCount || predictedPaths.length < expectedFileCount) {
+    return 'Bitwake cannot verify canonical Season folders for this multi-season torrent until its file tree is available. Use Manual Path or add a torrent file with inspectable metadata.'
+  }
+  const predictedMedia = predictedPaths.filter(mediaFilePath)
+  if (!predictedMedia.length) {
+    return 'Bitwake cannot verify canonical Season folders for this multi-season torrent until its file tree is available. Use Manual Path or add a torrent file with inspectable metadata.'
+  }
+  const invalid = predictedMedia.some((path) => {
+    const relative = relativeMediaPath(path, savePath)
+    return !relative || relative.length < 2 || !/^Season\s+\d{1,3}$/iu.test(relative[0] ?? '')
+  })
+  return invalid
+    ? 'Suggested TV placement must keep every media file beneath a direct canonical Season NN folder of the selected series.'
+    : null
 }

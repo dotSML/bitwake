@@ -74,11 +74,18 @@ Suggested TV destinations use a series folder and, for a single season, a two-di
 /data/tv-shows/The Last of Us (2023)/Season 02
 ```
 
-Season zero is `Season 00`. A source that clearly contains several season directories can target
-the series folder instead. A verified single-season source that already contains its own canonical
-`Season NN` directory also targets the series folder, avoiding `Season NN/Season NN` nesting. An
-unknown source, such as a magnet without `dn`, is presented as unknown and requires the user to
-supply or confirm the relevant media details.
+Season zero is `Season 00`. The canonical Suggested TV invariant is always:
+
+```text
+TV_ROOT / Series / Season NN
+```
+
+A source that clearly contains several season directories can target the series folder only when
+the inspected effective layout proves every media file lands below a direct canonical `Season NN`
+child. A verified single-season source that already contains its own canonical `Season NN`
+directory also targets the series folder, avoiding `Season NN/Season NN` nesting. An unknown
+multi-season source is fail-closed until its file tree is available; an unknown single-season
+source retains the low-confidence layout notice.
 
 Suggested Movie destinations always use an individual movie folder:
 
@@ -93,16 +100,22 @@ It does not rename downloaded media files.
 
 ## Reusing existing folders
 
-Suggested TV and Movie editors can browse for an existing series, season, or movie directory. They
-can also request a bounded match list from qBittorrent. Discovery reads one shallow directory level,
-evaluates at most the first 2,000 returned directories, and displays at most eight medium/high
-confidence candidates. It does not recursively crawl the library.
+Suggested TV and Movie editors can browse for an existing series, season, or movie directory. For
+automatic TV identity, Add Torrent takes one shallow snapshot of the configured TV root per dialog
+session. Discovery evaluates at most the first 2,000 returned direct-child directories and never
+recursively crawls the library.
 
-Matching normalizes Unicode and common punctuation, compares title tokens, and excludes a candidate
-when both the requested item and candidate have explicit but different release years. A suggestion
-is never selected automatically, even at high confidence; the user must choose it before its path
-replaces the generated destination. When qBittorrent returns more than 2,000 entries, the UI says
-that the result was truncated. A missing match is not proof that the folder does not exist.
+TV automatic matching is strict: it uses NFKC/lowercase identity normalization, removes apostrophes,
+normalizes separators, and strips only a terminal `(YYYY)` folder suffix for year comparison. It
+does not use token overlap, prefixes, substrings, edit distance, or fuzzy suggestions. An exact
+existing physical folder name is authoritative, including its punctuation and year suffix. Multiple
+strict matches, truncated discovery, or a failed listing block Suggested TV until the user selects
+a folder, retries, or switches to Manual Path. Fuzzy candidates remain an explicit manual aid only.
+
+Explicit TV overrides may be remembered as bounded aliases in qBittorrent client data (or the
+browser session when client data is unavailable). Aliases are learned only after an explicitly
+selected existing series folder is accepted by qBittorrent; automatic exact matches and new series
+folders do not create aliases.
 
 ## Manual destinations
 
@@ -138,6 +151,10 @@ category path when qBittorrent provides it. Categories are optional and are neve
 Save path alone does not describe the final tree. Media Placement combines the inspected source
 shape with qBittorrent's `Original`, `Subfolder`, or `NoSubfolder` content-layout value and previews
 the expected effective tree. Known double nesting and loose-root combinations are called out.
+
+For Suggested TV, double nesting, a missing series or season folder, loose content, and an
+unverifiable multi-season tree are validation errors. They cannot be cleared with an acknowledgement
+checkbox. Manual Path retains the existing warning and acknowledgement behavior.
 
 Manual path changes only `savepath`; it does not silently replace the selected content-layout
 option. Unknown magnets cannot be inspected confidently, so their layout preview remains explicit

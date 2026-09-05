@@ -18,8 +18,17 @@ import {
   analyzeTextSource
 } from '@/features/media-placement/domain/analyzeSourceName'
 import { analyzeTorrentFile } from '@/features/media-placement/domain/analyzeTorrentFile'
+import { directoryNames } from '@/features/media-placement/domain/hostDirectory'
+import {
+  resolveCanonicalTvSeries,
+  type CanonicalTvSeriesResolution
+} from '@/features/media-placement/domain/resolveCanonicalTvSeries'
+import { maximumExistingFolderEntries } from '@/features/media-placement/domain/discoverExistingFolders'
 import { replaceControlCharacters } from '@/features/media-placement/domain/textSafety'
-import type { MediaSourceAnalysis } from '@/features/media-placement/domain/types'
+import type {
+  MediaSourceAnalysis,
+  TvDirectoryListingStatus
+} from '@/features/media-placement/domain/types'
 import MediaDestinationEditor from '@/features/media-placement/components/MediaDestinationEditor.vue'
 import MediaPlacementWarning from '@/features/media-placement/components/MediaPlacementWarning.vue'
 import {
@@ -31,6 +40,13 @@ import {
   useMediaPlacementStore,
   type EffectiveMediaPlacementConfig
 } from '@/features/media-placement/stores/mediaPlacement'
+import { useTvSeriesMappingsStore } from '@/features/media-placement/stores/tvSeriesMappings'
+import { canonicalSeriesFolderName } from '@/features/media-placement/domain/resolveCanonicalTvSeries'
+import {
+  isPathInsideRoot,
+  relativeMediaPath,
+  tryParseMediaPath
+} from '@/features/media-placement/domain/pathUtils'
 import { useNotificationsStore } from '@/stores/notifications'
 import { useTorrentsStore } from '@/stores/torrents'
 import AppDialog from '@/ui/primitives/AppDialog.vue'
@@ -48,6 +64,7 @@ interface AddSourcePlan {
   analysis: MediaSourceAnalysis
   inspectionComplete: boolean
   destination: MediaDestinationValue
+  canonicalResolution: CanonicalTvSeriesResolution | undefined
   userEdited: boolean
   status: SourceStatus
   error: string | null
@@ -69,6 +86,7 @@ const api = useApi()
 const torrents = useTorrentsStore()
 const notifications = useNotificationsStore()
 const placement = useMediaPlacementStore()
+const tvSeriesMappings = useTvSeriesMappingsStore()
 const sourceText = ref('')
 const files = ref<File[]>([])
 const savePath = ref('')
@@ -90,6 +108,13 @@ const stepHeading = ref<HTMLElement | null>(null)
 const error = ref<string | null>(null)
 const result = ref<AddSummary | null>(null)
 const plans = ref<AddSourcePlan[]>([])
+const tvDirectorySnapshot = ref<{
+  status: TvDirectoryListingStatus
+  names: string[]
+}>({ status: 'error', names: [] })
+let tvDirectoryController: AbortController | null = null
+let tvDirectoryGeneration = 0
+const tvDirectorySettled = ref(false)
 let analysisGeneration = 0
 let submissionGeneration = 0
 let openGeneration = 0
@@ -152,7 +177,9 @@ const evaluations = computed(() =>
       plan.analysis,
       editorConfig.value,
       autoManagement.value,
-      categoryPaths.value[plan.destination.category] ?? ''
+      categoryPaths.value[plan.destination.category] ?? '',
+      'may-change-destination',
+      plan.canonicalResolution
     )
   )
 )
@@ -167,6 +194,11 @@ watch(
     if (open) {
       files.value = [...(props.initialFiles ?? [])]
       await placement.load()
+      if (disposed || generation !== openGeneration || !props.open) return
+      if (assistMode.value && editorConfig.value.tvRoot) {
+        await tvSeriesMappings.load()
+        await refreshTvDirectorySnapshot(generation)
+      }
       if (disposed || generation !== openGeneration || !props.open) return
       void reconcilePlans()
     } else reset()
@@ -224,6 +256,11 @@ function reset(): void {
   error.value = null
   result.value = null
   plans.value = []
+  tvDirectoryGeneration += 1
+  tvDirectoryController?.abort()
+  tvDirectoryController = null
+  tvDirectorySettled.value = false
+  tvDirectorySnapshot.value = { status: 'error', names: [] }
 }
 
 function fileKeyPart(file: File): string {
@@ -266,6 +303,98 @@ function cancelQueuedFileInspections(): void {
     if (fileInspectionTasks.get(task.file) === task) fileInspectionTasks.delete(task.file)
     task.resolve(null)
   }
+}
+
+async function refreshTvDirectorySnapshot(generation: number): Promise<void> {
+  const root = editorConfig.value.tvRoot
+  tvDirectoryController?.abort()
+  if (!root || !assistMode.value) {
+    tvDirectorySettled.value = true
+    tvDirectorySnapshot.value = { status: 'error', names: [] }
+    return
+  }
+  const request = new AbortController()
+  const requestGeneration = ++tvDirectoryGeneration
+  tvDirectoryController = request
+  tvDirectorySettled.value = false
+  tvDirectorySnapshot.value = { status: 'error', names: [] }
+  try {
+    const entries = await api.app.directoryContent(root, 'dirs', false, request.signal)
+    if (
+      request.signal.aborted ||
+      requestGeneration !== tvDirectoryGeneration ||
+      generation !== openGeneration ||
+      disposed ||
+      !props.open
+    )
+      return
+    tvDirectorySnapshot.value = {
+      status: entries.length > maximumExistingFolderEntries ? 'truncated' : 'ready',
+      names: directoryNames(entries.slice(0, maximumExistingFolderEntries))
+    }
+    tvDirectorySettled.value = true
+  } catch {
+    if (!request.signal.aborted && requestGeneration === tvDirectoryGeneration) {
+      tvDirectorySnapshot.value = { status: 'error', names: [] }
+      tvDirectorySettled.value = true
+    }
+  } finally {
+    if (tvDirectoryController === request) tvDirectoryController = null
+  }
+}
+
+function canonicalResolutionFor(
+  destination: MediaDestinationValue
+): CanonicalTvSeriesResolution | undefined {
+  if (
+    destination.kind !== 'tv' ||
+    destination.destinationMethod !== 'suggested' ||
+    !editorConfig.value.tvRoot
+  )
+    return undefined
+  if (!tvDirectorySettled.value) return undefined
+  const yearText = destination.year.trim()
+  const year = /^\d{4}$/u.test(yearText) ? Number(yearText) : undefined
+  return resolveCanonicalTvSeries({
+    title: destination.title,
+    ...(year === undefined ? {} : { year }),
+    tvRoot: editorConfig.value.tvRoot,
+    directoryNames: tvDirectorySnapshot.value.names,
+    directoryListingStatus: tvDirectorySnapshot.value.status,
+    mappings: tvSeriesMappings.items
+  })
+}
+
+function retryCanonicalDiscovery(): void {
+  if (!props.open || !assistMode.value || !editorConfig.value.tvRoot) return
+  void refreshTvDirectorySnapshot(openGeneration).then(() => void reconcilePlans())
+}
+
+function planDestination(
+  destination: MediaDestinationValue
+): Pick<AddSourcePlan, 'destination' | 'canonicalResolution'> {
+  const resolution = canonicalResolutionFor(destination)
+  if (resolution?.status === 'existing' && destination.existingSeriesPathOrigin !== 'manual') {
+    return {
+      destination: {
+        ...destination,
+        existingSeriesPath: resolution.seriesPath,
+        existingSeriesPathOrigin: 'automatic'
+      },
+      canonicalResolution: resolution
+    }
+  }
+  if (
+    destination.kind === 'tv' &&
+    destination.destinationMethod === 'suggested' &&
+    destination.existingSeriesPathOrigin === 'automatic'
+  ) {
+    return {
+      destination: { ...destination, existingSeriesPath: '', existingSeriesPathOrigin: 'none' },
+      canonicalResolution: resolution
+    }
+  }
+  return { destination, canonicalResolution: resolution }
 }
 
 function drainFileInspectionQueue(): void {
@@ -334,16 +463,26 @@ async function reconcilePlans(): Promise<void> {
   sources.value.forEach((source, index) => {
     const key = linkKeys[index]!
     const old = previous.get(key)
-    if (old) next.push({ ...old, source })
-    else {
+    if (old) {
+      const planned = planDestination(old.destination)
+      next.push({
+        ...old,
+        source,
+        destination: planned.destination,
+        canonicalResolution: planned.canonicalResolution
+      })
+    } else {
       const analysis = analyzeTextSource(source, opaquePlanId(key))
+      const destination = createMediaDestinationValue(analysis, editorConfig.value)
+      const planned = planDestination(destination)
       next.push({
         key,
         sourceType: 'link',
         source,
         analysis,
         inspectionComplete: true,
-        destination: createMediaDestinationValue(analysis, editorConfig.value),
+        destination: planned.destination,
+        canonicalResolution: planned.canonicalResolution,
         userEdited: false,
         status: 'ready',
         error: null
@@ -354,16 +493,26 @@ async function reconcilePlans(): Promise<void> {
   files.value.forEach((file, index) => {
     const key = fileKeys[index]!
     const old = previous.get(key)
-    if (old) next.push({ ...old, file })
-    else {
+    if (old) {
+      const planned = planDestination(old.destination)
+      next.push({
+        ...old,
+        file,
+        destination: planned.destination,
+        canonicalResolution: planned.canonicalResolution
+      })
+    } else {
       const analysis = analyzeSourceName(file.name, { id: opaquePlanId(key) })
+      const destination = createMediaDestinationValue(analysis, editorConfig.value)
+      const planned = planDestination(destination)
       next.push({
         key,
         sourceType: 'file',
         file,
         analysis,
         inspectionComplete: false,
-        destination: createMediaDestinationValue(analysis, editorConfig.value),
+        destination: planned.destination,
+        canonicalResolution: planned.canonicalResolution,
         userEdited: false,
         status: 'ready',
         error: null
@@ -396,7 +545,12 @@ async function reconcilePlans(): Promise<void> {
                 inspectionComplete: true,
                 destination: current.userEdited
                   ? current.destination
-                  : createMediaDestinationValue(inspected, editorConfig.value)
+                  : planDestination(createMediaDestinationValue(inspected, editorConfig.value))
+                      .destination,
+                canonicalResolution: current.userEdited
+                  ? current.canonicalResolution
+                  : planDestination(createMediaDestinationValue(inspected, editorConfig.value))
+                      .canonicalResolution
               }
         )
       })
@@ -440,9 +594,11 @@ function validateSources(): boolean {
 function updateDestination(index: number, destination: MediaDestinationValue): void {
   const plan = plans.value[index]
   if (!plan) return
+  const planned = planDestination(destination)
   plans.value[index] = {
     ...plan,
-    destination,
+    destination: planned.destination,
+    canonicalResolution: planned.canonicalResolution,
     userEdited: true,
     error: null
   }
@@ -467,6 +623,7 @@ function applyPlanToAll(sourceIndex: number): void {
       : {
           ...plan,
           destination: { ...source.destination, acknowledgedWarningIds: [] },
+          canonicalResolution: source.canonicalResolution,
           userEdited: true,
           error: null
         }
@@ -510,6 +667,37 @@ function responseSummary(response: AddTorrentResult, count: number): AddSummary 
     failed: response.failure_count ?? (response.legacySuccess ? 0 : count),
     ids: response.added_torrent_ids ?? []
   }
+}
+
+async function learnExplicitTvSeriesMapping(
+  plan: AddSourcePlan,
+  evaluation: ReturnType<typeof evaluateMediaDestination>
+): Promise<void> {
+  const destination = plan.destination
+  if (
+    plan.analysis.kind !== 'tv' ||
+    destination.kind !== 'tv' ||
+    destination.destinationMethod !== 'suggested' ||
+    destination.existingSeriesPathOrigin !== 'manual' ||
+    !destination.existingSeriesPath ||
+    !evaluation.valid
+  )
+    return
+  const root = editorConfig.value.tvRoot
+  const parsed = tryParseMediaPath(destination.existingSeriesPath)
+  const relative = root ? relativeMediaPath(destination.existingSeriesPath, root) : null
+  const folderName = canonicalSeriesFolderName(destination.existingSeriesPath)
+  if (
+    !root ||
+    !parsed ||
+    !isPathInsideRoot(destination.existingSeriesPath, root) ||
+    relative?.length !== 1 ||
+    !folderName
+  )
+    return
+  const yearText = destination.year.trim()
+  const year = /^\d{4}$/u.test(yearText) ? Number(yearText) : undefined
+  await tvSeriesMappings.remember(destination.title, folderName, year)
 }
 
 async function addLegacy(): Promise<void> {
@@ -561,7 +749,9 @@ async function addPlanned(): Promise<void> {
       plan.analysis,
       editorConfig.value,
       autoManagement.value,
-      categoryPaths.value[plan.destination.category] ?? ''
+      categoryPaths.value[plan.destination.category] ?? '',
+      'may-change-destination',
+      plan.canonicalResolution
     )
   )
   const invalid = currentEvaluations.findIndex(
@@ -634,6 +824,28 @@ async function addPlanned(): Promise<void> {
             ...plans.value[latestIndex]!,
             status: failed ? 'failed' : pending ? 'pending' : 'success',
             error: failed ? 'qBittorrent did not accept this source. Review it and retry.' : null
+          }
+        }
+        if (!failed && (itemSummary.success > 0 || itemSummary.pending > 0) && latestIndex >= 0) {
+          try {
+            const latestPlan = plans.value[latestIndex]
+            if (latestPlan) {
+              const latestEvaluation = evaluateMediaDestination(
+                latestPlan.destination,
+                latestPlan.analysis,
+                editorConfig.value,
+                autoManagement.value,
+                categoryPaths.value[latestPlan.destination.category] ?? '',
+                'may-change-destination',
+                latestPlan.canonicalResolution
+              )
+              await learnExplicitTvSeriesMapping(latestPlan, latestEvaluation)
+            }
+          } catch {
+            notifications.push(
+              'The torrent was accepted, but Bitwake could not remember the TV series alias.',
+              'warning'
+            )
           }
         }
       } catch (cause) {
@@ -835,6 +1047,8 @@ function submit(): void {
             :categories="categoryNames"
             :category-paths="categoryPaths"
             :auto-management="autoManagement"
+            :canonical-resolution="plan.canonicalResolution"
+            :retry-canonical-discovery="retryCanonicalDiscovery"
             :id-prefix="`source-${index}`"
             @update:model-value="updateDestination(index, $event)"
           />

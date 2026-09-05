@@ -16,6 +16,8 @@ export type ContentLayout = 'Original' | 'Subfolder' | 'NoSubfolder'
 
 export type MediaPathStyle = 'posix' | 'windows-drive' | 'unc'
 
+export type TvDirectoryListingStatus = 'ready' | 'truncated' | 'error'
+
 /**
  * The local, deliberately conservative description of one add-torrent source.
  * `filePaths` are bounded, torrent-relative path hints used only for previews;
