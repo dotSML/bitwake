@@ -6,39 +6,51 @@ const licenseUrl = `${appIdentity.repositoryUrl}/blob/main/LICENSE`
 
 <template>
   <aside class="legal-notice" aria-label="Open source and license information">
-    <span>Bitwake © 2026 Sten-Mark Laur · AGPL-3.0-or-later · no warranty</span>
-    <a :href="appIdentity.repositoryUrl" target="_blank" rel="noopener noreferrer">Source</a>
-    <a :href="licenseUrl" target="_blank" rel="noopener noreferrer">License</a>
+    <div>
+      <strong>Bitwake is open source</strong>
+      <span>© 2026 Sten-Mark Laur · AGPL-3.0-or-later · no warranty</span>
+    </div>
+    <nav aria-label="Bitwake source and license links">
+      <a :href="appIdentity.repositoryUrl" target="_blank" rel="noopener noreferrer">Source</a>
+      <a :href="licenseUrl" target="_blank" rel="noopener noreferrer">License</a>
+    </nav>
   </aside>
 </template>
 
 <style scoped>
 .legal-notice {
-  position: fixed;
-  z-index: 50;
-  right: 10px;
-  bottom: 8px;
   display: flex;
-  max-width: calc(100vw - 20px);
+  min-width: 0;
   align-items: center;
-  gap: 8px;
-  border: 1px solid rgb(var(--color-line));
-  border-radius: 8px;
-  background: rgb(var(--color-surface) / 0.94);
+  justify-content: space-between;
+  gap: 12px;
   color: rgb(var(--color-muted));
-  padding: 5px 8px;
-  font-size: 10px;
-  line-height: 1.25;
-  backdrop-filter: blur(8px);
+  padding: 11px 13px;
+}
+.legal-notice > div {
+  min-width: 0;
+}
+.legal-notice strong,
+.legal-notice span {
+  display: block;
+}
+.legal-notice strong {
+  color: rgb(var(--color-ink));
+  font-size: 13px;
 }
 .legal-notice span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  margin-top: 2px;
+  font-size: 10px;
+  line-height: 1.35;
+}
+.legal-notice nav {
+  display: flex;
+  flex: none;
+  gap: 10px;
 }
 .legal-notice a {
-  flex: none;
   color: rgb(var(--color-accent));
+  font-size: 11px;
   font-weight: 700;
   text-decoration: none;
 }
@@ -46,15 +58,10 @@ const licenseUrl = `${appIdentity.repositoryUrl}/blob/main/LICENSE`
 .legal-notice a:focus-visible {
   text-decoration: underline;
 }
-@media (max-width: 640px) {
+@media (max-width: 420px) {
   .legal-notice {
-    right: 6px;
-    bottom: 6px;
-    left: 6px;
-    justify-content: center;
-  }
-  .legal-notice span {
-    display: none;
+    align-items: flex-start;
+    flex-direction: column;
   }
 }
 </style>
