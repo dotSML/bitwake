@@ -64,8 +64,6 @@ async function initialize(): Promise<void> {
     else resetRetryBackoff()
   } finally {
     detecting.value = false
-    // A probe may settle after unmount. Ensure session activation cannot leave
-    // the synchronization loop running without its owning application.
     if (!active) torrents.stopSync()
   }
 }

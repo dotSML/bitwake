@@ -1,47 +1,30 @@
 # Releasing Bitwake
 
-Bitwake releases are deliberately staged. A Git tag alone publishes no
-GitHub Release. The container workflow must first verify and publish the tagged
-image, and then a maintainer runs the manual Release workflow for the exact tag.
+Bitwake releases are deliberately staged. A Git tag alone does not create a GitHub Release. The container workflow verifies and publishes the tagged image first; the manual Release workflow then publishes the exact reviewed tag.
 
-The workflow accepts strict `vMAJOR.MINOR.PATCH` tags and the same form with a
-valid SemVer prerelease suffix. A hyphenated suffix is published with GitHub's
-prerelease flag; a tag without one is published as a stable release. In both
-cases the `package.json` version and changelog heading must match exactly. Build
-metadata (`+...`) is deliberately not accepted by this release process.
+The workflow accepts `vMAJOR.MINOR.PATCH` tags and valid SemVer prerelease suffixes. `package.json` and the matching dated `CHANGELOG.md` section must agree exactly.
 
-## Current release blocker
+## Licensing gate
 
-The repository has no license. Public source visibility does not grant
-permission to copy, modify, or redistribute it. The Release workflow therefore
-uses `--require-license` and fails closed until the project owner chooses and
-adds an appropriate `LICENSE`, `LICENSE.md`, `LICENSE.txt`, `LICENCE`, or
-`COPYING` file. Do not remove or bypass that gate to ship a release.
-See [license-decision.md](license-decision.md) for the owner decision that
-remains deliberately outside this rename.
+Bitwake is licensed under `AGPL-3.0-or-later`.
 
-The automated gate checks that a recognized license file is present, that
-`package.json` has a reviewed non-`UNLICENSED`/`NOASSERTION` SPDX expression,
-and that the file is copied into the archive. It cannot decide whether the
-chosen terms are appropriate, complete, or legally compatible with
-dependencies.
+Release verification remains fail-closed and checks that:
 
-Selecting the license is not just adding a gate file. The owner must also align
-the root `package.json` license metadata, the container's OCI license label,
-Alternative WebUI archive license/notice contents, and any required attribution
-with the chosen terms.
+- a repository license file is present;
+- `package.json` declares a reviewed SPDX expression rather than `UNLICENSED`/`NOASSERTION`;
+- distributable Alternative WebUI archives include the project license;
+- release metadata records the license expression and included license files;
+- container OCI license metadata is derived from the same package metadata.
+
+See [license-decision.md](license-decision.md) for the licensing rationale and contributor/network-deployment implications.
 
 ## Prepare a release
 
 1. Start from a clean, reviewed `main` commit.
 2. Set `package.json` to the intended semantic version without a leading `v`.
-3. Move the release notes from `Unreleased` into a dated
-   `## [<version>] - YYYY-MM-DD` section in `CHANGELOG.md`. The verifier renders
-   only that matching version section, so it must contain every release note;
-   text left under `Unreleased` is not published for the tag.
-4. Confirm the license gate, package/container/archive metadata, and public
-   documentation are accurate.
-5. Run the complete source and browser gates:
+3. Move release notes from `Unreleased` into a dated `## [<version>] - YYYY-MM-DD` section in `CHANGELOG.md`.
+4. Confirm repository, package, container, archive, and public documentation licensing metadata agree.
+5. Run the source/browser gates:
 
    ```bash
    corepack pnpm install --frozen-lockfile
@@ -54,12 +37,7 @@ with the chosen terms.
    corepack pnpm run licenses
    ```
 
-   `pnpm run licenses` inventories the production graph, rejects licenses
-   outside the reviewed allow-list, and builds deterministic notice text from
-   package license files. Inspect that allow-list and output; neither this
-   command nor `pnpm audit` is a formal security or legal audit.
-
-6. Build and inspect the versioned native package:
+6. Build and verify the versioned Alternative WebUI archive:
 
    ```bash
    release_version=$(node -p "require('./package.json').version")
@@ -69,60 +47,36 @@ with the chosen terms.
      --artifact "dist/bitwake-alt-webui-v${release_version}.zip"
    ```
 
-   A fixed `SOURCE_DATE_EPOCH`, sorted archive entries, and stripped host ZIP
-   metadata make the release archive reproducible from the same source and
-   dependency graph.
+`pnpm run licenses` inventories the production dependency graph and generates deterministic third-party notices. It is a mechanical compatibility gate, not legal advice.
 
 ## Tag and publish
 
-1. Create a signed or annotated tag whose value is exactly `v` plus the
-   `package.json` version, and push only after review:
+Create a signed or annotated tag matching the package version:
 
-   ```bash
-   git tag -s v0.1.0 -m "Bitwake v0.1.0"
-   git push origin v0.1.0
-   ```
+```bash
+git tag -s v0.1.0 -m "Bitwake v0.1.0"
+git push origin v0.1.0
+```
 
-2. Wait for the **Container** workflow on that commit to pass. It runs source,
-   browser, image, proxy, and real-qBittorrent gates; scans both published
-   architectures; then publishes the versioned GHCR manifest with provenance,
-   SBOM, and an attestation.
-3. Confirm the exact revision also has reviewed CI evidence (including its PWA
-   suite), Performance evidence, and qBittorrent Compatibility evidence for
-   both pinned official 5.0.5 / Web API 2.11.2 and 5.2.3 / 2.15.1 images.
-   Scheduled/manual evidence is revision-specific; rerun those workflows for
-   the release commit when needed.
-4. Verify `ghcr.io/dotsml/bitwake:<version>` resolves to the expected manifest.
-5. Run the **Release** workflow from GitHub Actions and enter the exact tag. Its
-   non-publishing verification job checks out that tag, rejects a package/tag or
-   changelog mismatch, repeats the source release gates, builds the Alternative
-   WebUI twice with the tag commit timestamp and requires identical archives,
-   resolves the versioned container tag to a digest, checks both platform
-   labels, verifies the container provenance attestation, and records the digest
-   in the release metadata. A separate release-environment job downloads only
-   that verified bundle, rechecks its file set, checksums, metadata, and image
-   provenance without executing the archive, then creates the GitHub Release.
-   The workflow refuses to overwrite an existing release. Hyphenated SemVer
-   versions are marked as prereleases.
+Then:
+
+1. Wait for the **Container** workflow on that commit to pass.
+2. Confirm CI, browser/PWA, performance, and qBittorrent compatibility evidence for the release revision.
+3. Verify the versioned GHCR image resolves to the expected immutable manifest.
+4. Run the **Release** workflow for that exact tag.
+
+The release workflow re-verifies source and artifacts, builds the Alternative WebUI reproducibly, resolves the container image to a digest, verifies platform labels/provenance, and publishes a GitHub Release without overwriting existing artifacts.
 
 The GitHub Release contains:
 
 - `bitwake-alt-webui-v<version>.zip`;
-- `bitwake-v<version>-checksums.txt` covering the ZIP, metadata, and rendered notes;
-- `release-metadata.json` with the version, tag, revision, size, and ZIP digest;
+- `bitwake-v<version>-checksums.txt`;
+- `release-metadata.json`;
 - release notes rendered from the matching changelog entry.
 
-The ZIP itself also contains deterministic `THIRD_PARTY_NOTICES.txt`, the
-selected repository license file, and any recognized project notice files. The
-metadata records the package SPDX expression, license filenames, notice
-filename, and immutable container image reference.
-
-If any asset or release already exists for the tag, stop and investigate. Never
-silently replace a published artifact. Correct the source on a new version.
+The ZIP includes `LICENSE` and deterministic `THIRD_PARTY_NOTICES.txt`.
 
 ## Verify downloaded assets
-
-Download all release assets into one directory, then run:
 
 ```bash
 release_version=$(jq --raw-output .version release-metadata.json)
@@ -132,16 +86,8 @@ release_image=$(jq --raw-output .image release-metadata.json)
 docker buildx imagetools inspect "${release_image}"
 ```
 
-Confirm that `release_image` is the expected `ghcr.io/dotsml/bitwake@sha256:…`
-reference and compare it to the Container workflow summary and deployment
-review. Prefer digest-pinned deployments over version tags.
-
-Release metadata and downloadable artifacts use Bitwake as their identity.
+Prefer digest-pinned deployments over mutable tags.
 
 ## Rollback
 
-Container deployments roll back to the previously reviewed image digest.
-Native deployments roll back by pointing qBittorrent at the previous complete
-Alternative WebUI directory, or by disabling Alternative WebUI through the
-retained desktop/configuration recovery path. Never combine `public/` and
-`private/` directories from different releases.
+Container deployments roll back to the previously reviewed image digest. Native deployments roll back by selecting the previous complete Alternative WebUI directory or disabling Alternative WebUI through the retained recovery path. Never combine `public/` and `private/` directories from different releases.

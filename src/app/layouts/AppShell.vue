@@ -17,6 +17,7 @@ import MobileBottomNav from './MobileBottomNav.vue'
 import { usePreferencesStore } from '@/stores/preferences'
 import ToastRegion from '@/ui/components/ToastRegion.vue'
 import PwaUpdateBanner from '@/ui/components/PwaUpdateBanner.vue'
+import LegalNotice from '@/ui/components/LegalNotice.vue'
 import { MOBILE_MEDIA_QUERY, useMediaQuery } from '@/ui/composables/useMediaQuery'
 import { useWindowPointerDrag } from '@/ui/composables/useWindowPointerDrag'
 import { usePwaStore } from '@/stores/pwa'
@@ -144,6 +145,7 @@ onBeforeUnmount(() => pwa.trackUnsavedDialog('add-torrent', false))
       <main id="main-content" ref="mainElement" class="route-content" tabindex="-1">
         <RouterView @add-torrent="openAddTorrent" />
       </main>
+      <LegalNotice v-if="route.name === 'more'" />
     </div>
     <MobileBottomNav v-if="isMobile" />
     <AddTorrentDialog
