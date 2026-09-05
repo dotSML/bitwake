@@ -8,6 +8,7 @@ import { useSessionStore } from '@/stores/session'
 import { useTorrentsStore } from '@/stores/torrents'
 import { useOperationsHistoryStore } from '@/stores/operationsHistory'
 import { appEvents } from '@/config/appIdentity'
+import LegalNotice from '@/ui/components/LegalNotice.vue'
 
 const session = useSessionStore()
 const torrents = useTorrentsStore()
@@ -64,8 +65,6 @@ async function initialize(): Promise<void> {
     else resetRetryBackoff()
   } finally {
     detecting.value = false
-    // A probe may settle after unmount. Ensure session activation cannot leave
-    // the synchronization loop running without its owning application.
     if (!active) torrents.stopSync()
   }
 }
@@ -148,6 +147,7 @@ onBeforeUnmount(() => {
   </div>
   <RouterView v-else-if="session.status === 'anonymous'" />
   <AppShell v-else />
+  <LegalNotice />
 </template>
 
 <style scoped>
