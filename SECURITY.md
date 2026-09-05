@@ -8,11 +8,11 @@ See [docs/security.md](docs/security.md) for the threat model, implemented contr
 
 Security reports are evaluated against:
 
-| Target                    | Status    |
-| ------------------------- | --------- |
-| Current `main` branch     | Supported |
-| Latest published release  | Supported |
-| Older releases and forks  | Best effort only |
+| Target                   | Status           |
+| ------------------------ | ---------------- |
+| Current `main` branch    | Supported        |
+| Latest published release | Supported        |
+| Older releases and forks | Best effort only |
 
 You may be asked to confirm an issue on `main` or upgrade from an older release.
 
