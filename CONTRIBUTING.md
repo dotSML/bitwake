@@ -1,62 +1,40 @@
 # Contributing to Bitwake
 
-Thanks for helping improve Bitwake. Bug reports, focused feature proposals,
-documentation corrections, tests, and code changes are welcome.
+Thanks for helping improve Bitwake. Bug reports, focused feature proposals, documentation corrections, tests, and code changes are welcome.
 
-Participation in project spaces is governed by the [Code of Conduct](CODE_OF_CONDUCT.md).
+Participation in project spaces is governed by [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
 
 ## Before you start
 
-- Search the existing issues and pull requests before opening a duplicate.
-- Use the issue forms for bugs and feature requests. Include enough sanitized
-  detail for another contributor to reproduce the behavior.
-- Do not open a public issue for a suspected vulnerability. Follow
-  [SECURITY.md](SECURITY.md) instead.
-- For a large change, open an issue first so its scope and qBittorrent
-  compatibility can be discussed before implementation.
+- Search existing issues and pull requests before opening a duplicate.
+- Use the issue forms for bugs and feature requests.
+- Do not disclose suspected vulnerabilities publicly. Follow [SECURITY.md](SECURITY.md).
+- For a large change, open an issue first so scope, UX, security, and qBittorrent compatibility can be discussed.
 
 ## Development setup
 
-You need:
-
-- Node.js 22.22.2 or newer; `.node-version` records the reviewed CI/runtime
-  toolchain version.
-- Corepack and the pnpm version declared in `package.json` (currently 10.15.0).
-- Git.
-
-Clone and install the frozen dependency graph:
+You need Node.js 22.22.2 or newer, Corepack, pnpm as pinned in `package.json`, and Git.
 
 ```bash
 git clone https://github.com/dotSML/bitwake.git
 cd bitwake
 corepack enable
 corepack pnpm install --frozen-lockfile
-```
-
-Start the deterministic mock environment when a real qBittorrent instance is
-not needed:
-
-```bash
 corepack pnpm dev:mock
 ```
 
-Vite prints the local URL. To develop against qBittorrent, follow the
-environment and proxy instructions in [README.md](README.md). Never commit
-`.env.local` or put credentials in `VITE_QBITTORRENT_URL`.
+To develop against a real qBittorrent instance, follow the environment instructions in [README.md](README.md). Never commit `.env.local` or put credentials in `VITE_QBITTORRENT_URL`.
 
 ## Making a change
 
 - Keep each pull request focused on one problem.
-- Add or update tests for changed behavior, including regression coverage for
-  bug fixes. Do not bypass, skip, weaken, or remove a failing test to make a
-  change pass.
-- Preserve API behavior behind capability checks when support varies by
-  qBittorrent or Web API version.
-- Update user, deployment, compatibility, security, or feature-parity
-  documentation when the behavior changes.
-- Commit `pnpm-lock.yaml` when a dependency change legitimately updates it.
+- Add or update tests for changed behavior, including regression coverage for bug fixes.
+- Do not weaken, skip, or delete a failing test merely to make CI green.
+- Preserve version-dependent behavior behind capability checks.
+- Update user, deployment, compatibility, security, or feature-parity documentation when behavior changes.
+- Commit `pnpm-lock.yaml` only when a dependency change legitimately updates it.
 
-Useful targeted commands include:
+Useful commands:
 
 ```bash
 corepack pnpm test
@@ -66,63 +44,45 @@ corepack pnpm build:standalone
 corepack pnpm build:alt-webui
 ```
 
-Playwright may need a one-time local browser install:
-
-```bash
-corepack pnpm exec playwright install chromium webkit
-```
-
-Before opening a pull request, run the standard checks:
+Before opening a pull request:
 
 ```bash
 corepack pnpm format:check
 corepack pnpm run ci
 ```
 
-`pnpm run ci` runs type checking, linting, all Vitest projects, and both production
-build modes. Also run `corepack pnpm test:e2e` for browser-facing changes and
-the relevant container commands from the README for container, proxy, or
-deployment changes. Record the commands and results in the pull request.
+Run browser/container suites relevant to the changed area and record exact commands and results in the pull request.
 
-## Reporting bugs safely
+## Security and privacy in reports
 
-A useful bug report includes the Bitwake release or commit, qBittorrent
-version, Web API version, deployment mode, browser and operating system,
-reproduction steps, and the expected and actual behavior.
+Sanitize screenshots, logs, traces, configuration excerpts, and support snapshots. Do not publish:
 
-Sanitize every attachment, screenshot, log, network trace, and configuration
-excerpt. Do not publish:
+- passwords, cookies, session IDs, API keys, tokens, or private URLs;
+- torrent names, hashes, magnet links, file names, private file paths, or torrent contents;
+- tracker passkeys, private RSS feeds, peer addresses, or private network details.
 
-- passwords, cookies, session identifiers, API keys, tokens, or private URLs;
-- torrent names, info hashes, magnet links, file names, file paths, or content;
-- private tracker URLs or passkeys, RSS feeds, peer addresses, or private host
-  and network details.
+Prefer deterministic mock data or public-domain test data.
 
-Prefer mock data or a minimal public-domain test torrent. If redaction would
-make the report unsafe or incomplete, do not post it publicly.
+## Licensing contributions
 
-The Diagnostics and System Health route produces a minimized support snapshot,
-but it still includes browser/build/version and request-status metadata. Review
-that JSON before sharing it; do not treat generated diagnostics as a substitute
-for your own redaction.
+Bitwake is licensed under `AGPL-3.0-or-later`.
 
-## Licensing status
+By submitting a contribution, you represent that you have the right to submit it and agree that your contribution is provided under the same `AGPL-3.0-or-later` license unless the maintainers explicitly accept compatible alternative terms in writing.
 
-This repository does not yet include a license or declare contributor-license
-terms. Contributors must submit only material they have the right to submit,
-and should not assume that repository visibility grants permission to reuse or
-redistribute the project. Public release remains blocked until the project owner
-chooses a license and aligns repository, package, container, and artifact
-metadata. See the [license decision](docs/license-decision.md) and
-[release guide](docs/releasing.md).
+Bitwake currently uses no Contributor License Agreement. You retain copyright in your contribution while licensing it under the project license.
+
+Do not submit proprietary or confidential code, material copied from an incompatible project, or generated/reconstructed code whose licensing provenance you cannot establish.
+
+See [docs/license-decision.md](docs/license-decision.md) for the project licensing rationale.
 
 ## Pull requests
 
-Explain what changed, why it changed, compatibility implications, and how it
-was verified. Link the relevant issue when one exists. Screenshots are useful
-for visual changes, but they must use synthetic data and be sanitized as
-carefully as logs.
+Explain:
 
-Review may request changes to API contracts, accessibility, tests,
-documentation, or security boundaries. Keep follow-up commits scoped to the
-pull request so the final change remains auditable.
+- what changed;
+- why it changed;
+- compatibility or migration implications;
+- security/privacy implications where relevant;
+- the exact verification performed.
+
+Screenshots are useful for UI changes but must use synthetic or fully sanitized data. Review may request changes to API contracts, accessibility, tests, documentation, or security boundaries.
