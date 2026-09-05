@@ -2,7 +2,7 @@
   "name": "bitwake",
   "version": "0.1.0",
   "description": "Modern, mobile-first qBittorrent WebUI with responsive controls and media-aware placement.",
-  "license": "UNLICENSED",
+  "license": "AGPL-3.0-or-later",
   "private": true,
   "homepage": "https://github.com/dotSML/bitwake#readme",
   "repository": {
