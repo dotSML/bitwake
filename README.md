@@ -24,13 +24,13 @@ Bitwake is an independent project and is not affiliated with or endorsed by the 
 
 ## Compatibility
 
-| Area            | Support                                                                 |
-| --------------- | ----------------------------------------------------------------------- |
-| qBittorrent     | 5.0.5 and 5.2.3 verified; other 5.x releases are best effort            |
-| Web API         | 2.11.2 and 2.15.1 verified; intermediate versions are capability-gated  |
-| Browsers        | Current evergreen browsers with ES2022, modules, and `fetch`            |
-| Node.js         | 22.22.2 or later for development and builds                             |
-| Package manager | pnpm 10.15.0 through Corepack                                           |
+| Area            | Support                                                                |
+| --------------- | ---------------------------------------------------------------------- |
+| qBittorrent     | 5.0.5 and 5.2.3 verified; other 5.x releases are best effort           |
+| Web API         | 2.11.2 and 2.15.1 verified; intermediate versions are capability-gated |
+| Browsers        | Current evergreen browsers with ES2022, modules, and `fetch`           |
+| Node.js         | 22.22.2 or later for development and builds                            |
+| Package manager | pnpm 10.15.0 through Corepack                                          |
 
 ## Quick start with mock data
 
