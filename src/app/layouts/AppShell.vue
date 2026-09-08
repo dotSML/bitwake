@@ -5,6 +5,7 @@ import {
   defineAsyncComponent,
   nextTick,
   onBeforeUnmount,
+  onMounted,
   ref,
   watch,
   type Component
@@ -20,6 +21,7 @@ import PwaUpdateBanner from '@/ui/components/PwaUpdateBanner.vue'
 import { MOBILE_MEDIA_QUERY, useMediaQuery } from '@/ui/composables/useMediaQuery'
 import { useWindowPointerDrag } from '@/ui/composables/useWindowPointerDrag'
 import { usePwaStore } from '@/stores/pwa'
+import { parseAddTorrentLink } from '@/features/add-torrent/addTorrentLink'
 
 const AddTorrentDialog = defineAsyncComponent(async () => {
   const module: unknown = await import('@/features/add-torrent/AddTorrentDialog.vue')
@@ -36,6 +38,7 @@ const addOpen = ref(false)
 const mainElement = ref<HTMLElement | null>(null)
 const routeAnnouncement = ref('')
 const pendingFiles = ref<File[]>([])
+const pendingUrls = ref<string[]>([])
 const routeTitle = computed(() => t(String(route.meta.titleKey ?? 'app.name')))
 const focusRouteKey = computed(() =>
   route.name === 'torrent-detail'
@@ -45,6 +48,7 @@ const focusRouteKey = computed(() =>
 
 function openAddTorrent(files?: File[]): void {
   pendingFiles.value = files ? [...files] : []
+  pendingUrls.value = []
   addOpen.value = true
 }
 
@@ -52,6 +56,7 @@ function updateAddOpen(open: boolean): void {
   addOpen.value = open
   if (!open) {
     pendingFiles.value = []
+    pendingUrls.value = []
     pwa.trackUnsavedDialog('add-torrent', false)
   }
 }
@@ -96,6 +101,23 @@ watch(
   },
   { immediate: true }
 )
+
+onMounted(() => {
+  // AppShell only mounts after authentication. Leave the incoming query intact
+  // until then so both in-place login and native WebUI reloads preserve it.
+  const link = parseAddTorrentLink(window.location.search)
+  if (!link) return
+
+  window.history.replaceState(
+    window.history.state,
+    '',
+    `${window.location.pathname}${link.remainingSearch}${window.location.hash}`
+  )
+  if (link.urls.length) {
+    pendingUrls.value = link.urls
+    addOpen.value = true
+  }
+})
 
 onBeforeUnmount(() => pwa.trackUnsavedDialog('add-torrent', false))
 </script>
@@ -150,6 +172,7 @@ onBeforeUnmount(() => pwa.trackUnsavedDialog('add-torrent', false))
       v-if="addOpen"
       :open="addOpen"
       :initial-files="pendingFiles"
+      :initial-urls="pendingUrls"
       @update:open="updateAddOpen"
       @update:dirty="updateAddDirty"
     />

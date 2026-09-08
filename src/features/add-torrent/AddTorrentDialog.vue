@@ -77,7 +77,7 @@ interface AddSummary {
   ids: string[]
 }
 
-const props = defineProps<{ open: boolean; initialFiles?: File[] }>()
+const props = defineProps<{ open: boolean; initialFiles?: File[]; initialUrls?: string[] }>()
 const emit = defineEmits<{
   'update:open': [value: boolean]
   'update:dirty': [value: boolean]
@@ -193,6 +193,7 @@ watch(
     const generation = ++openGeneration
     if (open) {
       files.value = [...(props.initialFiles ?? [])]
+      sourceText.value = (props.initialUrls ?? []).join('\n')
       await placement.load()
       if (disposed || generation !== openGeneration || !props.open) return
       if (assistMode.value && editorConfig.value.tvRoot) {
