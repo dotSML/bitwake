@@ -26,6 +26,9 @@ Bitwake is an independent project and is not affiliated with or endorsed by the 
 - Virtualized desktop and mobile torrent lists with keyboard and multi-selection support.
 - Advanced torrent filtering with active-filter summaries and up to 20 named saved filters.
 - Torrent addition from files, magnets, and HTTP(S) URLs.
+- Browser magnet handoffs using `?action=add-urls&url=<encoded magnet>` open the Add
+  Torrent dialog after sign-in. Review the source and destination before adding;
+  the handled parameters are removed from the address bar and are not saved by Bitwake.
 - Optional Media Placement assistance with independent TV/Movie/Other classification and
   Suggested or first-class Manual destinations.
 - Shared desktop and mobile actions for lifecycle, queue, location, limits, categories, tags, comments, and deletion.
