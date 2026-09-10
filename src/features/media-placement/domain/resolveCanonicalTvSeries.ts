@@ -152,6 +152,7 @@ export function resolveCanonicalTvSeries(
 
   // A mapping is only useful when its basename is present in this snapshot.
   // Stale mappings are deliberately ignored rather than recreated.
+  const mappingMatches: Array<{ folderName: string; exactYear: boolean }> = []
   for (const mapping of options.mappings ?? []) {
     const mappingIdentity = parseTvFolderIdentity(mapping.normalizedTitle)
     const mappedFolder = folderIdentities.find(
@@ -164,9 +165,29 @@ export function resolveCanonicalTvSeries(
       mappedFolder &&
       compatibleYear(mappedFolder.identity.terminalYear, input.terminalYear)
     ) {
-      const result = existingResult(tvRoot, mapping.folderName, 'mapping')
-      if (result) return result
+      if (existingPath(tvRoot, mapping.folderName)) {
+        mappingMatches.push({
+          folderName: mapping.folderName,
+          exactYear:
+            input.terminalYear !== undefined &&
+            (mapping.year ?? mappedFolder.identity.terminalYear) === input.terminalYear
+        })
+      }
     }
+  }
+  // Prefer a known release year to an unqualified alias. Without a year,
+  // every compatible destination remains a candidate, regardless of save order.
+  const exactYearMappings = mappingMatches.filter((match) => match.exactYear)
+  const mappedNames = [
+    ...new Set(
+      (exactYearMappings.length ? exactYearMappings : mappingMatches).map(
+        (match) => match.folderName
+      )
+    )
+  ]
+  if (mappedNames.length === 1) return existingResult(tvRoot, mappedNames[0]!, 'mapping')!
+  if (mappedNames.length > 1) {
+    return { status: 'needs-selection', candidates: mappedNames.sort(), reason: 'ambiguous' }
   }
 
   const titleMatches = folderIdentities.filter(

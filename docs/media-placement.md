@@ -117,6 +117,16 @@ browser session when client data is unavailable). Aliases are learned only after
 selected existing series folder is accepted by qBittorrent; automatic exact matches and new series
 folders do not create aliases.
 
+Manage these in **Settings → Media Placement → Saved TV aliases**. Search by release title,
+year, or folder name; edit an alias or remove it to free one of the 500 available slots.
+These controls remain available when deployment settings lock the library roots. Edits affect
+future suggestions and never rename or move existing files. Failed saves retain the in-memory
+change and show **Retry saving** until it is persisted.
+
+An explicit matching year takes precedence over an unqualified alias. If several aliases still
+point to different compatible folders, Suggested TV requires a selection; save order does not
+choose the destination. Multiple aliases for the same physical folder count as one destination.
+
 ## Manual destinations
 
 Manual path accepts an absolute path visible to qBittorrent. It may be inside either configured

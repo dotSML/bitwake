@@ -7,12 +7,12 @@ import { defaultTorrentFilters } from '@/domains/torrents/filtering'
 import { useTorrentsStore } from '@/stores/torrents'
 import { useTransferStore } from '@/stores/transfer'
 
-function createStores() {
+function createStores(fetchMock = vi.fn<typeof fetch>()) {
   const app = createApp({ render: () => null })
   const pinia = createPinia()
   const api = createQbittorrentApi({
     baseUrl: 'https://example.test/api/v2/',
-    fetch: vi.fn<typeof fetch>()
+    fetch: fetchMock
   })
   app.use(pinia)
   app.provide(apiKey, api)
@@ -242,6 +242,34 @@ describe('torrent incremental sync store', () => {
     expect(mainData.mock.calls.map(([rid]) => rid)).toEqual([7, 0])
     expect(torrents.responseId).toBe(9)
     expect([...torrents.byHash.keys()]).toEqual(['recovered'])
+  })
+
+  it('keeps last-good rows and requests a full resync after invalid API fields', async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(Response.json({ rid: 8, torrents: { alpha: { name: 42 } } }))
+      .mockResolvedValueOnce(
+        Response.json({ rid: 9, full_update: true, torrents: { alpha: { name: 'Recovered' } } })
+      )
+    const { torrents } = createStores(fetchMock)
+    torrents.applyMainData({ rid: 7, full_update: true, torrents: { alpha: { name: 'Alpha' } } })
+    torrents.updateFilters({ text: 'Alpha' })
+    const previous = torrents.byHash
+    torrents.startSync()
+    try {
+      await vi.waitFor(() => expect(torrents.connectionState).toBe('disconnected'))
+      expect(torrents.byHash).toBe(previous)
+      expect(torrents.visibleTorrents.map((item) => item.name)).toEqual(['Alpha'])
+      expect(torrents.responseId).toBe(0)
+      torrents.refreshNow()
+      await vi.waitFor(() => expect(torrents.responseId).toBe(9))
+      expect(
+        fetchMock.mock.calls.map(([url]) => new URL(String(url)).searchParams.get('rid'))
+      ).toEqual(['7', '0'])
+      expect(torrents.byHash.get('alpha')?.name).toBe('Recovered')
+    } finally {
+      torrents.stopSync()
+    }
   })
 
   it('updates a 5,000-torrent snapshot without replacing untouched row identities or its RID', () => {

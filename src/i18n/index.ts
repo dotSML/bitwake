@@ -175,6 +175,35 @@ const en = {
     resultCaveat:
       'An empty qBittorrent result cannot distinguish an empty directory from one it cannot read, and never proves the directory is writable.'
   },
+  tvAliases: {
+    title: 'Saved TV aliases',
+    description:
+      'Aliases link release names to folders beneath your TV root. Changes affect future suggestions; existing files stay in place.',
+    loading: 'Loading saved aliases…',
+    retryLoading: 'Retry loading',
+    retrySaving: 'Retry saving',
+    search: 'Search saved aliases',
+    count: '{count} of {maximum} aliases',
+    anyYear: 'Year not specified',
+    folder: 'Series folder name',
+    edit: 'Edit',
+    remove: 'Remove',
+    editLabel: 'Edit alias {title} → {folder}',
+    removeLabel: 'Remove alias {title} → {folder}',
+    noMatches: 'No matching aliases.',
+    empty: 'No saved TV aliases.',
+    editTitle: 'Edit TV alias',
+    editDescription:
+      'Use the name of a direct child folder beneath your TV root. A missing folder will not be selected automatically.',
+    releaseTitle: 'Release title',
+    year: 'Year (optional)',
+    cancel: 'Cancel',
+    save: 'Save alias',
+    saved: 'TV aliases saved.',
+    removed: 'TV alias removed.',
+    saveError: 'The TV alias could not be saved.',
+    invalidYear: 'Enter a four-digit year or leave it empty.'
+  },
   pwa: {
     updateAvailable: 'Bitwake update available',
     updateHint: 'Reload to use the new version.',
@@ -433,6 +462,35 @@ const et = {
     testAccess: 'Kontrolli ligipääsu',
     resultCaveat:
       'Tühi qBittorrenti vastus ei erista tühja kausta loetamatust kaustast ega tõesta kunagi kirjutusõigust.'
+  },
+  tvAliases: {
+    title: 'Salvestatud sarjaaliased',
+    description:
+      'Aliased seovad väljalasete nimed sarjade juurkausta alamkaustadega. Muudatused mõjutavad tulevasi soovitusi; olemasolevad failid jäävad paigale.',
+    loading: 'Salvestatud aliaste laadimine…',
+    retryLoading: 'Proovi uuesti laadida',
+    retrySaving: 'Proovi uuesti salvestada',
+    search: 'Otsi salvestatud aliast',
+    count: '{count} aliast {maximum}-st',
+    anyYear: 'Aasta määramata',
+    folder: 'Sarjakausta nimi',
+    edit: 'Muuda',
+    remove: 'Eemalda',
+    editLabel: 'Muuda aliast {title} → {folder}',
+    removeLabel: 'Eemalda alias {title} → {folder}',
+    noMatches: 'Sobivaid aliaseid pole.',
+    empty: 'Salvestatud sarjaaliaseid pole.',
+    editTitle: 'Muuda sarjaaliast',
+    editDescription:
+      'Kasuta sarjade juurkausta otsese alamkausta nime. Puuduvat kausta ei valita automaatselt.',
+    releaseTitle: 'Väljalaske pealkiri',
+    year: 'Aasta (valikuline)',
+    cancel: 'Tühista',
+    save: 'Salvesta alias',
+    saved: 'Sarjaaliased salvestati.',
+    removed: 'Sarjaalias eemaldati.',
+    saveError: 'Sarjaaliast ei saanud salvestada.',
+    invalidYear: 'Sisesta neljakohaline aasta või jäta tühjaks.'
   },
   pwa: {
     updateAvailable: 'Bitwake’i uuendus on saadaval',

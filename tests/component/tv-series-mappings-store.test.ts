@@ -103,4 +103,50 @@ describe('TV series mappings store', () => {
     expect(store.items).toEqual([{ normalizedTitle: 'release', folderName: 'Canonical' }])
     expect(store.persistenceWarning).toContain('may be lost')
   })
+  it('allows editing at capacity, rejects stale edits, and frees space on removal', async () => {
+    const { store } = setup(false)
+    window.sessionStorage.setItem(
+      browserKey,
+      JSON.stringify({
+        schemaVersion: 1,
+        items: Array.from({ length: 500 }, (_, index) => ({
+          normalizedTitle: `release ${index}`,
+          folderName: `Show ${index}`
+        }))
+      })
+    )
+    await store.load()
+    const original = { ...store.items[0]! }
+    await store.update(original, { normalizedTitle: 'Updated', folderName: 'Updated Show' })
+    expect(store.items).toHaveLength(500)
+    await expect(store.update(original, original)).rejects.toThrow('has changed')
+    await store.remove(store.items[0]!)
+    await store.remember('New release', 'New Show')
+    expect(store.items).toHaveLength(500)
+  })
+
+  it('does not restore aliases or warnings when a write finishes after logout', async () => {
+    const { context, store } = setup(true)
+    vi.spyOn(context.api.clientData, 'load').mockResolvedValue({
+      [clientDataKey]: {
+        schemaVersion: 1,
+        items: [{ normalizedTitle: 'release', folderName: 'Show' }]
+      }
+    })
+    let reject!: (cause: Error) => void
+    vi.spyOn(context.api.clientData, 'store').mockImplementation(
+      () =>
+        new Promise<void>((_, fail) => {
+          reject = fail
+        })
+    )
+    await store.load()
+    const pending = store.remove(store.items[0]!)
+    store.resetPrivateState()
+    reject(new Error('late failure'))
+    await pending
+    expect(store.items).toEqual([])
+    expect(store.loaded).toBe(false)
+    expect(store.persistenceWarning).toBeNull()
+  })
 })

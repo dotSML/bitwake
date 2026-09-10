@@ -11,28 +11,15 @@ import {
   XCircle
 } from '@lucide/vue'
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
-import type { AddTorrentResult } from '@/api/types/models'
 import { useApi } from '@/app/providers/api'
-import {
-  analyzeSourceName,
-  analyzeTextSource
-} from '@/features/media-placement/domain/analyzeSourceName'
-import { analyzeTorrentFile } from '@/features/media-placement/domain/analyzeTorrentFile'
-import { directoryNames } from '@/features/media-placement/domain/hostDirectory'
 import {
   resolveCanonicalTvSeries,
   type CanonicalTvSeriesResolution
 } from '@/features/media-placement/domain/resolveCanonicalTvSeries'
-import { maximumExistingFolderEntries } from '@/features/media-placement/domain/discoverExistingFolders'
 import { replaceControlCharacters } from '@/features/media-placement/domain/textSafety'
-import type {
-  MediaSourceAnalysis,
-  TvDirectoryListingStatus
-} from '@/features/media-placement/domain/types'
 import MediaDestinationEditor from '@/features/media-placement/components/MediaDestinationEditor.vue'
 import MediaPlacementWarning from '@/features/media-placement/components/MediaPlacementWarning.vue'
 import {
-  createMediaDestinationValue,
   evaluateMediaDestination,
   type MediaDestinationValue
 } from '@/features/media-placement/components/editorTypes'
@@ -51,31 +38,13 @@ import { useNotificationsStore } from '@/stores/notifications'
 import { useTorrentsStore } from '@/stores/torrents'
 import AppDialog from '@/ui/primitives/AppDialog.vue'
 import { formatNumber } from '@/utils/format'
+import type { AddSourcePlan, AddSummary } from './addTorrentTypes'
+import { useAddTorrentPlans } from './useAddTorrentPlans'
+import { responseSummary, submitTorrentPlans } from './submitTorrentPlans'
+import { useTvDirectorySnapshot } from './useTvDirectorySnapshot'
 
 type AddStep = 1 | 2 | 3
-type SourceStatus = 'ready' | 'submitting' | 'success' | 'pending' | 'failed'
 const stepLabels = ['Sources', 'Media and destination', 'Options and review'] as const
-
-interface AddSourcePlan {
-  key: string
-  sourceType: 'link' | 'file'
-  source?: string
-  file?: File
-  analysis: MediaSourceAnalysis
-  inspectionComplete: boolean
-  destination: MediaDestinationValue
-  canonicalResolution: CanonicalTvSeriesResolution | undefined
-  userEdited: boolean
-  status: SourceStatus
-  error: string | null
-}
-
-interface AddSummary {
-  success: number
-  pending: number
-  failed: number
-  ids: string[]
-}
 
 const props = defineProps<{ open: boolean; initialFiles?: File[]; initialUrls?: string[] }>()
 const emit = defineEmits<{
@@ -102,36 +71,13 @@ function safeFileName(file: File): string {
   return replaceControlCharacters(file.name) || 'Unnamed torrent file'
 }
 const submitting = ref(false)
-const analyzingFiles = ref(false)
 const step = ref<AddStep>(1)
 const stepHeading = ref<HTMLElement | null>(null)
 const error = ref<string | null>(null)
 const result = ref<AddSummary | null>(null)
-const plans = ref<AddSourcePlan[]>([])
-const tvDirectorySnapshot = ref<{
-  status: TvDirectoryListingStatus
-  names: string[]
-}>({ status: 'error', names: [] })
-let tvDirectoryController: AbortController | null = null
-let tvDirectoryGeneration = 0
-const tvDirectorySettled = ref(false)
-let analysisGeneration = 0
 let submissionGeneration = 0
 let openGeneration = 0
 let disposed = false
-const fileObjectIds = new WeakMap<File, number>()
-let nextFileObjectId = 1
-interface FileInspectionTask {
-  file: File
-  planKey: string
-  generation: number
-  promise: Promise<MediaSourceAnalysis | null>
-  resolve: (analysis: MediaSourceAnalysis | null) => void
-}
-const fileInspectionTasks = new WeakMap<File, FileInspectionTask>()
-const fileInspectionQueue: FileInspectionTask[] = []
-let activeFileInspections = 0
-
 const sources = computed(() =>
   sourceText.value
     .split(/\r?\n/u)
@@ -164,6 +110,25 @@ const editorConfig = computed<EffectiveMediaPlacementConfig>(() => ({
     ? placement.config.movieCategory
     : ''
 }))
+const { plans, analyzingFiles, reconcilePlans, clearPlacementAnalysis, fileKeyPart } =
+  useAddTorrentPlans({
+    sources,
+    files,
+    enabled: assistMode,
+    config: editorConfig,
+    isOpen: () => props.open && !disposed,
+    planDestination
+  })
+const {
+  tvDirectorySnapshot,
+  tvDirectorySettled,
+  refreshTvDirectorySnapshot,
+  resetTvDirectorySnapshot
+} = useTvDirectorySnapshot({
+  root: () => editorConfig.value.tvRoot,
+  enabled: () => assistMode.value,
+  isCurrent: (generation) => generation === openGeneration && !disposed && props.open
+})
 const missingConfiguredCategories = computed(() =>
   [placement.config.tvCategory, placement.config.movieCategory].filter(
     (value, index, values) =>
@@ -238,9 +203,8 @@ onBeforeUnmount(() => {
 })
 
 function reset(): void {
-  analysisGeneration += 1
+  clearPlacementAnalysis()
   submissionGeneration += 1
-  cancelQueuedFileInspections()
   sourceText.value = ''
   files.value = []
   savePath.value = ''
@@ -257,91 +221,7 @@ function reset(): void {
   error.value = null
   result.value = null
   plans.value = []
-  tvDirectoryGeneration += 1
-  tvDirectoryController?.abort()
-  tvDirectoryController = null
-  tvDirectorySettled.value = false
-  tvDirectorySnapshot.value = { status: 'error', names: [] }
-}
-
-function fileKeyPart(file: File): string {
-  let id = fileObjectIds.get(file)
-  if (id === undefined) {
-    id = nextFileObjectId
-    nextFileObjectId += 1
-    fileObjectIds.set(file, id)
-  }
-  return `${id}:${file.name}:${file.size}:${file.lastModified}`
-}
-
-function sourceKeys(values: readonly string[], prefix: string): string[] {
-  const occurrences = new Map<string, number>()
-  return values.map((value) => {
-    const occurrence = occurrences.get(value) ?? 0
-    occurrences.set(value, occurrence + 1)
-    return `${prefix}:${value}:${occurrence}`
-  })
-}
-
-function opaquePlanId(value: string): string {
-  let hash = 0x811c9dc5
-  for (let index = 0; index < value.length; index += 1) {
-    hash ^= value.charCodeAt(index)
-    hash = Math.imul(hash, 0x01000193)
-  }
-  return `placement-${(hash >>> 0).toString(16).padStart(8, '0')}`
-}
-
-function clearPlacementAnalysis(): void {
-  analysisGeneration += 1
-  cancelQueuedFileInspections()
-  analyzingFiles.value = false
-  plans.value = []
-}
-
-function cancelQueuedFileInspections(): void {
-  for (const task of fileInspectionQueue.splice(0)) {
-    if (fileInspectionTasks.get(task.file) === task) fileInspectionTasks.delete(task.file)
-    task.resolve(null)
-  }
-}
-
-async function refreshTvDirectorySnapshot(generation: number): Promise<void> {
-  const root = editorConfig.value.tvRoot
-  tvDirectoryController?.abort()
-  if (!root || !assistMode.value) {
-    tvDirectorySettled.value = true
-    tvDirectorySnapshot.value = { status: 'error', names: [] }
-    return
-  }
-  const request = new AbortController()
-  const requestGeneration = ++tvDirectoryGeneration
-  tvDirectoryController = request
-  tvDirectorySettled.value = false
-  tvDirectorySnapshot.value = { status: 'error', names: [] }
-  try {
-    const entries = await api.app.directoryContent(root, 'dirs', false, request.signal)
-    if (
-      request.signal.aborted ||
-      requestGeneration !== tvDirectoryGeneration ||
-      generation !== openGeneration ||
-      disposed ||
-      !props.open
-    )
-      return
-    tvDirectorySnapshot.value = {
-      status: entries.length > maximumExistingFolderEntries ? 'truncated' : 'ready',
-      names: directoryNames(entries.slice(0, maximumExistingFolderEntries))
-    }
-    tvDirectorySettled.value = true
-  } catch {
-    if (!request.signal.aborted && requestGeneration === tvDirectoryGeneration) {
-      tvDirectorySnapshot.value = { status: 'error', names: [] }
-      tvDirectorySettled.value = true
-    }
-  } finally {
-    if (tvDirectoryController === request) tvDirectoryController = null
-  }
+  resetTvDirectorySnapshot()
 }
 
 function canonicalResolutionFor(
@@ -408,169 +288,6 @@ function planDestination(
     }
   }
   return { destination, canonicalResolution: resolution }
-}
-
-function drainFileInspectionQueue(): void {
-  if (disposed) {
-    cancelQueuedFileInspections()
-    return
-  }
-  while (activeFileInspections < 2 && fileInspectionQueue.length) {
-    const task = fileInspectionQueue.shift()
-    if (!task) return
-    if (
-      task.generation !== analysisGeneration ||
-      !assistMode.value ||
-      !files.value.includes(task.file)
-    ) {
-      if (fileInspectionTasks.get(task.file) === task) fileInspectionTasks.delete(task.file)
-      task.resolve(null)
-      continue
-    }
-    activeFileInspections += 1
-    void analyzeTorrentFile(task.file, {
-      id: opaquePlanId(task.planKey),
-      fileName: task.file.name
-    })
-      .then((inspected) => task.resolve(inspected))
-      .finally(() => {
-        activeFileInspections -= 1
-        drainFileInspectionQueue()
-      })
-  }
-}
-
-function inspectTorrentFileOnce(
-  file: File,
-  planKey: string,
-  generation: number
-): Promise<MediaSourceAnalysis | null> {
-  const existing = fileInspectionTasks.get(file)
-  if (existing) {
-    existing.generation = generation
-    return existing.promise
-  }
-  let resolve!: (analysis: MediaSourceAnalysis | null) => void
-  const promise = new Promise<MediaSourceAnalysis | null>((complete) => {
-    resolve = complete
-  })
-  const task: FileInspectionTask = { file, planKey, generation, promise, resolve }
-  fileInspectionTasks.set(file, task)
-  fileInspectionQueue.push(task)
-  drainFileInspectionQueue()
-  return promise
-}
-
-async function reconcilePlans(): Promise<void> {
-  if (disposed || !props.open) return
-  if (!assistMode.value) {
-    clearPlacementAnalysis()
-    return
-  }
-  const generation = ++analysisGeneration
-  const previous = new Map(plans.value.map((plan) => [plan.key, plan]))
-  const linkKeys = sourceKeys(sources.value, 'link')
-  const fileKeys = files.value.map((file) => `file:${fileKeyPart(file)}`)
-  const next: AddSourcePlan[] = []
-
-  sources.value.forEach((source, index) => {
-    const key = linkKeys[index]!
-    const old = previous.get(key)
-    if (old) {
-      const planned = planDestination(old.destination)
-      next.push({
-        ...old,
-        source,
-        destination: planned.destination,
-        canonicalResolution: planned.canonicalResolution
-      })
-    } else {
-      const analysis = analyzeTextSource(source, opaquePlanId(key))
-      const destination = createMediaDestinationValue(analysis, editorConfig.value)
-      const planned = planDestination(destination)
-      next.push({
-        key,
-        sourceType: 'link',
-        source,
-        analysis,
-        inspectionComplete: true,
-        destination: planned.destination,
-        canonicalResolution: planned.canonicalResolution,
-        userEdited: false,
-        status: 'ready',
-        error: null
-      })
-    }
-  })
-
-  files.value.forEach((file, index) => {
-    const key = fileKeys[index]!
-    const old = previous.get(key)
-    if (old) {
-      const planned = planDestination(old.destination)
-      next.push({
-        ...old,
-        file,
-        destination: planned.destination,
-        canonicalResolution: planned.canonicalResolution
-      })
-    } else {
-      const analysis = analyzeSourceName(file.name, { id: opaquePlanId(key) })
-      const destination = createMediaDestinationValue(analysis, editorConfig.value)
-      const planned = planDestination(destination)
-      next.push({
-        key,
-        sourceType: 'file',
-        file,
-        analysis,
-        inspectionComplete: false,
-        destination: planned.destination,
-        canonicalResolution: planned.canonicalResolution,
-        userEdited: false,
-        status: 'ready',
-        error: null
-      })
-    }
-  })
-  plans.value = next
-
-  const newFilePlans = next.filter(
-    (plan) => plan.sourceType === 'file' && plan.file && !plan.inspectionComplete
-  )
-  if (!newFilePlans.length) {
-    analyzingFiles.value = false
-    return
-  }
-  analyzingFiles.value = true
-
-  try {
-    await Promise.all(
-      newFilePlans.map(async (plan) => {
-        if (!plan.file) return
-        const inspected = await inspectTorrentFileOnce(plan.file, plan.key, generation)
-        if (!inspected || generation !== analysisGeneration) return
-        plans.value = plans.value.map((current) =>
-          current.key !== plan.key
-            ? current
-            : {
-                ...current,
-                analysis: inspected,
-                inspectionComplete: true,
-                destination: current.userEdited
-                  ? current.destination
-                  : planDestination(createMediaDestinationValue(inspected, editorConfig.value))
-                      .destination,
-                canonicalResolution: current.userEdited
-                  ? current.canonicalResolution
-                  : planDestination(createMediaDestinationValue(inspected, editorConfig.value))
-                      .canonicalResolution
-              }
-        )
-      })
-    )
-  } finally {
-    if (generation === analysisGeneration) analyzingFiles.value = false
-  }
 }
 
 function chooseFiles(event: Event): void {
@@ -671,15 +388,6 @@ function moveToStep(next: AddStep): void {
 
 function goBack(): void {
   if (step.value > 1) moveToStep((step.value - 1) as AddStep)
-}
-
-function responseSummary(response: AddTorrentResult, count: number): AddSummary {
-  return {
-    success: response.success_count ?? (response.legacySuccess ? count : 0),
-    pending: response.pending_count ?? 0,
-    failed: response.failure_count ?? (response.legacySuccess ? 0 : count),
-    ids: response.added_torrent_ids ?? []
-  }
 }
 
 async function learnExplicitTvSeriesMapping(
@@ -790,94 +498,41 @@ async function addPlanned(): Promise<void> {
     firstLastPiecePrio: firstLast.value
   }
   submitting.value = true
-  const summary: AddSummary = { success: 0, pending: 0, failed: 0, ids: [] }
-  let cursor = 0
-
-  async function worker(): Promise<void> {
-    while (
-      generation === submissionGeneration &&
-      !disposed &&
-      props.open &&
-      cursor < candidates.length
-    ) {
-      const candidate = candidates[cursor++]
-      if (!candidate) return
-      const currentIndex = plans.value.findIndex((plan) => plan.key === candidate.plan.key)
-      if (currentIndex < 0) continue
-      plans.value[currentIndex] = {
-        ...plans.value[currentIndex]!,
-        status: 'submitting',
-        error: null
-      }
-      try {
-        const response = await api.torrents.add({
-          ...(candidate.plan.source ? { sources: [candidate.plan.source] } : {}),
-          ...(candidate.plan.file ? { files: [candidate.plan.file] } : {}),
-          savepath: candidate.evaluation.effectiveSavePath,
-          ...(candidate.plan.destination.category
-            ? { category: candidate.plan.destination.category }
-            : {}),
-          ...(candidate.plan.destination.tags.length
-            ? { tags: candidate.plan.destination.tags }
-            : {}),
-          contentLayout: candidate.plan.destination.contentLayout,
-          ...submissionOptions
-        })
-        if (generation !== submissionGeneration || disposed || !props.open) return
-        const itemSummary = responseSummary(response, 1)
-        summary.success += itemSummary.success
-        summary.pending += itemSummary.pending
-        summary.failed += itemSummary.failed
-        summary.ids.push(...itemSummary.ids)
-        const failed = itemSummary.failed > 0
-        const pending = !failed && itemSummary.pending > 0
-        const latestIndex = plans.value.findIndex((plan) => plan.key === candidate.plan.key)
-        if (latestIndex >= 0) {
-          plans.value[latestIndex] = {
-            ...plans.value[latestIndex]!,
-            status: failed ? 'failed' : pending ? 'pending' : 'success',
-            error: failed ? 'qBittorrent did not accept this source. Review it and retry.' : null
-          }
-        }
-        if (!failed && (itemSummary.success > 0 || itemSummary.pending > 0) && latestIndex >= 0) {
-          try {
-            const latestPlan = plans.value[latestIndex]
-            if (latestPlan) {
-              const latestEvaluation = evaluateMediaDestination(
-                latestPlan.destination,
-                latestPlan.analysis,
-                editorConfig.value,
-                autoManagement.value,
-                categoryPaths.value[latestPlan.destination.category] ?? '',
-                'may-change-destination',
-                latestPlan.canonicalResolution
-              )
-              await learnExplicitTvSeriesMapping(latestPlan, latestEvaluation)
-            }
-          } catch {
-            notifications.push(
-              'The torrent was accepted, but Bitwake could not remember the TV series alias.',
-              'warning'
-            )
-          }
-        }
-      } catch (cause) {
-        if (generation !== submissionGeneration || disposed || !props.open) return
-        summary.failed += 1
-        const latestIndex = plans.value.findIndex((plan) => plan.key === candidate.plan.key)
-        if (latestIndex >= 0) {
-          plans.value[latestIndex] = {
-            ...plans.value[latestIndex]!,
-            status: 'failed',
-            error: cause instanceof Error ? cause.message : 'qBittorrent could not add this source.'
-          }
-        }
-      }
-    }
-  }
-
   try {
-    await Promise.all(Array.from({ length: Math.min(2, candidates.length) }, () => worker()))
+    const summary = await submitTorrentPlans({
+      candidates,
+      submissionOptions,
+      add: (options) => api.torrents.add(options),
+      isCurrent: () => generation === submissionGeneration && !disposed && props.open,
+      update(key, status, error) {
+        const index = plans.value.findIndex((plan) => plan.key === key)
+        if (index < 0) return false
+        plans.value[index] = { ...plans.value[index]!, status, error }
+        return true
+      },
+      async accepted(key) {
+        const plan = plans.value.find((item) => item.key === key)
+        if (!plan) return
+        await learnExplicitTvSeriesMapping(
+          plan,
+          evaluateMediaDestination(
+            plan.destination,
+            plan.analysis,
+            editorConfig.value,
+            autoManagement.value,
+            categoryPaths.value[plan.destination.category] ?? '',
+            'may-change-destination',
+            plan.canonicalResolution
+          )
+        )
+      },
+      learningFailed() {
+        notifications.push(
+          'The torrent was accepted, but Bitwake could not remember the TV series alias.',
+          'warning'
+        )
+      }
+    })
     if (generation !== submissionGeneration || disposed || !props.open) return
     result.value = summary
     finishSubmission(summary)

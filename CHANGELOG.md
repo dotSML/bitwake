@@ -6,6 +6,23 @@ versions for published artifacts.
 
 ## [Unreleased]
 
+### Added
+
+- Search, edit, remove, and retry-save controls for saved TV aliases in Media Placement settings,
+  including English and Estonian labels and access with deployment-managed library roots.
+
+### Fixed
+
+- Merge incremental peer fields so speed updates retain client, progress, and address information.
+- Require explicit selection for ambiguous TV aliases and prefer exact-year aliases when available.
+- Reject malformed main-data fields before updating the UI, preserving the last-good snapshot and
+  requesting a full resync.
+
+### Changed
+
+- Separate source inspection, TV discovery, and submission orchestration from Add Torrent;
+  extract overview/peer detail views and pure Set Location planning functions.
+
 ## [0.1.0] - 2026-09-01
 
 ### Added

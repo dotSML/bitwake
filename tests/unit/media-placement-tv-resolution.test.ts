@@ -96,6 +96,55 @@ describe('strict canonical TV-series resolution', () => {
     })
   })
 
+  it('requires selection across aliases for yearless remakes regardless of save order', () => {
+    const mappings = [
+      { normalizedTitle: 'the office', year: 2001, folderName: 'The Office UK (2001)' },
+      { normalizedTitle: 'the office', year: 2005, folderName: 'The Office US (2005)' }
+    ]
+    for (const candidates of [mappings, [...mappings].reverse()]) {
+      expect(
+        resolveCanonicalTvSeries({
+          title: 'The Office',
+          tvRoot: root,
+          directoryNames: mappings.map((mapping) => mapping.folderName),
+          directoryListingStatus: 'ready',
+          mappings: candidates
+        })
+      ).toEqual({
+        status: 'needs-selection',
+        reason: 'ambiguous',
+        candidates: ['The Office UK (2001)', 'The Office US (2005)']
+      })
+    }
+  })
+
+  it('prefers an exact-year alias over a general alias and deduplicates destinations', () => {
+    const options = {
+      title: 'Release',
+      year: 2005,
+      tvRoot: root,
+      directoryNames: ['General Show', 'Specific Show'],
+      directoryListingStatus: 'ready' as const,
+      mappings: [
+        { normalizedTitle: 'release', folderName: 'General Show' },
+        { normalizedTitle: 'release', year: 2005, folderName: 'Specific Show' }
+      ]
+    }
+    expect(resolveCanonicalTvSeries(options)).toMatchObject({
+      status: 'existing',
+      folderName: 'Specific Show'
+    })
+    expect(
+      resolveCanonicalTvSeries({
+        ...options,
+        mappings: [
+          { normalizedTitle: 'release', folderName: 'Specific Show' },
+          { normalizedTitle: 'release', year: 2005, folderName: 'Specific Show' }
+        ]
+      })
+    ).toMatchObject({ status: 'existing', folderName: 'Specific Show' })
+  })
+
   it('rejects conflicting explicit years instead of treating them as equivalent', () => {
     expect(resolve('Fallout', 2025, ['Fallout (2024)'])).toMatchObject({
       status: 'new',

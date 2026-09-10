@@ -7,39 +7,32 @@ import type { TorrentInfo } from '@/api/types/models'
 import { useApi } from '@/app/providers/api'
 import MediaDestinationEditor from '@/features/media-placement/components/MediaDestinationEditor.vue'
 import {
-  createMediaDestinationValue,
   evaluateMediaDestination,
   type MediaDestinationValue
 } from '@/features/media-placement/components/editorTypes'
-import { analyzeSourceName } from '@/features/media-placement/domain/analyzeSourceName'
-import { enrichMediaSourceAnalysisWithFilePaths } from '@/features/media-placement/domain/enrichMediaSourceAnalysis'
 import {
   directoryNames,
   hostJoinPath,
   hostParentPath
 } from '@/features/media-placement/domain/hostDirectory'
-import {
-  isAbsoluteMediaPath,
-  isPathWithinRoot,
-  isSameMediaPath,
-  mediaPathBasename,
-  tryParseMediaPath
-} from '@/features/media-placement/domain/pathUtils'
+import { isAbsoluteMediaPath, isSameMediaPath } from '@/features/media-placement/domain/pathUtils'
 import {
   containsControlCharacters,
   replaceControlCharacters
 } from '@/features/media-placement/domain/textSafety'
-import type {
-  ContentLayout,
-  MediaKind,
-  MediaSourceAnalysis
-} from '@/features/media-placement/domain/types'
+import type { MediaSourceAnalysis } from '@/features/media-placement/domain/types'
 import { useMediaPlacementStore } from '@/features/media-placement/stores/mediaPlacement'
 import { useNotificationsStore } from '@/stores/notifications'
 import { useTorrentsStore } from '@/stores/torrents'
 import AppDialog from '@/ui/primitives/AppDialog.vue'
 import { useLocationMoveTrackingStore } from './locationMoveTracking'
 import type { TorrentOperation } from './torrentOperations'
+import {
+  commonValue,
+  analyzeExistingSelection,
+  createLocationPlacementValue,
+  reconcileEnrichedLocationDestination
+} from './locationPlacement'
 
 const props = defineProps<{
   open: boolean
@@ -148,12 +141,6 @@ const locationUnchanged = computed(() => {
   return isSameMediaPath(effectiveLocation.value, initialLocation.value)
 })
 
-function commonValue<T>(items: readonly TorrentInfo[], read: (item: TorrentInfo) => T): T | null {
-  if (!items.length) return null
-  const first = read(items[0]!)
-  return items.every((item) => Object.is(read(item), first)) ? first : null
-}
-
 function shareMode(value: number): ShareLimitMode {
   if (value === -2) return 'global'
   if (value === -1) return 'unlimited'
@@ -165,139 +152,15 @@ function displaySpeedLimit(value: number | null): string {
   return value > 0 ? String(value / 1024) : '0'
 }
 
-function configuredKind(item: TorrentInfo, analysis: MediaSourceAnalysis): MediaKind {
-  const config = mediaPlacement.config
-  const category = item.category.trim().toLocaleLowerCase()
-  if (config.tvCategory && category === config.tvCategory.trim().toLocaleLowerCase()) return 'tv'
-  if (config.movieCategory && category === config.movieCategory.trim().toLocaleLowerCase()) {
-    return 'movie'
-  }
-  if (analysis.kind !== 'unknown' && analysis.confidence !== 'low') return analysis.kind
-  if (config.tvRoot && isPathWithinRoot(item.save_path, config.tvRoot)) return 'tv'
-  if (config.moviesRoot && isPathWithinRoot(item.save_path, config.moviesRoot)) return 'movie'
-  return analysis.kind
-}
-
-function analyzeExistingSelection(
-  items: readonly TorrentInfo[],
-  fetchedFilePaths: readonly string[] = []
-): MediaSourceAnalysis {
-  if (items.length === 1 && items[0]) {
-    const item = items[0]
-    const contentPath = item.content_path ?? ''
-    const contentName = tryParseMediaPath(contentPath) ? mediaPathBasename(contentPath) : ''
-    const singleFile = /\.(?:mkv|mp4|m4v|avi|mov|wmv|webm|mpg|mpeg|ts|m2ts|iso)$/iu.test(
-      contentName
-    )
-    const retainedRoot =
-      !singleFile &&
-      Boolean(contentName) &&
-      !isSameMediaPath(contentPath, item.save_path) &&
-      isPathWithinRoot(contentPath, item.save_path)
-    const flatContent =
-      !singleFile && Boolean(contentPath) && isSameMediaPath(contentPath, item.save_path)
-    const summaryAnalysis = analyzeSourceName(item.name, {
-      id: item.hash,
-      shape: singleFile
-        ? 'single-file'
-        : retainedRoot
-          ? 'single-root-directory'
-          : flatContent
-            ? 'flat-multi-file'
-            : 'unknown',
-      ...(singleFile && contentName ? { filePaths: [contentName] } : {}),
-      ...(retainedRoot ? { torrentRootName: contentName } : {})
-    })
-    const analysis = fetchedFilePaths.length
-      ? enrichMediaSourceAnalysisWithFilePaths(summaryAnalysis, fetchedFilePaths, {
-          singleFile,
-          ...(retainedRoot ? { torrentRootName: contentName } : {})
-        })
-      : summaryAnalysis
-    const deepConflict = analysis.warnings.some((message) => /\bconflicting\b/iu.test(message))
-    const decisiveDeepEvidence =
-      fetchedFilePaths.length > 0 &&
-      summaryAnalysis.confidence === 'low' &&
-      analysis.confidence !== 'low'
-    return {
-      ...analysis,
-      kind: deepConflict || decisiveDeepEvidence ? analysis.kind : configuredKind(item, analysis)
-    }
-  }
-  return {
-    id: `selection-${props.hashes.join('-').slice(0, 96)}`,
-    displayName: `${items.length || props.hashes.length} selected torrents`,
-    kind: 'unknown',
-    suggestedTitle: '',
-    detectedSeasons: [],
-    shape: 'unknown',
-    topLevelPaths: [],
-    confidence: 'low',
-    warnings: [
-      'Several torrents are selected. Use Manual path, or classify them only when they intentionally share one destination.'
-    ]
-  }
-}
-
-function currentContentLayout(
-  items: readonly TorrentInfo[],
-  analysis: MediaSourceAnalysis
-): ContentLayout | null {
-  if (items.length !== 1) return null
-  if (analysis.shape === 'single-file') return 'Original'
-  if (analysis.shape === 'single-root-directory') return 'Original'
-  if (analysis.shape === 'flat-multi-file') return 'NoSubfolder'
-  return null
-}
-
 function initializeLocationPlacement(items: readonly TorrentInfo[], savePath: string | null): void {
-  const analysis = analyzeExistingSelection(items)
+  const analysis = analyzeExistingSelection(items, props.hashes, mediaPlacement.config)
   locationAnalysis.value = analysis
-  locationDestination.value = createLocationPlacementValue(items, analysis, savePath)
-}
-
-function createLocationPlacementValue(
-  items: readonly TorrentInfo[],
-  analysis: MediaSourceAnalysis,
-  savePath: string | null
-): MediaDestinationValue {
-  const destination = createMediaDestinationValue(analysis, mediaPlacement.config, savePath ?? '')
-  const currentCategory = commonValue(items, (item) => item.category)
-  const contentLayout = currentContentLayout(items, analysis)
-  return {
-    ...destination,
-    category: currentCategory ?? destination.category,
-    ...(contentLayout ? { contentLayout, contentLayoutUserEdited: true } : {})
-  }
-}
-
-function reconcileEnrichedLocationDestination(
-  current: MediaDestinationValue,
-  inferred: MediaDestinationValue,
-  editedFields: ReadonlySet<keyof MediaDestinationValue>
-): MediaDestinationValue {
-  const packDefaultsUntouched =
-    !editedFields.has('multiSeason') && !editedFields.has('tvPackChoice')
-  const layoutDefaultsUntouched =
-    !editedFields.has('contentLayout') && !editedFields.has('contentLayoutUserEdited')
-  return {
-    ...current,
-    kind: editedFields.has('kind') ? current.kind : inferred.kind,
-    destinationMethod: editedFields.has('destinationMethod')
-      ? current.destinationMethod
-      : inferred.destinationMethod,
-    title: editedFields.has('title') ? current.title : inferred.title,
-    year: editedFields.has('year') ? current.year : inferred.year,
-    season: editedFields.has('season') ? current.season : inferred.season,
-    multiSeason: packDefaultsUntouched ? inferred.multiSeason : current.multiSeason,
-    tvPackChoice: packDefaultsUntouched ? inferred.tvPackChoice : current.tvPackChoice,
-    contentLayout: layoutDefaultsUntouched ? inferred.contentLayout : current.contentLayout,
-    contentLayoutUserEdited: layoutDefaultsUntouched
-      ? (inferred.contentLayoutUserEdited ?? false)
-      : (current.contentLayoutUserEdited ?? false),
-    category: editedFields.has('category') ? current.category : inferred.category,
-    tags: editedFields.has('tags') ? current.tags : inferred.tags
-  }
+  locationDestination.value = createLocationPlacementValue(
+    items,
+    analysis,
+    savePath,
+    mediaPlacement.config
+  )
 }
 
 function resetLocationPlacement(): void {
@@ -349,6 +212,8 @@ async function enrichLocationAnalysis(items: readonly TorrentInfo[]): Promise<vo
     }
     const analysis = analyzeExistingSelection(
       items,
+      props.hashes,
+      mediaPlacement.config,
       fetched.map((file) => file.name)
     )
     locationAnalysis.value = analysis
@@ -356,7 +221,8 @@ async function enrichLocationAnalysis(items: readonly TorrentInfo[]): Promise<vo
       const inferred = createLocationPlacementValue(
         items,
         analysis,
-        commonValue(items, (selectedItem) => selectedItem.save_path)
+        commonValue(items, (selectedItem) => selectedItem.save_path),
+        mediaPlacement.config
       )
       locationDestination.value = reconcileEnrichedLocationDestination(
         locationDestination.value,

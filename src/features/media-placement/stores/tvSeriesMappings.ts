@@ -8,6 +8,7 @@ import {
   maximumTvSeriesMappings,
   parsePersistedTvSeriesMappings,
   sanitizeTvSeriesMappings,
+  tvSeriesMappingKey,
   type PersistedTvSeriesMappings,
   type TvSeriesMapping
 } from '../domain/tvSeriesMappings'
@@ -127,8 +128,8 @@ export const useTvSeriesMappingsStore = defineStore('tv-series-mappings', () => 
         } catch {
           if (!controller.signal.aborted && write.generation === generation) {
             persistenceWarning.value = session.capabilities?.has('clientData')
-              ? 'The alias is active in memory, but qBittorrent client data could not be updated. It may be lost when this page reloads.'
-              : 'The alias is active in memory, but browser session storage is unavailable. It will be lost when this page reloads.'
+              ? 'Changes to TV series aliases are active in memory, but qBittorrent client data could not be updated. They may be lost when this page reloads.'
+              : 'Changes to TV series aliases are active in memory, but browser session storage is unavailable. They will be lost when this page reloads.'
           }
         } finally {
           if (writeController === controller) writeController = null
@@ -181,6 +182,36 @@ export const useTvSeriesMappingsStore = defineStore('tv-series-mappings', () => 
     await add(mapping)
   }
 
+  async function update(original: TvSeriesMapping, replacement: TvSeriesMapping): Promise<void> {
+    requireLoaded()
+    const next = createTvSeriesMapping(
+      replacement.normalizedTitle,
+      replacement.folderName,
+      replacement.year
+    )
+    if (!next) throw new Error('The TV series alias is invalid.')
+    const key = tvSeriesMappingKey(original)
+    if (!items.value.some((item) => tvSeriesMappingKey(item) === key)) {
+      throw new Error('This TV series alias has changed. Close the editor and try again.')
+    }
+    items.value = sanitizeTvSeriesMappings({
+      items: items.value.map((item) => (tvSeriesMappingKey(item) === key ? next : item))
+    }).items
+    await persist()
+  }
+
+  async function remove(mapping: TvSeriesMapping): Promise<void> {
+    requireLoaded()
+    const key = tvSeriesMappingKey(mapping)
+    items.value = items.value.filter((item) => tvSeriesMappingKey(item) !== key)
+    await persist()
+  }
+
+  async function retryPersistence(): Promise<void> {
+    requireLoaded()
+    await persist()
+  }
+
   function resetPrivateState(): void {
     generation += 1
     loadController?.abort()
@@ -206,6 +237,9 @@ export const useTvSeriesMappingsStore = defineStore('tv-series-mappings', () => 
     load,
     add,
     remember,
+    update,
+    remove,
+    retryPersistence,
     resetPrivateState
   }
 })

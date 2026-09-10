@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { computed, shallowRef } from 'vue'
 import type { Category, MainDataResponse, TorrentInfo } from '@/api/types/models'
 import { useApi } from '@/app/providers/api'
+import { isApiError } from '@/api/core/errors'
 import {
   countActiveTorrentFilters,
   filterTorrents,
@@ -221,6 +222,8 @@ export const useTorrentsStore = defineStore('torrents', () => {
       connectionState.value = 'connected'
     } catch (error) {
       if (!running || generation !== syncGeneration) return
+      // Invalid API data must not latch the client onto the same unusable delta.
+      if (isApiError(error) && error.kind === 'unexpected') responseId.value = 0
       failureCount += 1
       consecutiveSyncFailures.value = failureCount
       connectionState.value = 'disconnected'

@@ -17,6 +17,10 @@ export interface PersistedTvSeriesMappings {
   items: TvSeriesMapping[]
 }
 
+export function tvSeriesMappingKey(mapping: TvSeriesMapping): string {
+  return `${mapping.normalizedTitle}\u0000${mapping.year ?? ''}\u0000${mapping.folderName}`
+}
+
 function saneYear(value: unknown): value is number {
   const latest = new Date().getUTCFullYear() + 2
   return Number.isSafeInteger(value) && Number(value) >= 1888 && Number(value) <= latest
@@ -63,7 +67,7 @@ export function sanitizeTvSeriesMappings(value: unknown): PersistedTvSeriesMappi
   for (const item of rawItems) {
     const sanitized = sanitizeTvSeriesMapping(item)
     if (!sanitized) continue
-    const key = `${sanitized.normalizedTitle}\u0000${sanitized.year ?? ''}\u0000${sanitized.folderName}`
+    const key = tvSeriesMappingKey(sanitized)
     if (seen.has(key)) continue
     seen.add(key)
     items.push(sanitized)
