@@ -57,7 +57,17 @@ const en = {
     density: 'Density',
     sort: 'Sort',
     filters: 'Filters',
-    activeFilters: '{count} active filters'
+    activeFilters: '{count} active filters',
+    results: '{visible} of {total} torrents',
+    selectionHint: 'Ctrl / ⌘ + click to select multiple',
+    select: 'Select',
+    selectHint: 'Select torrents below',
+    selectAll: 'Select all',
+    selectionActions: 'Selected torrent actions',
+    hiddenSelected: '{count} hidden by filters',
+    unavailable: 'Torrent library unavailable',
+    unavailableHint:
+      'Waiting for a connection to qBittorrent. Your library will appear when it reconnects.'
   },
   transfer: {
     download: 'Download',
@@ -319,6 +329,15 @@ const et = {
   },
   routes: { signIn: 'Sisselogimine', torrentDetails: 'Torrenti üksikasjad' },
   torrents: {
+    results: '{visible} / {total} torrentit',
+    selectionHint: 'Mitme valimiseks Ctrl / ⌘ + klõps',
+    select: 'Vali',
+    selectHint: 'Vali allpool torrentid',
+    selectAll: 'Vali kõik',
+    selectionActions: 'Valitud torrentite toimingud',
+    hiddenSelected: '{count} filtritega peidetud',
+    unavailable: 'Torrentite kogu pole saadaval',
+    unavailableHint: 'Ootan ühendust qBittorrentiga. Kogu ilmub ühenduse taastumisel.',
     add: 'Lisa torrent',
     filterPlaceholder: 'Filtreeri nime või räsi järgi',
     all: 'Kõik',

@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { Inbox, Plus, RefreshCw } from '@lucide/vue'
+import { Inbox, Plus, RefreshCw, WifiOff } from '@lucide/vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import TransferGraph from '@/features/statistics/TransferGraph.vue'
 import TorrentDetailPanel from '@/features/torrent-details/TorrentDetailPanel.vue'
 import DeleteTorrentDialog from '@/features/torrent-actions/DeleteTorrentDialog.vue'
@@ -19,7 +20,10 @@ import { useWindowPointerDrag } from '@/ui/composables/useWindowPointerDrag'
 
 const emit = defineEmits<{ addTorrent: [files?: File[]] }>()
 const router = useRouter()
+const { t } = useI18n()
+const selecting = ref(false)
 const torrents = useTorrentsStore()
+const mobileSelectionMode = computed(() => selecting.value || torrents.selectedHashes.size > 0)
 const preferences = usePreferencesStore()
 const isMobile = useMediaQuery(MOBILE_MEDIA_QUERY)
 const inspectorDrag = useWindowPointerDrag()
@@ -42,13 +46,13 @@ const actionMenu = ref({
   detailHash: null as string | null,
   title: 'Torrent actions'
 })
-const stateChips: Array<{ id: TorrentFilterState; label: string }> = [
-  { id: 'all', label: 'All' },
-  { id: 'downloading', label: 'Downloading' },
-  { id: 'seeding', label: 'Seeding' },
-  { id: 'completed', label: 'Completed' },
-  { id: 'stopped', label: 'Stopped' },
-  { id: 'stalled', label: 'Stalled' }
+const stateChips: TorrentFilterState[] = [
+  'all',
+  'downloading',
+  'seeding',
+  'completed',
+  'stopped',
+  'stalled'
 ]
 const inspectorHash = computed(() => torrents.selected[0]?.hash ?? null)
 const showInspector = computed(() =>
@@ -60,6 +64,13 @@ const inspectorMaximumWidth = computed(() =>
 const renderedInspectorWidth = computed(() =>
   Math.min(preferences.value.inspectorWidth, inspectorMaximumWidth.value)
 )
+
+function toggleSelectionMode(): void {
+  if (mobileSelectionMode.value) {
+    selecting.value = false
+    torrents.clearSelection()
+  } else selecting.value = true
+}
 
 function activate(hash: string): void {
   if (isMobile.value) void router.push(`/torrents/${hash}/overview`)
@@ -161,17 +172,31 @@ function onSelectionMenu(event: MouseEvent): void {
 
 function onKeydown(event: KeyboardEvent): void {
   const target = event.target as HTMLElement | null
-  const formField = target?.matches('input, textarea, select, [contenteditable="true"]') ?? false
+  if (
+    event.defaultPrevented ||
+    document.querySelector('[role="dialog"], [role="alertdialog"], [role="menu"]') ||
+    target?.closest('details[open]')
+  )
+    return
+  const formField = Boolean(
+    target?.closest(
+      'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"]'
+    )
+  )
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'f') {
+    const input = document.querySelector<HTMLInputElement>('#torrent-filter')
+    if (!input) return
     event.preventDefault()
-    document.querySelector<HTMLInputElement>('#torrent-filter')?.focus()
+    input.focus()
+    input.select()
   } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'a' && !formField) {
     event.preventDefault()
     torrents.setSelection(torrents.visibleTorrents.map((torrent) => torrent.hash))
   } else if (event.key === 'Delete' && torrents.selectedHashes.size && !formField) {
     event.preventDefault()
     openDelete()
-  } else if (event.key === 'Escape' && torrents.selectedHashes.size) {
+  } else if (event.key === 'Escape' && mobileSelectionMode.value && !formField) {
+    selecting.value = false
     torrents.clearSelection()
   }
 }
@@ -249,21 +274,39 @@ onBeforeUnmount(() => {
       <div v-if="isMobile" class="mobile-state-chips" aria-label="Torrent state filter">
         <button
           v-for="chip in stateChips"
-          :key="chip.id"
+          :key="chip"
           type="button"
-          :aria-pressed="torrents.filters.state === chip.id"
-          @click="torrents.updateFilters({ state: chip.id })"
+          :aria-pressed="torrents.filters.state === chip"
+          @click="torrents.updateFilters({ state: chip })"
         >
-          {{ chip.label }}
+          {{ t(`torrents.${chip}`) }}
         </button>
       </div>
-      <TorrentToolbar @delete="openDelete()" @add="emit('addTorrent')" @actions="onSelectionMenu" />
+      <TorrentToolbar
+        :selection-mode="isMobile && mobileSelectionMode"
+        @delete="openDelete()"
+        @add="emit('addTorrent')"
+        @actions="onSelectionMenu"
+        @toggle-selection="toggleSelectionMode"
+      />
       <div
         v-if="torrents.connectionState === 'syncing' && !torrents.torrents.length"
         class="workspace-state"
         role="status"
       >
         <RefreshCw class="spin" :size="22" />Loading torrent library…
+      </div>
+      <div
+        v-else-if="torrents.connectionState === 'disconnected' && !torrents.torrents.length"
+        class="workspace-state"
+        role="status"
+      >
+        <WifiOff :size="32" aria-hidden="true" />
+        <h2>{{ t('torrents.unavailable') }}</h2>
+        <p>{{ t('torrents.unavailableHint') }}</p>
+        <button class="btn" type="button" @click="torrents.refreshNow">
+          <RefreshCw :size="16" aria-hidden="true" />{{ t('common.retry') }}
+        </button>
       </div>
       <div v-else-if="!torrents.torrents.length" class="workspace-state">
         <Inbox :size="32" />
@@ -288,6 +331,7 @@ onBeforeUnmount(() => {
         </div>
         <MobileTorrentList
           v-else
+          :selection-mode="mobileSelectionMode"
           @activate="activate"
           @select="torrents.toggleSelection"
           @menu="onMobileMenu"
@@ -439,15 +483,16 @@ onBeforeUnmount(() => {
   color: rgb(var(--color-accent));
   pointer-events: none;
 }
-@media (max-width: 1199px) {
+@media (min-width: 768px) and (max-width: 1199px) {
+  .torrent-workspace {
+    flex-direction: column;
+  }
   .inspector-wrap {
-    position: absolute;
-    z-index: 25;
-    top: 0;
-    right: 0;
-    bottom: 0;
-    width: min(460px, 78vw) !important;
-    box-shadow: var(--shadow-float);
+    width: 100% !important;
+    min-width: 0;
+    max-width: none;
+    height: 42%;
+    border-top: 1px solid rgb(var(--color-line-strong));
   }
   .inspector-resizer {
     display: none;

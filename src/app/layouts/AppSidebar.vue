@@ -470,6 +470,7 @@ async function logout(): Promise<void> {
   .section-label,
   .collection-section,
   .sidebar-item span,
+  .sidebar-add span,
   .sidebar-footer > :not(button) {
     display: none;
   }

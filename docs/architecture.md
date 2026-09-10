@@ -199,7 +199,7 @@ Atomicity is pragmatic rather than transactional: collection mutations occur syn
 - A resizable right inspector loads per-torrent detail endpoints on demand.
 - Mobile virtualizes purpose-built compact rows and navigates to a dedicated detail route.
 
-The shared desktop/mobile action menu covers start, stop, details, recheck, reannounce, force start, sequential mode, first/last-piece priority, queue movement, per-torrent rate/share limits, save location, single-torrent rename/export, automatic management, super seeding, comments, category, tags, and confirmed deletion for the current selection. At tablet widths, a persistent 64 px icon rail keeps library and secondary routes reachable while the mobile bottom navigation remains reserved for widths below 768 px.
+The shared desktop/mobile action menu covers start, stop, details, recheck, reannounce, force start, sequential mode, first/last-piece priority, queue movement, per-torrent rate/share limits, save location, single-torrent rename/export, automatic management, super seeding, comments, category, tags, and confirmed deletion for the current selection. At tablet widths, details dock below the torrent list so they cannot cover the toolbar. A persistent 64 px icon rail keeps library and secondary routes reachable while the mobile bottom navigation remains reserved for widths below 768 px.
 
 ### Files and pieces
 
