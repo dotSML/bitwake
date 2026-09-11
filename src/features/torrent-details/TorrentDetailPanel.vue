@@ -1,16 +1,5 @@
 <script setup lang="ts">
-import {
-  AlertTriangle,
-  Ban,
-  Copy,
-  Edit3,
-  LoaderCircle,
-  Plus,
-  RefreshCw,
-  Trash2,
-  X
-} from '@lucide/vue'
-import { useVirtualizer } from '@tanstack/vue-virtual'
+import { Copy, Edit3, LoaderCircle, Plus, RefreshCw, Trash2, X } from '@lucide/vue'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type {
   Peer,
@@ -28,6 +17,7 @@ import {
 } from '@/domains/torrents/detailTabs'
 import { torrentStateLabel } from '@/domains/torrents/state'
 import { validatePeerEndpoints } from '@/domains/peers/peerEndpoint'
+import { mergePeerSync } from '@/domains/peers/syncPeers'
 import { detectExistingPlacementWarnings } from '@/features/media-placement/domain/detectExistingPlacementWarnings'
 import { isPathWithinRoot } from '@/features/media-placement/domain/pathUtils'
 import { useMediaPlacementStore } from '@/features/media-placement/stores/mediaPlacement'
@@ -35,19 +25,11 @@ import { useNotificationsStore } from '@/stores/notifications'
 import { usePreferencesStore } from '@/stores/preferences'
 import { useSessionStore } from '@/stores/session'
 import { useTorrentsStore } from '@/stores/torrents'
-import {
-  formatBytes,
-  formatDuration,
-  formatEta,
-  formatLimit,
-  formatNumber,
-  formatRatio,
-  formatSpeed,
-  formatTimestamp
-} from '@/utils/format'
 import AppDialog from '@/ui/primitives/AppDialog.vue'
 import FileTreeView from './FileTreeView.vue'
 import PiecesCanvas from './PiecesCanvas.vue'
+import TorrentPeersTab from './TorrentPeersTab.vue'
+import TorrentOverviewTab from './TorrentOverviewTab.vue'
 
 const props = defineProps<{ hash: string; mobile?: boolean; initialTab?: TorrentDetailTab }>()
 const emit = defineEmits<{
@@ -75,7 +57,6 @@ const files = ref<TorrentFile[]>([])
 const fileEvidenceHash = ref('')
 const trackers = ref<Tracker[]>([])
 const peers = ref<Array<[string, Peer]>>([])
-const peerScroller = ref<HTMLElement | null>(null)
 const webSeeds = ref<Array<{ url: string }>>([])
 const pieceStates = ref<number[]>([])
 const pieceAvailability = ref<number[]>([])
@@ -116,83 +97,6 @@ let peerTimer: ReturnType<typeof setTimeout> | null = null
 let peerController: AbortController | null = null
 let peerFailureCount = 0
 let peerFailureNotified = false
-const peerVirtualizer = useVirtualizer({
-  get count() {
-    return peers.value.length
-  },
-  getScrollElement: () => peerScroller.value,
-  estimateSize: () => (window.innerWidth <= 767 ? 118 : 35),
-  overscan: 10,
-  getItemKey: (index) => peers.value[index]?.[0] ?? index
-})
-
-const overviewSections = computed(() => {
-  const item = torrent.value
-  const details = properties.value
-  if (!item) return []
-  return [
-    {
-      title: 'Status',
-      values: [
-        ['State', torrentStateLabel(item.state)],
-        ['Progress', `${(item.progress * 100).toFixed(1)}%`],
-        ['ETA', formatEta(item.eta)],
-        ['Availability', item.availability < 0 ? 'Unknown' : item.availability.toFixed(2)],
-        ['Queue priority', item.priority <= 0 ? 'Not queued' : String(item.priority)],
-        ['Automatic management', item.auto_tmm ? 'On' : 'Off'],
-        ['Force start', item.force_start ? 'On' : 'Off']
-      ]
-    },
-    {
-      title: 'Transfer',
-      values: [
-        ['Download speed', formatSpeed(item.dlspeed)],
-        ['Upload speed', formatSpeed(item.upspeed)],
-        ['Downloaded', formatBytes(item.downloaded)],
-        ['Uploaded', formatBytes(item.uploaded)],
-        ['Ratio', formatRatio(item.ratio)],
-        ['Download limit', formatLimit(item.dl_limit)],
-        ['Upload limit', formatLimit(item.up_limit)],
-        ['Seeds', `${item.num_seeds} / ${item.num_complete}`],
-        ['Peers', `${item.num_leechs} / ${item.num_incomplete}`],
-        ['Wasted', formatBytes(details?.total_wasted)]
-      ]
-    },
-    {
-      title: 'Time',
-      values: [
-        ['Added', formatTimestamp(item.added_on)],
-        ['Created', formatTimestamp(item.created_on ?? details?.creation_date)],
-        ['Completed', formatTimestamp(item.completion_on)],
-        ['Last activity', formatTimestamp(item.last_activity)],
-        ['Active time', formatDuration(item.time_active)],
-        ['Seeding time', formatDuration(item.seeding_time)]
-      ]
-    },
-    {
-      title: 'Location',
-      values: [
-        ['Save path', item.save_path],
-        ['Content path', item.content_path ?? 'Not available']
-      ]
-    },
-    {
-      title: 'Metadata',
-      values: [
-        ['Info hash v1', item.infohash_v1 ?? item.hash],
-        ['Info hash v2', item.infohash_v2 ?? 'Not available'],
-        ['Private', item.private ? 'Yes' : 'No'],
-        ['Piece size', formatBytes(item.piece_size ?? details?.piece_size)],
-        [
-          'Pieces',
-          details?.pieces_num === undefined ? 'Unknown' : formatNumber(details.pieces_num)
-        ],
-        ['Created by', details?.created_by ?? 'Unknown']
-      ]
-    }
-  ]
-})
-
 function stopPeerPolling(): void {
   if (peerTimer) clearTimeout(peerTimer)
   peerTimer = null
@@ -204,10 +108,7 @@ function stopPeerPolling(): void {
 }
 
 function applyPeerResponse(response: PeerSyncResponse): void {
-  const next =
-    response.full_update === true || peerResponseId === 0 ? new Map() : new Map(peers.value)
-  for (const [key, peer] of Object.entries(response.peers ?? {})) next.set(key, peer)
-  for (const key of response.peers_removed ?? []) next.delete(key)
+  const next = mergePeerSync(new Map(peers.value), response, peerResponseId === 0)
   peers.value = [...next]
   peerResponseId = response.rid
 }
@@ -593,16 +494,10 @@ watch(
     if (isTorrentDetailTab(tab) && tab !== activeTab.value) activeTab.value = tab
   }
 )
-function measurePeerRows(): void {
-  peerVirtualizer.value.measure()
-}
-
 onMounted(() => {
-  window.addEventListener('resize', measurePeerRows)
   void loadTab()
 })
 onBeforeUnmount(() => {
-  window.removeEventListener('resize', measurePeerRows)
   loadController?.abort()
   stopPeerPolling()
 })
@@ -657,46 +552,14 @@ onBeforeUnmount(() => {
         <p>{{ error }}</p>
         <button class="btn" type="button" @click="loadTab"><RefreshCw :size="15" />Retry</button>
       </div>
-      <template v-else-if="activeTab === 'overview'">
-        <aside v-if="placementWarnings.length" class="placement-alert" role="note">
-          <AlertTriangle :size="18" aria-hidden="true" />
-          <div>
-            <strong>Media path warning</strong>
-            <ul>
-              <li v-for="warning in placementWarnings" :key="warning.id">
-                {{ warning.title }} {{ warning.message }}
-              </li>
-            </ul>
-            <button class="btn" type="button" @click="emit('reviewPlacement')">
-              Review media destination…
-            </button>
-          </div>
-        </aside>
-        <div class="overview-sections">
-          <section v-for="section in overviewSections" :key="section.title">
-            <h3>{{ section.title }}</h3>
-            <dl>
-              <template v-for="[label, value] in section.values" :key="String(label)"
-                ><dt>{{ label }}</dt>
-                <dd :title="String(value)">
-                  {{ value
-                  }}<button
-                    v-if="
-                      ['Save path', 'Content path', 'Info hash v1', 'Info hash v2'].includes(
-                        String(label)
-                      ) && !String(value).startsWith('Not ')
-                    "
-                    type="button"
-                    :aria-label="`Copy ${label}`"
-                    @click="copy(String(value))"
-                  >
-                    <Copy :size="13" />
-                  </button></dd
-              ></template>
-            </dl>
-          </section>
-        </div>
-      </template>
+      <TorrentOverviewTab
+        v-else-if="activeTab === 'overview'"
+        :torrent="torrent"
+        :properties="properties"
+        :placement-warnings="placementWarnings"
+        @copy="copy"
+        @review-placement="emit('reviewPlacement')"
+      />
       <template v-else-if="activeTab === 'files'">
         <div v-if="loading" class="sr-only" role="status">Refreshing torrent files…</div>
         <div v-if="error" class="detail-state error" role="alert">
@@ -767,65 +630,13 @@ onBeforeUnmount(() => {
           </div>
         </div>
       </div>
-      <div
+      <TorrentPeersTab
         v-else-if="activeTab === 'peers'"
-        ref="peerScroller"
-        class="data-view"
-        :data-total-count="peers.length"
-      >
-        <div class="data-toolbar">
-          <button class="btn" type="button" :disabled="loading" @click="openPeerDialog">
-            <Plus :size="15" />Add peers
-          </button>
-        </div>
-        <div class="data-table">
-          <div class="data-head peer-grid">
-            <span>Address</span><span>Client</span><span>Country</span><span>Progress</span
-            ><span>Down</span><span>Up</span><span />
-          </div>
-          <div class="peer-space" :style="{ height: `${peerVirtualizer.getTotalSize()}px` }">
-            <div
-              v-for="virtualRow in peerVirtualizer.getVirtualItems()"
-              :key="String(virtualRow.key)"
-              class="data-row peer-grid virtual-peer-row"
-              :style="{ transform: `translateY(${virtualRow.start}px)` }"
-            >
-              <template v-if="peers[virtualRow.index]">
-                <span class="peer-address">{{
-                  peers[virtualRow.index]![1].host_name ||
-                  peers[virtualRow.index]![1].ip ||
-                  peers[virtualRow.index]![1].i2p_dest ||
-                  peers[virtualRow.index]![0]
-                }}</span
-                ><span class="peer-client">{{ peers[virtualRow.index]![1].client }}</span
-                ><span class="peer-country">{{
-                  peers[virtualRow.index]![1].country ||
-                  peers[virtualRow.index]![1].country_code ||
-                  'Unknown'
-                }}</span
-                ><span class="peer-progress"
-                  >{{ (peers[virtualRow.index]![1].progress * 100).toFixed(1) }}%</span
-                ><span class="peer-download"
-                  >↓ {{ formatSpeed(peers[virtualRow.index]![1].dl_speed) }}</span
-                ><span class="peer-upload"
-                  >↑ {{ formatSpeed(peers[virtualRow.index]![1].up_speed) }}</span
-                ><button
-                  class="peer-ban"
-                  type="button"
-                  :disabled="loading || !peers[virtualRow.index]![1].ip"
-                  :title="
-                    peers[virtualRow.index]![1].ip ? 'Ban peer' : 'I2P peers cannot be IP-banned'
-                  "
-                  aria-label="Ban peer"
-                  @click="banPeer(peers[virtualRow.index]![0], peers[virtualRow.index]![1])"
-                >
-                  <Ban :size="14" />
-                </button>
-              </template>
-            </div>
-          </div>
-        </div>
-      </div>
+        :peers="peers"
+        :loading="loading"
+        @add="openPeerDialog"
+        @ban="banPeer"
+      />
       <div v-else-if="activeTab === 'webseeds'" class="data-view">
         <div class="data-toolbar">
           <button
@@ -964,37 +775,6 @@ onBeforeUnmount(() => {
   border-left: 1px solid rgb(var(--color-line));
   background: rgb(var(--color-surface));
 }
-.placement-alert {
-  display: flex;
-  align-items: flex-start;
-  gap: 9px;
-  border: 1px solid rgb(var(--color-warning-foreground) / 0.65);
-  border-radius: 8px;
-  background: rgb(var(--color-warning) / 0.08);
-  margin-bottom: 12px;
-  padding: 10px;
-}
-.placement-alert > svg {
-  flex: 0 0 auto;
-  color: rgb(var(--color-warning-foreground));
-}
-.placement-alert strong {
-  display: block;
-  font-size: 12px;
-}
-.placement-alert ul {
-  display: grid;
-  gap: 4px;
-  margin: 5px 0 9px;
-  padding-left: 17px;
-  color: rgb(var(--color-muted));
-  font-size: 11px;
-  line-height: 1.4;
-}
-.placement-alert .btn {
-  min-height: 32px;
-  font-size: 11px;
-}
 .detail-header {
   display: flex;
   min-height: 62px;
@@ -1087,41 +867,6 @@ onBeforeUnmount(() => {
     transform: rotate(360deg);
   }
 }
-.overview-sections {
-  display: grid;
-  gap: 19px;
-  padding: 16px;
-}
-.overview-sections h3 {
-  margin: 0 0 8px;
-  font-size: 11px;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-}
-.overview-sections dl {
-  display: grid;
-  grid-template-columns: minmax(95px, 40%) minmax(0, 1fr);
-  gap: 6px 10px;
-  margin: 0;
-  font-size: 11px;
-}
-.overview-sections dt {
-  color: rgb(var(--color-muted));
-}
-.overview-sections dd {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 5px;
-  margin: 0;
-  overflow: hidden;
-  font-variant-numeric: tabular-nums;
-  text-align: right;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.overview-sections dd button,
 .row-buttons button,
 .data-row > button,
 .web-seeds button {
@@ -1175,18 +920,6 @@ onBeforeUnmount(() => {
 }
 .tracker-grid {
   grid-template-columns: minmax(220px, 1fr) 42px 50px 50px 110px 84px;
-}
-.peer-grid {
-  grid-template-columns: 150px 120px 80px 65px 90px 90px 30px;
-}
-.peer-space {
-  position: relative;
-}
-.virtual-peer-row {
-  position: absolute;
-  top: 0;
-  right: 0;
-  left: 0;
 }
 .row-buttons {
   display: flex;
@@ -1254,12 +987,6 @@ onBeforeUnmount(() => {
   padding: 0 13px;
 }
 @media (max-width: 767px) {
-  .overview-sections {
-    padding: 14px 12px 24px;
-  }
-  .overview-sections dl {
-    grid-template-columns: minmax(105px, 42%) minmax(0, 1fr);
-  }
   .detail-body {
     overscroll-behavior: contain;
   }
@@ -1297,41 +1024,6 @@ onBeforeUnmount(() => {
   }
   .tracker-grid .row-buttons {
     grid-area: actions;
-  }
-  .data-row.peer-grid {
-    min-height: 118px;
-    grid-template-areas:
-      'address address action'
-      'client client client'
-      'country progress progress'
-      'download upload upload';
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
-    gap: 5px 10px;
-    padding: 10px;
-  }
-  .peer-address {
-    grid-area: address;
-    font-weight: 650;
-  }
-  .peer-client {
-    grid-area: client;
-  }
-  .peer-country {
-    grid-area: country;
-  }
-  .peer-progress {
-    grid-area: progress;
-    text-align: right;
-  }
-  .peer-download {
-    grid-area: download;
-  }
-  .peer-upload {
-    grid-area: upload;
-    text-align: right;
-  }
-  .peer-ban {
-    grid-area: action;
   }
 }
 </style>

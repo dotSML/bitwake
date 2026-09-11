@@ -6,6 +6,37 @@ versions for published artifacts.
 
 ## [Unreleased]
 
+### Added
+
+- Persistent torrent search and filters during selection, visible result counts, and hidden-selection indicators.
+- Direct mobile selection mode with Select all and Cancel controls.
+
+- Search, edit, remove, and retry-save controls for saved TV aliases in Media Placement settings,
+  including English and Estonian labels and access with deployment-managed library roots.
+
+### Fixed
+
+- Keep workspace keyboard shortcuts out of dialogs, menus, and editable content.
+- Keep long desktop action menus within the viewport, including after resizing.
+- Dismiss toolbar menus on Escape, outside clicks, and focus changes; restore focus after clearing search.
+- Show an unavailable-library retry state after a failed first sync and visible regex errors on mobile.
+
+- Merge incremental peer fields so speed updates retain client, progress, and address information.
+- Require explicit selection for ambiguous TV aliases and prefer exact-year aliases when available.
+- Reject malformed main-data fields before updating the UI, preserving the last-good snapshot and
+  requesting a full resync.
+
+### Changed
+
+- Dock tablet torrent details below the list so they cannot cover search or selection controls;
+  keep the narrow sidebar Add button from clipping its label.
+- Adapt toolbar controls to the space beside the inspector and preserve mobile action-bar clearance.
+- Add mobile progress/status colors, larger menu touch targets, and two-line names at comfortable density.
+- Translate new workspace controls and mobile state filters in English and Estonian.
+
+- Separate source inspection, TV discovery, and submission orchestration from Add Torrent;
+  extract overview/peer detail views and pure Set Location planning functions.
+
 ## [0.1.0] - 2026-09-01
 
 ### Added

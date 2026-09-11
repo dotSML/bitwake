@@ -72,9 +72,12 @@ const categoryNames = computed(() =>
 const tagNames = computed(() => [...torrents.tags].sort((left, right) => left.localeCompare(right)))
 const positionStyle = computed<CSSProperties | undefined>(() => {
   if (props.mobile) return undefined
-  const left = Math.max(8, Math.min(props.x, window.innerWidth - 260))
-  const top = Math.max(8, Math.min(props.y, window.innerHeight - 550))
-  return { left: `${left}px`, top: `${top}px` }
+  return {
+    left: `clamp(8px, ${props.x}px, calc(100vw - 260px))`,
+    '--context-menu-top': `clamp(8px, ${props.y}px, max(8px, calc(100dvh - 550px)))`,
+    top: 'var(--context-menu-top)',
+    maxHeight: 'calc(100dvh - var(--context-menu-top) - 8px)'
+  }
 })
 
 async function focusFirstItem(): Promise<void> {

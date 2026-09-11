@@ -373,7 +373,7 @@ export function calculateEffectiveLayout(
     !nested &&
     analysis.shape === 'multi-season-pack' &&
     structuralSourcePaths(sourcePaths).some(
-      (path) => !/(?:^|\/)Season\s+\d{1,3}(?:\/|$)/iu.test(safeRelativePath(path))
+      (path) => !/^Season\s+\d{1,3}(?:\/|$)/iu.test(safeRelativePath(path))
     )
   ) {
     warnings.push(

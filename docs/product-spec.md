@@ -57,7 +57,7 @@ The administrator needs clear version/capability information, installable public
 
 - Make the torrent library the first private route.
 - Desktop uses one virtualized, sortable, resizable, configurable table with stable row identities.
-- Tablet preserves a dense workspace and can overlay the inspector.
+- Tablet preserves a dense workspace with details docked below the list.
 - Mobile uses virtualized compact rows, a short live graph, state filters, bottom navigation, selection mode, and dedicated detail routes.
 - Provide text, regex, negative, state, category, tag, tracker, and path filtering where exposed.
 - Keep selection and keyboard actions predictable; destructive operations require confirmation.
@@ -122,7 +122,7 @@ The complete behavior and deployment contract are in [media-placement.md](media-
 - Persistent compact icon rail for library filters, secondary routes, add, and logout.
 - Compact top header.
 - Full working surface.
-- Detail inspector as an overlay rather than squeezing the table.
+- Detail inspector docked below the list, keeping search and selection controls accessible.
 - Touch-safe controls and no dependency on hover.
 
 ### Mobile, below 768 px

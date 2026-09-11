@@ -14,6 +14,7 @@ import {
   type MediaPlacementSettings
 } from '@/features/media-placement/stores/mediaPlacement'
 import { useNotificationsStore } from '@/stores/notifications'
+import TvSeriesMappingsSettings from './TvSeriesMappingsSettings.vue'
 
 type RootKey = 'tvRoot' | 'moviesRoot' | 'browseRoot'
 type CategoryKey = 'tvCategory' | 'movieCategory'
@@ -314,6 +315,7 @@ onBeforeUnmount(() => {
       </button>
     </footer>
   </div>
+  <TvSeriesMappingsSettings />
 </template>
 
 <style scoped>

@@ -12,6 +12,7 @@ import {
 import { useNotificationsStore } from '@/stores/notifications'
 import { usePreferencesStore } from '@/stores/preferences'
 import { useSavedTorrentFiltersStore } from '@/stores/savedTorrentFilters'
+import { useTvSeriesMappingsStore } from '@/features/media-placement/stores/tvSeriesMappings'
 import { useSessionStore } from '@/stores/session'
 import { useTorrentsStore } from '@/stores/torrents'
 import { useRouter } from 'vue-router'
@@ -22,6 +23,7 @@ type PreferencesStore = ReturnType<typeof usePreferencesStore>
 type TorrentsStore = ReturnType<typeof useTorrentsStore>
 type MediaPlacementStore = ReturnType<typeof useMediaPlacementStore>
 type SavedTorrentFiltersStore = ReturnType<typeof useSavedTorrentFiltersStore>
+type TvSeriesMappingsStore = ReturnType<typeof useTvSeriesMappingsStore>
 
 export interface SessionLifecycleDependencies {
   api: QbittorrentApi
@@ -31,6 +33,7 @@ export interface SessionLifecycleDependencies {
   preferences: PreferencesStore
   mediaPlacement: MediaPlacementStore
   savedTorrentFilters: SavedTorrentFiltersStore
+  tvSeriesMappings?: TvSeriesMappingsStore
   torrents: TorrentsStore
   mode: DeploymentMode
   reload: () => void
@@ -54,6 +57,7 @@ export function createSessionLifecycle(
     preferences,
     mediaPlacement,
     savedTorrentFilters,
+    tvSeriesMappings,
     torrents,
     mode,
     reload
@@ -72,6 +76,7 @@ export function createSessionLifecycle(
     torrents.clearAll()
     notifications.clear()
     savedTorrentFilters.resetPrivateState()
+    tvSeriesMappings?.resetPrivateState()
     if (clearMediaPlacement) mediaPlacement.resetPrivateState()
   }
 
@@ -187,6 +192,7 @@ export function useSessionLifecycle(): SessionLifecycle {
     preferences: usePreferencesStore(),
     mediaPlacement: useMediaPlacementStore(),
     savedTorrentFilters: useSavedTorrentFiltersStore(),
+    tvSeriesMappings: useTvSeriesMappingsStore(),
     torrents: useTorrentsStore(),
     mode: deploymentMode,
     reload: () => window.location.reload()

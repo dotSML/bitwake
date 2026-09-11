@@ -232,7 +232,7 @@ export interface Peer {
 export interface PeerSyncResponse {
   rid: number
   full_update?: boolean
-  peers?: Record<string, Peer>
+  peers?: Record<string, Partial<Peer>>
   peers_removed?: string[]
   show_flags?: boolean
 }

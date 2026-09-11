@@ -6,6 +6,7 @@ import { usePreferencesStore } from '@/stores/preferences'
 import { useTorrentsStore } from '@/stores/torrents'
 import MobileTorrentRow from './MobileTorrentRow.vue'
 
+const props = defineProps<{ selectionMode?: boolean }>()
 const emit = defineEmits<{
   activate: [hash: string]
   select: [hash: string]
@@ -52,7 +53,7 @@ function measureRow(element: Element | ComponentPublicInstance | null): void {
     <div
       class="mobile-list-space"
       :style="{
-        height: `${virtualizer.getTotalSize() + (torrents.selectedHashes.size ? 58 : 0)}px`
+        height: `${virtualizer.getTotalSize() + (props.selectionMode || torrents.selectedHashes.size ? 64 : 0)}px`
       }"
     >
       <div
@@ -68,7 +69,7 @@ function measureRow(element: Element | ComponentPublicInstance | null): void {
           v-if="rows[virtualRow.index]"
           :torrent="rows[virtualRow.index]!"
           :selected="torrents.selectedHashes.has(rows[virtualRow.index]!.hash)"
-          :selection-mode="torrents.selectedHashes.size > 0"
+          :selection-mode="props.selectionMode || torrents.selectedHashes.size > 0"
           @activate="emit('activate', rows[virtualRow.index]!.hash)"
           @select="emit('select', rows[virtualRow.index]!.hash)"
           @menu="emit('menu', rows[virtualRow.index]!.hash, $event)"

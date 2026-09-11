@@ -27,7 +27,7 @@ const placementWarnings = computed(() => {
 <template>
   <article
     class="mobile-torrent-row"
-    :class="[`density-${preferences.value.mobileDensity}`, { selected }]"
+    :class="[`density-${preferences.value.mobileDensity}`, `state-${torrent.state}`, { selected }]"
   >
     <button
       class="row-activate"
@@ -101,6 +101,37 @@ const placementWarnings = computed(() => {
   border-bottom: 1px solid rgb(var(--color-line));
   background: rgb(var(--color-surface));
 }
+.mobile-torrent-row {
+  --row-progress: var(--color-accent);
+}
+.state-uploading,
+.state-forcedUP,
+.state-stalledUP {
+  --row-progress: var(--color-positive);
+}
+.state-stoppedDL,
+.state-stoppedUP,
+.state-pausedDL,
+.state-pausedUP {
+  --row-progress: var(--color-muted);
+}
+.state-stalledDL,
+.state-metaDL,
+.state-checkingDL,
+.state-checkingUP,
+.state-checkingResumeData {
+  --row-progress: var(--color-warning-foreground);
+}
+.state-error,
+.state-missingFiles {
+  --row-progress: var(--color-danger);
+}
+.progress-bar {
+  background: rgb(var(--row-progress));
+}
+.row-foot span:last-child {
+  color: rgb(var(--row-progress));
+}
 .mobile-torrent-row.selected {
   background: rgb(var(--color-accent-soft) / 0.72);
 }
@@ -171,7 +202,7 @@ const placementWarnings = computed(() => {
 }
 .row-menu {
   display: grid;
-  width: 42px;
+  width: 44px;
   height: 44px;
   flex: 0 0 auto;
   place-items: center;
@@ -195,7 +226,14 @@ const placementWarnings = computed(() => {
 .selected .row-check {
   border-color: rgb(var(--color-accent));
   background: rgb(var(--color-accent));
-  color: white;
+  color: rgb(var(--color-surface));
+}
+.density-comfortable .row-heading strong {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .density-comfortable .row-activate {
   padding-top: 14px;

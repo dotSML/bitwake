@@ -89,9 +89,9 @@ describe('torrent list interactions', () => {
 
     torrents.setSelection([torrent.hash])
     await nextTick()
-    const startButton = wrapper.findAll('button').find((button) => button.text().includes('Start'))
+    const startButton = wrapper.find('button[aria-label="Start"]')
     expect(startButton).toBeDefined()
-    await startButton!.trigger('click')
+    await startButton.trigger('click')
     await flushPromises()
     expect(start).toHaveBeenCalledWith([torrent.hash])
   })

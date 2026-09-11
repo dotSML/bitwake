@@ -57,7 +57,7 @@ src/
 ├── api/
 │   ├── core/            transport, URL resolution, parsing, errors
 │   ├── capabilities/    version parsing and centralized feature thresholds
-│   ├── types/           raw API/domain interfaces and initial Zod schemas
+│   ├── types/           raw API/domain interfaces and sync response schemas
 │   └── <namespace>/     auth, app, sync, transfer, torrents, search,
 │                       RSS, creator, logs, client data
 ├── app/
@@ -199,7 +199,7 @@ Atomicity is pragmatic rather than transactional: collection mutations occur syn
 - A resizable right inspector loads per-torrent detail endpoints on demand.
 - Mobile virtualizes purpose-built compact rows and navigates to a dedicated detail route.
 
-The shared desktop/mobile action menu covers start, stop, details, recheck, reannounce, force start, sequential mode, first/last-piece priority, queue movement, per-torrent rate/share limits, save location, single-torrent rename/export, automatic management, super seeding, comments, category, tags, and confirmed deletion for the current selection. At tablet widths, a persistent 64 px icon rail keeps library and secondary routes reachable while the mobile bottom navigation remains reserved for widths below 768 px.
+The shared desktop/mobile action menu covers start, stop, details, recheck, reannounce, force start, sequential mode, first/last-piece priority, queue movement, per-torrent rate/share limits, save location, single-torrent rename/export, automatic management, super seeding, comments, category, tags, and confirmed deletion for the current selection. At tablet widths, details dock below the torrent list so they cannot cover the toolbar. A persistent 64 px icon rail keeps library and secondary routes reachable while the mobile bottom navigation remains reserved for widths below 768 px.
 
 ### Files and pieces
 
@@ -359,6 +359,23 @@ Executed results and missing suites are recorded in [../IMPLEMENTATION_STATUS.md
 - No raw version comparisons in templates.
 - No service-worker response path for authenticated API data.
 - No dependency on a runtime CDN.
+
+## Workflow boundaries
+
+Add Torrent keeps its dialog state in `AddTorrentDialog.vue`, with source reconciliation and
+bounded file inspection in `useAddTorrentPlans`, shallow TV discovery in `useTvDirectorySnapshot`,
+and the two-worker submission queue in `submitTorrentPlans`. Each operation retains the dialog
+session/generation checks that discard late responses and stop queued work after close.
+
+Torrent details keep shared tab requests and mutation dialogs in the panel. The overview and peer
+list have separate components; the peer component owns virtualization and resize cleanup. Peer
+field deltas merge through `mergePeerSync`, while full and first responses replace the snapshot.
+Set Location's existing-torrent inference and preservation of explicitly edited fields live in
+pure functions in `locationPlacement.ts`.
+
+Main-data validation checks known torrent, category, and server-state fields when present. Sparse
+updates and unknown future fields are preserved. Rejected responses leave the last-good snapshot
+visible and request a complete resync before accepting further data.
 
 ## Current gaps with architectural impact
 

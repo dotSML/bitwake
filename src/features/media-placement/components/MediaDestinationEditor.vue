@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, watch } from 'vue'
 import type { DestinationMethod, MediaKind, MediaSourceAnalysis } from '../domain/types'
+import type { CanonicalTvSeriesResolution } from '../domain/resolveCanonicalTvSeries'
 import type { EffectiveMediaPlacementConfig } from '../stores/mediaPlacement'
 import DestinationMethodSelector from './DestinationMethodSelector.vue'
 import ManualDestination from './ManualDestination.vue'
@@ -26,6 +27,8 @@ const props = withDefaults(
     autoManagementCategoryPath?: string
     autoManagement?: boolean
     autoManagementEffect?: 'may-change-destination' | 'set-location-disables'
+    canonicalResolution?: CanonicalTvSeriesResolution | undefined
+    retryCanonicalDiscovery?: (() => void) | undefined
     showTorrentOptions?: boolean
     idPrefix?: string
   }>(),
@@ -35,6 +38,8 @@ const props = withDefaults(
     autoManagementCategoryPath: '',
     autoManagement: false,
     autoManagementEffect: 'may-change-destination',
+    canonicalResolution: undefined,
+    retryCanonicalDiscovery: undefined,
     showTorrentOptions: true,
     idPrefix: 'media-destination'
   }
@@ -111,7 +116,12 @@ const manualPath = computed({
 })
 const existingSeriesPath = computed({
   get: () => props.modelValue.existingSeriesPath,
-  set: (value: string) => patch({ existingSeriesPath: value, acknowledgedWarningIds: [] })
+  set: (value: string) =>
+    patch({
+      existingSeriesPath: value,
+      existingSeriesPathOrigin: value ? 'manual' : 'none',
+      acknowledgedWarningIds: []
+    })
 })
 const existingSeasonPath = computed({
   get: () => props.modelValue.existingSeasonPath,
@@ -151,7 +161,8 @@ const evaluation = computed(() =>
     props.config,
     props.autoManagement,
     props.autoManagementCategoryPath ?? props.categoryPaths[props.modelValue.category] ?? '',
-    props.autoManagementEffect
+    props.autoManagementEffect,
+    props.canonicalResolution
   )
 )
 
@@ -204,6 +215,10 @@ defineExpose({ evaluation })
         v-model:existing-series-path="existingSeriesPath"
         v-model:existing-season-path="existingSeasonPath"
         :browse-root="config.tvRoot || config.browseRoot"
+        :series-root="config.tvRoot"
+        :canonical-resolution="canonicalResolution"
+        :retry-canonical-discovery="retryCanonicalDiscovery"
+        :existing-series-path-origin="modelValue.existingSeriesPathOrigin"
         :multi-season-detected="analysis.shape === 'multi-season-pack'"
         :choice-required="analysis.shape === 'unknown'"
       />

@@ -169,6 +169,7 @@ async function clearAllFilters(event: MouseEvent): Promise<void> {
 @media (max-width: 767px) {
   .active-filter-bar {
     min-height: 48px;
+    flex-wrap: wrap;
     padding: 4px 10px;
   }
   .active-filter-count {
@@ -179,8 +180,9 @@ async function clearAllFilters(event: MouseEvent): Promise<void> {
     min-height: 40px;
   }
   .active-filter-error {
-    position: absolute;
-    left: -10000px;
+    order: 1;
+    flex: 1 0 100%;
+    padding: 2px 0 4px;
   }
 }
 </style>
