@@ -42,7 +42,7 @@ describe('SettingsView', () => {
     const limit = wrapper.get<HTMLInputElement>('#setting-alt_dl_limit')
     await limit.setValue('3')
 
-    const saveButton = wrapper.get<HTMLButtonElement>('.route-header > button')
+    const saveButton = wrapper.get<HTMLButtonElement>('.server-draft-bar .btn-primary')
     await saveButton.trigger('click')
     expect(save).toHaveBeenCalledOnce()
     expect(limit.element.disabled).toBe(true)
@@ -75,9 +75,7 @@ describe('SettingsView', () => {
     await enabled.setValue(true)
     await enabled.setValue(false)
 
-    const saveButton = wrapper.get<HTMLButtonElement>('.route-header > button')
-    expect(saveButton.element.disabled).toBe(true)
-    await saveButton.trigger('click')
+    expect(wrapper.find('.server-draft-bar').exists()).toBe(false)
     expect(save).not.toHaveBeenCalled()
   })
 
@@ -110,12 +108,16 @@ describe('SettingsView', () => {
     await port.setValue('70000')
     expect(port.attributes('aria-invalid')).toBe('true')
     expect(wrapper.text()).toContain('Maximum: 65535')
-    expect(wrapper.get<HTMLButtonElement>('.route-header > button').element.disabled).toBe(true)
+    expect(wrapper.get<HTMLButtonElement>('.server-draft-bar .btn-primary').element.disabled).toBe(
+      true
+    )
 
     await port.setValue('60000')
     expect(port.attributes('aria-invalid')).toBe('false')
     expect(wrapper.text()).toContain('Connectivity-critical values have changed')
-    expect(wrapper.get<HTMLButtonElement>('.route-header > button').element.disabled).toBe(false)
+    expect(wrapper.get<HTMLButtonElement>('.server-draft-bar .btn-primary').element.disabled).toBe(
+      false
+    )
   })
 
   it('persists validated changes after connectivity confirmation', async () => {
@@ -133,7 +135,7 @@ describe('SettingsView', () => {
       .find((button) => button.text() === 'Connection')
     await connection!.trigger('click')
     await wrapper.get('#setting-listen_port').setValue('60000')
-    const saveButton = wrapper.get<HTMLButtonElement>('.route-header > button')
+    const saveButton = wrapper.get<HTMLButtonElement>('.server-draft-bar .btn-primary')
     expect(saveButton.element.disabled).toBe(false)
     await saveButton.trigger('click')
     await flushPromises()
@@ -184,7 +186,7 @@ describe('SettingsView', () => {
     expect(wrapper.get<HTMLInputElement>('#setting-alt_dl_limit').element.value).toBe('2')
     await wrapper.get('#setting-alt_dl_limit').setValue('3')
     await wrapper.get('#setting-schedule_from_hour').setValue('10')
-    await wrapper.get('.route-header > button').trigger('click')
+    await wrapper.get('.server-draft-bar .btn-primary').trigger('click')
     await flushPromises()
 
     expect(save).toHaveBeenCalledWith({
@@ -206,7 +208,7 @@ describe('SettingsView', () => {
     await speed!.trigger('click')
 
     await wrapper.get('#setting-alt_dl_limit').setValue('20')
-    await wrapper.get('.route-header > button').trigger('click')
+    await wrapper.get('.server-draft-bar .btn-primary').trigger('click')
     await flushPromises()
 
     expect(save).toHaveBeenCalledWith({ alt_dl_limit: 20_480 })
@@ -229,7 +231,7 @@ describe('SettingsView', () => {
 
     await wrapper.get('#setting-max_ratio_enabled').setValue(false)
     expect(wrapper.get<HTMLInputElement>('#setting-max_ratio').element.disabled).toBe(true)
-    await wrapper.get('.route-header > button').trigger('click')
+    await wrapper.get('.server-draft-bar .btn-primary').trigger('click')
     await flushPromises()
 
     expect(save).toHaveBeenCalledWith({ max_ratio_enabled: false })
@@ -255,7 +257,7 @@ describe('SettingsView', () => {
       wrapper.get<HTMLInputElement>('#setting-web_ui_secure_cookie_enabled').element.checked
     ).toBe(true)
     await wrapper.get('#setting-web_ui_csrf_protection_enabled').setValue(false)
-    await wrapper.get('.route-header > button').trigger('click')
+    await wrapper.get('.server-draft-bar .btn-primary').trigger('click')
     await flushPromises()
 
     expect(confirm).toHaveBeenCalledWith(expect.stringContaining('Security warning'))
@@ -275,7 +277,7 @@ describe('SettingsView', () => {
     await flushPromises()
 
     await wrapper.get('#setting-autorun_program').setValue('/usr/local/bin/post-download')
-    await wrapper.get('.route-header > button').trigger('click')
+    await wrapper.get('.server-draft-bar .btn-primary').trigger('click')
     await flushPromises()
 
     expect(confirm).toHaveBeenCalledWith(expect.stringContaining('Host command warning'))
@@ -301,7 +303,7 @@ describe('SettingsView', () => {
       true
     )
     await wrapper.get('#setting-export_dir_fin').setValue('/config/export/finished')
-    await wrapper.get('.route-header > button').trigger('click')
+    await wrapper.get('.server-draft-bar .btn-primary').trigger('click')
     await flushPromises()
 
     expect(save).toHaveBeenCalledWith({
@@ -346,7 +348,7 @@ describe('SettingsView', () => {
     )
     expect(wrapper.get('#setting-current_interface_address').text()).toContain('10.8.0.2')
     await wrapper.get('#setting-current_interface_address').setValue('10.8.0.2')
-    await wrapper.get('.route-header > button').trigger('click')
+    await wrapper.get('.server-draft-bar .btn-primary').trigger('click')
     await flushPromises()
 
     expect(save).toHaveBeenCalledWith({
@@ -416,7 +418,7 @@ describe('SettingsView', () => {
     expect(wrapper.get<HTMLInputElement>('#setting-ip_filter_path').element.disabled).toBe(true)
     await wrapper.get('#setting-ip_filter_enabled').setValue(true)
     await wrapper.get('#setting-ip_filter_path').setValue('/config/ipfilter.p2p')
-    await wrapper.get('.route-header > button').trigger('click')
+    await wrapper.get('.server-draft-bar .btn-primary').trigger('click')
     await flushPromises()
 
     expect(save).toHaveBeenCalledWith({
@@ -443,7 +445,7 @@ describe('SettingsView', () => {
       .find((button) => button.text() === 'BitTorrent')
     await bittorrent!.trigger('click')
     await wrapper.get('#setting-max_ratio_act').setValue('3')
-    await wrapper.get('.route-header > button').trigger('click')
+    await wrapper.get('.server-draft-bar .btn-primary').trigger('click')
     await flushPromises()
 
     expect(confirm).toHaveBeenCalledWith(expect.stringContaining('delete its content files'))
@@ -473,7 +475,7 @@ describe('SettingsView', () => {
         .find((button) => button.text() === 'BitTorrent')
       await bittorrent!.trigger('click')
       await wrapper.get('#setting-max_ratio_enabled').setValue(true)
-      await wrapper.get('.route-header > button').trigger('click')
+      await wrapper.get('.server-draft-bar .btn-primary').trigger('click')
       await flushPromises()
 
       expect(confirm).toHaveBeenCalledWith(expect.stringContaining(warning))
@@ -504,7 +506,7 @@ describe('SettingsView', () => {
         .find((button) => button.text() === 'BitTorrent')
       await bittorrent!.trigger('click')
       await wrapper.get('#setting-max_ratio').setValue('2')
-      await wrapper.get('.route-header > button').trigger('click')
+      await wrapper.get('.server-draft-bar .btn-primary').trigger('click')
       await flushPromises()
 
       expect(confirm).toHaveBeenCalledWith(expect.stringContaining(warning))

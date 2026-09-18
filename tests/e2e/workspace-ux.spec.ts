@@ -83,16 +83,18 @@ test('mobile selection controls stay above navigation and leave the last row rea
   expect(row!.y + row!.height).toBeLessThanOrEqual(bar!.y + 1)
 })
 
-test('desktop toolbar fits alongside details and menus dismiss without clearing selection', async ({
+test('desktop toolbar fits alongside details and view options restore focus on dismissal', async ({
   page
 }, testInfo) => {
   test.skip(testInfo.project.name !== 'desktop', 'One desktop layout check')
   await openMockApp(page)
-  await page.locator('.columns-menu summary').click()
-  await page.getByRole('button', { name: 'Move Size column earlier' }).focus()
+  const viewButton = page.getByRole('button', { name: 'View', exact: true })
+  await viewButton.click()
+  const viewOptions = page.getByRole('dialog', { name: 'View options' })
+  await viewOptions.getByRole('button', { name: 'Move Size column earlier' }).focus()
   await page.keyboard.press('Escape')
-  await expect(page.locator('.columns-menu')).not.toHaveAttribute('open', '')
-  await expect(page.locator('.columns-menu summary')).toBeFocused()
+  await expect(viewOptions).toBeHidden()
+  await expect(viewButton).toBeFocused()
   await page.locator('.table-row').first().dblclick()
   await expect(page.locator('.inspector-wrap')).toBeVisible()
   const workspace = await page.locator('.workspace-main').boundingBox()

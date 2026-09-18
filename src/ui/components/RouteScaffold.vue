@@ -1,15 +1,23 @@
 <script setup lang="ts">
+import { computed, useSlots } from 'vue'
+
 defineProps<{ title: string; description?: string }>()
+
+// Callers only provide this slot when they have a real, visible action.  Keeping
+// the wrapper conditional means a route without actions does not acquire a
+// mostly-empty header at compact breakpoints.
+const slots = useSlots()
+const hasActions = computed(() => Boolean(slots.actions))
 </script>
 
 <template>
   <div class="route-page">
-    <header class="route-header">
-      <div>
+    <header class="route-header" :class="{ 'has-actions': hasActions }">
+      <div class="route-heading">
         <h1>{{ title }}</h1>
         <p v-if="description">{{ description }}</p>
       </div>
-      <slot name="actions" />
+      <div v-if="hasActions" class="route-actions"><slot name="actions" /></div>
     </header>
     <div class="route-body"><slot /></div>
   </div>
@@ -34,6 +42,18 @@ defineProps<{ title: string; description?: string }>()
   background: rgb(var(--color-surface));
   padding: 11px 20px;
 }
+.route-heading {
+  min-width: 0;
+}
+.route-actions {
+  display: flex;
+  min-width: 0;
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
 .route-header h1 {
   margin: 0;
   font-size: 18px;
@@ -52,7 +72,30 @@ defineProps<{ title: string; description?: string }>()
 }
 @media (max-width: 1199px) {
   .route-header {
-    display: none;
+    display: block;
+    min-height: 0;
+    border: 0;
+    background: transparent;
+    padding: 0;
+  }
+  .route-heading {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+  .route-actions {
+    width: 100%;
+    min-height: 0;
+    justify-content: flex-start;
+    border-bottom: 1px solid rgb(var(--color-line));
+    background: rgb(var(--color-surface));
+    padding: 8px 14px;
   }
   .route-body {
     padding: 14px;

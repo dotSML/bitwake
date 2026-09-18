@@ -2,11 +2,12 @@
 import { useVirtualizer } from '@tanstack/vue-virtual'
 import { computed, ref, watch } from 'vue'
 import type { ComponentPublicInstance } from 'vue'
+import type { TorrentInfo } from '@/api/types/models'
 import { usePreferencesStore } from '@/stores/preferences'
 import { useTorrentsStore } from '@/stores/torrents'
 import MobileTorrentRow from './MobileTorrentRow.vue'
 
-const props = defineProps<{ selectionMode?: boolean }>()
+const props = defineProps<{ selectionMode?: boolean; orderedTorrents?: TorrentInfo[] }>()
 const emit = defineEmits<{
   activate: [hash: string]
   select: [hash: string]
@@ -15,7 +16,7 @@ const emit = defineEmits<{
 const torrents = useTorrentsStore()
 const preferences = usePreferencesStore()
 const scrollElement = ref<HTMLElement | null>(null)
-const rows = computed(() => torrents.visibleTorrents)
+const rows = computed(() => props.orderedTorrents ?? torrents.visibleTorrents)
 
 const virtualizer = useVirtualizer({
   get count() {

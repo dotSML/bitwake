@@ -63,23 +63,20 @@ function updateTab(value: TorrentDetailTab): void {
   background: rgb(var(--color-surface));
 }
 .mobile-detail-header {
-  display: none;
+  display: flex;
+  min-height: 54px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border-bottom: 1px solid rgb(var(--color-line));
+  padding: 0 6px;
 }
 .mobile-detail-page :deep(.detail-panel) {
   min-height: 0;
   flex: 1;
 }
 @media (max-width: 767px) {
-  .mobile-detail-header {
-    display: flex;
-    min-height: 54px;
-    flex: 0 0 auto;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-    border-bottom: 1px solid rgb(var(--color-line));
-    padding: 0 6px;
-  }
   .mobile-detail-header button {
     display: grid;
     width: 44px;

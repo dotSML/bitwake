@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { AlertTriangle, Check, LoaderCircle, Search, ShieldAlert } from '@lucide/vue'
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { onBeforeRouteLeave } from 'vue-router'
 import { useApi } from '@/app/providers/api'
 import { useNotificationsStore } from '@/stores/notifications'
+import { usePwaStore } from '@/stores/pwa'
 import {
   usePreferencesStore,
   type DensityPreference,
@@ -20,11 +22,14 @@ const api = useApi()
 const { t } = useI18n()
 const ui = usePreferencesStore()
 const notifications = useNotificationsStore()
+const pwa = usePwaStore()
 const serverValues = ref<Record<string, unknown>>({})
 const draft = ref<Record<string, unknown>>({})
 const search = ref('')
 const activeSection = ref<SettingsNavigationSection>('Downloads')
 const loading = ref(true)
+const serverLoaded = ref(false)
+const serverLoadError = ref<string | null>(null)
 const saving = ref(false)
 const errors = ref<Record<string, string>>({})
 const networkInterfaces = ref<Array<{ name: string; value: string }>>([])
@@ -93,7 +98,18 @@ function hasSettingChanged(definition: SettingDefinition): boolean {
   return draft.value[definition.key] !== serverValues.value[definition.key]
 }
 
-const changedServer = computed(() => settingsSchema.some(hasSettingChanged))
+const changedServer = computed(() => serverLoaded.value && settingsSchema.some(hasSettingChanged))
+const changedServerCount = computed(() => {
+  const counted = new Set<string>()
+  for (const definition of settingsSchema) {
+    if (!hasSettingChanged(definition)) continue
+    const pair = shareLimitPairs.find(
+      ({ enabled, value }) => definition.key === enabled || definition.key === value
+    )
+    counted.add(pair ? pair.enabled : definition.key)
+  }
+  return counted.size
+})
 const criticalChanged = computed(() =>
   settingsSchema.some(
     (definition) =>
@@ -203,20 +219,21 @@ async function loadNetworkOptions(values: Record<string, unknown>): Promise<void
       'Network interfaces could not be loaded. Current values remain available.'
 }
 
-async function load(): Promise<void> {
+async function load(): Promise<boolean> {
   loading.value = true
+  serverLoadError.value = null
   try {
     const values = sanitizePreferences(await api.app.preferences())
     serverValues.value = values
     draft.value = structuredClone(values)
+    serverLoaded.value = true
     loading.value = false
     void loadNetworkOptions(values)
+    return true
   } catch (cause) {
-    notifications.push(
-      cause instanceof Error ? cause.message : 'Settings could not be loaded.',
-      'error'
-    )
+    serverLoadError.value = cause instanceof Error ? cause.message : 'Settings could not be loaded.'
     loading.value = false
+    return false
   }
 }
 
@@ -280,7 +297,7 @@ function isSettingDisabled(definition: SettingDefinition): boolean {
   return false
 }
 async function save(): Promise<void> {
-  if (saving.value) return
+  if (saving.value || !serverLoaded.value) return
   for (const definition of settingsSchema) {
     if (Object.prototype.hasOwnProperty.call(draft.value, definition.key)) {
       validate(definition, draft.value[definition.key])
@@ -371,7 +388,9 @@ async function save(): Promise<void> {
   try {
     await api.app.setPreferences(changed)
     notifications.push('qBittorrent settings saved.', 'success')
-    await load()
+    if (!(await load())) {
+      serverLoadError.value = 'Settings saved; refreshed values could not be loaded.'
+    }
   } catch (cause) {
     notifications.push(
       cause instanceof Error ? cause.message : 'Settings could not be saved.',
@@ -382,31 +401,49 @@ async function save(): Promise<void> {
   }
 }
 
+function discardServerChanges(): void {
+  if (!serverLoaded.value || saving.value) return
+  draft.value = structuredClone(serverValues.value)
+  errors.value = {}
+}
+
+function beforeUnload(event: BeforeUnloadEvent): void {
+  if (!changedServer.value) return
+  event.preventDefault()
+  event.returnValue = ''
+}
+
+watch(
+  changedServer,
+  (dirty) => {
+    pwa.trackUnsavedDialog('server-settings', dirty)
+    if (dirty) window.addEventListener('beforeunload', beforeUnload)
+    else window.removeEventListener('beforeunload', beforeUnload)
+  },
+  { immediate: true }
+)
+
+onBeforeRouteLeave(() => {
+  if (!changedServer.value) return true
+  return window.confirm('Discard qBittorrent setting changes and leave?')
+})
+
 onMounted(() => void load())
+onBeforeUnmount(() => {
+  pwa.trackUnsavedDialog('server-settings', false)
+  window.removeEventListener('beforeunload', beforeUnload)
+})
 </script>
 
 <template>
   <RouteScaffold :title="t('settings.title')" :description="t('settings.description')">
-    <template #actions
-      ><button
-        v-if="activeSection !== 'Media Placement'"
-        class="btn btn-primary"
-        type="button"
-        :disabled="saving || !changedServer || Object.keys(errors).length > 0"
-        @click="save"
-      >
-        <LoaderCircle v-if="saving" class="spin" :size="16" /><Check v-else :size="16" />{{
-          saving ? 'Saving…' : 'Save changes'
-        }}
-      </button></template
-    >
     <section class="settings-shell panel">
       <aside class="settings-nav">
         <div class="settings-search">
           <Search :size="15" /><input
             v-model="search"
             type="search"
-            placeholder="Search settings"
+            placeholder="Search qBittorrent settings"
           />
         </div>
         <button
@@ -420,11 +457,153 @@ onMounted(() => void load())
         </button>
       </aside>
       <main class="settings-content">
-        <div v-if="loading" class="settings-state">
+        <div v-if="changedServer" class="server-draft-bar" role="status">
+          <span
+            >{{ changedServerCount }} unsaved qBittorrent setting
+            {{ changedServerCount === 1 ? 'change' : 'changes' }}.</span
+          >
+          <span
+            ><button class="btn" type="button" :disabled="saving" @click="discardServerChanges">
+              Discard changes</button
+            ><button
+              class="btn btn-primary"
+              type="button"
+              :disabled="saving || Object.keys(errors).length > 0"
+              @click="save"
+            >
+              <LoaderCircle v-if="saving" class="spin" :size="16" /><Check v-else :size="16" />{{
+                saving ? 'Saving…' : 'Save qBittorrent settings'
+              }}
+            </button></span
+          >
+        </div>
+        <p v-if="serverLoadError && serverLoaded" class="server-load-notice" role="alert">
+          {{ serverLoadError }}
+          <button class="btn" type="button" :disabled="loading" @click="load">Retry refresh</button>
+        </p>
+        <MediaPlacementSettings v-if="activeSection === 'Media Placement' && !search" />
+        <template v-else-if="activeSection === 'Interface' && !search">
+          <p class="interface-save-note">Interface changes save automatically.</p>
+          <header>
+            <h2>{{ t('settings.interfaceTitle') }}</h2>
+            <p>{{ t('settings.interfaceDescription') }}</p>
+          </header>
+          <div class="setting-list">
+            <label class="setting-row"
+              ><span
+                ><strong>{{ t('settings.language') }}</strong
+                ><small>{{ t('settings.languageHelp') }}</small></span
+              ><select
+                id="interface-language"
+                :value="ui.value.locale"
+                @change="
+                  ui.patch({
+                    locale: ($event.target as HTMLSelectElement)
+                      .value as ApplicationLocalePreference
+                  })
+                "
+              >
+                <option value="system">{{ t('settings.system') }}</option>
+                <option value="en">{{ t('settings.english') }}</option>
+                <option value="et">{{ t('settings.estonian') }}</option>
+              </select></label
+            >
+            <label class="setting-row"
+              ><span
+                ><strong>{{ t('settings.theme') }}</strong
+                ><small>{{ t('settings.themeHelp') }}</small></span
+              ><select
+                :value="ui.value.theme"
+                @change="
+                  ui.patch({ theme: ($event.target as HTMLSelectElement).value as ThemePreference })
+                "
+              >
+                <option value="system">{{ t('settings.system') }}</option>
+                <option value="light">{{ t('settings.light') }}</option>
+                <option value="dark">{{ t('settings.dark') }}</option>
+              </select></label
+            >
+            <label class="setting-row"
+              ><span
+                ><strong>{{ t('settings.desktopDensity') }}</strong
+                ><small>{{ t('settings.desktopDensityHelp') }}</small></span
+              ><select
+                :value="ui.value.density"
+                @change="
+                  ui.patch({
+                    density: ($event.target as HTMLSelectElement).value as DensityPreference
+                  })
+                "
+              >
+                <option value="comfortable">{{ t('settings.comfortable') }}</option>
+                <option value="compact">{{ t('settings.compact') }}</option>
+                <option value="extra-compact">{{ t('settings.extraCompact') }}</option>
+              </select></label
+            >
+            <label class="setting-row"
+              ><span
+                ><strong>{{ t('settings.mobileDensity') }}</strong
+                ><small>{{ t('settings.mobileDensityHelp') }}</small></span
+              ><select
+                :value="ui.value.mobileDensity"
+                @change="
+                  ui.patch({
+                    mobileDensity: ($event.target as HTMLSelectElement).value as DensityPreference
+                  })
+                "
+              >
+                <option value="comfortable">{{ t('settings.comfortable') }}</option>
+                <option value="compact">{{ t('settings.compact') }}</option>
+                <option value="extra-compact">{{ t('settings.extraCompact') }}</option>
+              </select></label
+            >
+            <label class="setting-row"
+              ><span
+                ><strong>{{ t('settings.refreshInterval') }}</strong
+                ><small>{{ t('settings.refreshIntervalHelp') }}</small></span
+              ><select
+                :value="ui.value.pollingInterval"
+                @change="
+                  ui.patch({
+                    pollingInterval: Number(($event.target as HTMLSelectElement).value) as
+                      1000 | 2000 | 5000
+                  })
+                "
+              >
+                <option :value="1000">{{ t('settings.oneSecond') }}</option>
+                <option :value="2000">{{ t('settings.twoSeconds') }}</option>
+                <option :value="5000">{{ t('settings.fiveSeconds') }}</option>
+              </select></label
+            >
+            <label class="setting-row"
+              ><span
+                ><strong>{{ t('settings.transferUnits') }}</strong></span
+              ><select
+                :value="ui.value.speedUnit"
+                @change="
+                  ui.patch({
+                    speedUnit: ($event.target as HTMLSelectElement).value as 'binary' | 'decimal'
+                  })
+                "
+              >
+                <option value="binary">{{ t('settings.binaryUnits') }}</option>
+                <option value="decimal">{{ t('settings.decimalUnits') }}</option>
+              </select></label
+            >
+          </div>
+        </template>
+        <div v-else-if="loading" class="settings-state">
           <LoaderCircle class="spin" :size="20" />Loading settings…
         </div>
-        <MediaPlacementSettings v-else-if="activeSection === 'Media Placement' && !search" />
-        <template v-else-if="activeSection === 'Interface' && !search">
+        <div v-else-if="!serverLoaded" class="settings-state" role="alert">
+          <p>qBittorrent settings could not be loaded</p>
+          <small>{{ serverLoadError }}</small
+          ><button class="btn" type="button" @click="load">Retry</button>
+        </div>
+        <!-- Interface controls are rendered above so they remain usable when the
+             server preferences request fails. This retained block is inert to
+             preserve the existing form markup while the server branch follows. -->
+        <template v-else-if="false">
           <header>
             <h2>{{ t('settings.interfaceTitle') }}</h2>
             <p>{{ t('settings.interfaceDescription') }}</p>
@@ -598,10 +777,16 @@ onMounted(() => void load())
                   :value="displayValue(definition)"
                   :disabled="isSettingDisabled(definition)"
                   :aria-invalid="Boolean(errors[definition.key])"
+                  :aria-describedby="
+                    errors[definition.key] ? `setting-error-${definition.key}` : undefined
+                  "
                   @input="setValue(definition, ($event.target as HTMLInputElement).value)"
-                /><small v-if="errors[definition.key]" class="input-error">{{
-                  errors[definition.key]
-                }}</small>
+                /><small
+                  v-if="errors[definition.key]"
+                  :id="`setting-error-${definition.key}`"
+                  class="input-error"
+                  >{{ errors[definition.key] }}</small
+                >
               </div>
             </label>
             <p v-if="!visibleDefinitions.length" class="no-settings">
@@ -628,17 +813,6 @@ onMounted(() => void load())
             </dl>
           </details>
         </template>
-        <footer class="mobile-save">
-          <button
-            class="btn btn-primary"
-            type="button"
-            :disabled="saving || !changedServer || Object.keys(errors).length > 0"
-            @click="save"
-          >
-            <AlertTriangle v-if="criticalChanged" :size="16" /><Check v-else :size="16" />Save
-            changes
-          </button>
-        </footer>
       </main>
     </section>
   </RouteScaffold>
@@ -808,8 +982,42 @@ onMounted(() => void load())
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.mobile-save {
-  display: none;
+.server-draft-bar {
+  position: sticky;
+  z-index: 3;
+  top: 0;
+  display: flex;
+  min-height: 52px;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  border-bottom: 1px solid rgb(var(--color-line-strong));
+  background: rgb(var(--color-accent-soft));
+  padding: 8px 14px;
+  font-size: 12px;
+  font-weight: 650;
+}
+.server-draft-bar > span:last-child {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+.interface-save-note {
+  margin: 0;
+  border-bottom: 1px solid rgb(var(--color-line));
+  background: rgb(var(--color-accent-soft));
+  padding: 9px 18px;
+  color: rgb(var(--color-muted));
+  font-size: 12px;
+}
+.server-load-notice {
+  margin: 0;
+  border-bottom: 1px solid rgb(var(--color-warning-foreground));
+  background: rgb(var(--color-warning) / 0.1);
+  color: rgb(var(--color-warning-foreground));
+  padding: 9px 14px;
+  font-size: 12px;
 }
 .spin {
   animation: spin 0.8s linear infinite;
@@ -849,15 +1057,6 @@ onMounted(() => void load())
     justify-self: start;
     width: 20px;
     height: 20px;
-  }
-  .mobile-save {
-    position: sticky;
-    bottom: 0;
-    display: flex;
-    justify-content: flex-end;
-    border-top: 1px solid rgb(var(--color-line));
-    background: rgb(var(--color-surface));
-    padding: 9px;
   }
   .unknown-settings dl {
     grid-template-columns: 1fr;

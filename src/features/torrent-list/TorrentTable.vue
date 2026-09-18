@@ -4,11 +4,9 @@ import {
   createColumnHelper,
   FlexRender,
   getCoreRowModel,
-  getSortedRowModel,
   useVueTable,
   type ColumnOrderState,
   type ColumnSizingState,
-  type SortingState,
   type VisibilityState
 } from '@tanstack/vue-table'
 import { useVirtualizer } from '@tanstack/vue-virtual'
@@ -33,11 +31,11 @@ const emit = defineEmits<{
   context: [event: MouseEvent, hash: string]
   reviewPlacement: [hash: string]
 }>()
+const props = defineProps<{ orderedTorrents?: TorrentInfo[] }>()
 const torrents = useTorrentsStore()
 const preferences = usePreferencesStore()
 const mediaPlacement = useMediaPlacementStore()
 const scrollElement = ref<HTMLElement | null>(null)
-const sorting = ref<SortingState>(preferences.value.sort)
 const columnSizing = ref<ColumnSizingState>({ ...preferences.value.columnWidths })
 const focusedIndex = ref(0)
 let selectionAnchor: number | null = null
@@ -195,7 +193,7 @@ function placementWarningCount(torrent: TorrentInfo): number {
 
 const table = useVueTable({
   get data() {
-    return torrents.visibleTorrents
+    return props.orderedTorrents ?? torrents.visibleTorrents
   },
   columns,
   defaultColumn: {
@@ -204,7 +202,7 @@ const table = useVueTable({
   },
   state: {
     get sorting() {
-      return sorting.value
+      return preferences.value.sort
     },
     get columnVisibility() {
       return visibility.value
@@ -217,14 +215,20 @@ const table = useVueTable({
     }
   },
   onSortingChange(updater) {
-    sorting.value = typeof updater === 'function' ? updater(sorting.value) : updater
+    const current = preferences.value.sort
+    const next = typeof updater === 'function' ? updater(current) : updater
+    preferences.patch({
+      sort: next.flatMap(({ id, desc }) => (isTorrentTableColumnId(id) ? [{ id, desc }] : []))
+    })
   },
   onColumnSizingChange(updater) {
     columnSizing.value = typeof updater === 'function' ? updater(columnSizing.value) : updater
     scheduleColumnSizingPersist()
   },
   getCoreRowModel: getCoreRowModel(),
-  getSortedRowModel: getSortedRowModel(),
+  // Workspace supplies the shared sorted array. Leaving this table manual
+  // prevents a second local model from drifting from the mobile list.
+  manualSorting: true,
   getRowId: (row) => row.hash,
   enableColumnResizing: true,
   columnResizeMode: 'onChange'
@@ -247,14 +251,6 @@ const virtualizer = useVirtualizer({
   overscan: 12
 })
 
-watch(
-  sorting,
-  (value) =>
-    preferences.patch({
-      sort: value.flatMap(({ id, desc }) => (isTorrentTableColumnId(id) ? [{ id, desc }] : []))
-    }),
-  { deep: true }
-)
 watch(rows, (items) => {
   focusedIndex.value = Math.max(0, Math.min(focusedIndex.value, Math.max(0, items.length - 1)))
   if (selectionAnchor !== null && selectionAnchor >= items.length) selectionAnchor = null

@@ -1,3 +1,5 @@
+import type { TorrentInfo } from '@/api/types/models'
+
 interface TorrentTableColumnShape {
   id: string
   label: string
@@ -92,4 +94,27 @@ export function getOrderedTorrentTableColumns(
     return [getTorrentTableColumn(id)]
   })
   return [...ordered, ...torrentTableColumns.filter(({ id }) => remaining.has(id))]
+}
+
+/** Raw, shared sort keys. Presentation formatting must not affect ordering. */
+export const torrentSortAccessors: Readonly<
+  Record<TorrentTableColumnId, (torrent: TorrentInfo) => string | number>
+> = {
+  name: (torrent) => torrent.name,
+  size: (torrent) => torrent.size,
+  progress: (torrent) => torrent.progress,
+  state: (torrent) => torrent.state,
+  seeds: (torrent) => torrent.num_seeds,
+  peers: (torrent) => torrent.num_leechs,
+  dlspeed: (torrent) => torrent.dlspeed,
+  upspeed: (torrent) => torrent.upspeed,
+  eta: (torrent) => torrent.eta,
+  ratio: (torrent) => torrent.ratio,
+  amount_left: (torrent) => torrent.amount_left,
+  downloaded: (torrent) => torrent.downloaded,
+  uploaded: (torrent) => torrent.uploaded,
+  availability: (torrent) => torrent.availability,
+  category: (torrent) => torrent.category,
+  tags: (torrent) => torrent.tags,
+  save_path: (torrent) => torrent.save_path
 }

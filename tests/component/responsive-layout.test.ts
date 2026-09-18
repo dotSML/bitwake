@@ -146,7 +146,7 @@ describe('responsive component mounting', () => {
     expect(preferences.value.sidebarWidth).toBe(304)
   })
 
-  it('keeps inspector pointer and keyboard resizing aligned with the 1280px rendered limit', async () => {
+  it('keeps inspector pointer and keyboard resizing aligned with the measured workspace limit', async () => {
     const originalInnerWidth = Object.getOwnPropertyDescriptor(window, 'innerWidth')
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1280 })
     mockMobileViewport(false)
@@ -180,27 +180,27 @@ describe('responsive component mounting', () => {
     try {
       const resizer = wrapper.get('.inspector-resizer')
       const inspector = wrapper.get('.inspector-wrap')
-      expect(resizer.attributes('aria-valuemax')).toBe('665')
-      expect(resizer.attributes('aria-valuenow')).toBe('665')
-      expect(inspector.attributes('style')).toContain('width: 665px')
+      expect(resizer.attributes('aria-valuemax')).toBe('520')
+      expect(resizer.attributes('aria-valuenow')).toBe('520')
+      expect(inspector.attributes('style')).toContain('width: 520px')
 
       await resizer.trigger('pointerdown', { clientX: 600 })
       window.dispatchEvent(new PointerEvent('pointermove', { clientX: 645 }))
       window.dispatchEvent(new PointerEvent('pointerup'))
       await nextTick()
-      expect(preferences.value.inspectorWidth).toBe(620)
-      expect(resizer.attributes('aria-valuenow')).toBe('620')
-      expect(inspector.attributes('style')).toContain('width: 620px')
+      expect(preferences.value.inspectorWidth).toBe(475)
+      expect(resizer.attributes('aria-valuenow')).toBe('475')
+      expect(inspector.attributes('style')).toContain('width: 475px')
 
       await resizer.trigger('keydown', { key: 'ArrowLeft', shiftKey: true })
-      expect(preferences.value.inspectorWidth).toBe(645)
-      expect(resizer.attributes('aria-valuenow')).toBe('645')
-      expect(inspector.attributes('style')).toContain('width: 645px')
+      expect(preferences.value.inspectorWidth).toBe(500)
+      expect(resizer.attributes('aria-valuenow')).toBe('500')
+      expect(inspector.attributes('style')).toContain('width: 500px')
 
       await resizer.trigger('keydown', { key: 'End' })
-      expect(preferences.value.inspectorWidth).toBe(665)
-      expect(resizer.attributes('aria-valuenow')).toBe('665')
-      expect(inspector.attributes('style')).toContain('width: 665px')
+      expect(preferences.value.inspectorWidth).toBe(520)
+      expect(resizer.attributes('aria-valuenow')).toBe('520')
+      expect(inspector.attributes('style')).toContain('width: 520px')
     } finally {
       wrapper.unmount()
       if (originalInnerWidth) Object.defineProperty(window, 'innerWidth', originalInnerWidth)

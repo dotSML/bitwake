@@ -1,21 +1,44 @@
 <script setup lang="ts">
 import { Download, Ellipsis, Rss, Search } from '@lucide/vue'
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRoute } from 'vue-router'
 const { t } = useI18n()
+const route = useRoute()
+const activeSection = computed<'torrents' | 'search' | 'rss' | 'more'>(() => {
+  if (route.name === 'torrents' || route.name === 'torrent-detail') return 'torrents'
+  if (route.name === 'search') return 'search'
+  if (route.name === 'rss') return 'rss'
+  return 'more'
+})
 </script>
 
 <template>
   <nav class="mobile-bottom-nav" aria-label="Primary">
-    <RouterLink to="/torrents"
+    <RouterLink
+      to="/torrents"
+      :class="{ active: activeSection === 'torrents' }"
+      :aria-current="
+        route.name === 'torrents' ? 'page' : activeSection === 'torrents' ? 'true' : undefined
+      "
       ><Download :size="21" /><span>{{ t('nav.torrents') }}</span></RouterLink
     >
-    <RouterLink to="/search"
+    <RouterLink
+      to="/search"
+      :class="{ active: activeSection === 'search' }"
+      :aria-current="route.name === 'search' ? 'page' : undefined"
       ><Search :size="21" /><span>{{ t('nav.search') }}</span></RouterLink
     >
-    <RouterLink to="/rss"
+    <RouterLink
+      to="/rss"
+      :class="{ active: activeSection === 'rss' }"
+      :aria-current="route.name === 'rss' ? 'page' : undefined"
       ><Rss :size="21" /><span>{{ t('nav.rss') }}</span></RouterLink
     >
-    <RouterLink to="/more"
+    <RouterLink
+      to="/more"
+      :class="{ active: activeSection === 'more' }"
+      :aria-current="route.name === 'more' ? 'page' : activeSection === 'more' ? 'true' : undefined"
       ><Ellipsis :size="21" /><span>{{ t('nav.more') }}</span></RouterLink
     >
   </nav>
@@ -51,7 +74,7 @@ const { t } = useI18n()
     font-size: 10px;
     text-decoration: none;
   }
-  .mobile-bottom-nav a.router-link-active {
+  .mobile-bottom-nav a.active {
     color: rgb(var(--color-accent));
   }
 }

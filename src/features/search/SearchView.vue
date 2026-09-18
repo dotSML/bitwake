@@ -28,7 +28,8 @@ const selectedPlugins = ref<string[]>(['enabled'])
 const jobs = ref<Job[]>([])
 const activeId = ref<number | null>(null)
 const loading = ref(false)
-const unsupported = ref<string | null>(null)
+const pluginsLoaded = ref(false)
+const pluginLoadError = ref<string | null>(null)
 const resultFilter = ref('')
 const resultsScroller = ref<HTMLElement | null>(null)
 const pluginDialogOpen = ref(false)
@@ -36,12 +37,16 @@ const pluginSource = ref('')
 const pluginError = ref<string | null>(null)
 const pluginInstalling = ref(false)
 const pluginUpdating = ref(false)
+const pluginTogglesPending = ref(new Set<string>())
+const pendingDownloads = ref(new Set<string>())
 let timer: ReturnType<typeof setTimeout> | null = null
 let pollController: AbortController | null = null
 let disposed = false
 let pollFailureNotified = false
 let pollFailureCount = 0
 const activeJob = computed(() => jobs.value.find((job) => job.id === activeId.value) ?? null)
+const enabledPlugins = computed(() => plugins.value.filter((plugin) => plugin.enabled))
+const canSearch = computed(() => pluginsLoaded.value && enabledPlugins.value.length > 0)
 const filteredResults = computed(() => {
   const needle = resultFilter.value.trim().toLocaleLowerCase()
   return (activeJob.value?.results ?? []).filter(
@@ -66,12 +71,15 @@ function measureResults(): void {
 }
 
 async function loadPlugins(): Promise<boolean> {
+  pluginsLoaded.value = false
   try {
     plugins.value = await api.search.plugins()
-    unsupported.value = null
+    pluginLoadError.value = null
+    pluginsLoaded.value = true
     return true
   } catch (cause) {
-    unsupported.value = cause instanceof Error ? cause.message : 'Search support is unavailable.'
+    pluginLoadError.value =
+      cause instanceof Error ? cause.message : 'Search plugins could not be loaded.'
     return false
   }
 }
@@ -82,7 +90,8 @@ async function updatePlugins(): Promise<void> {
   try {
     await api.search.updatePlugins()
     if (await loadPlugins()) notifications.push('Search plugins updated.', 'success')
-    else notifications.push(unsupported.value ?? 'Search plugins could not be reloaded.', 'error')
+    else
+      notifications.push(pluginLoadError.value ?? 'Search plugins could not be reloaded.', 'error')
   } catch (cause) {
     notifications.push(
       cause instanceof Error ? cause.message : 'Search plugins could not be updated.',
@@ -94,7 +103,7 @@ async function updatePlugins(): Promise<void> {
 }
 
 async function startSearch(): Promise<void> {
-  if (!query.value.trim() || loading.value) return
+  if (!query.value.trim() || loading.value || !canSearch.value) return
   loading.value = true
   try {
     const response = await api.search.start(
@@ -213,27 +222,43 @@ async function deleteJob(job: Job): Promise<void> {
     )
   }
 }
-async function download(result: SearchResult): Promise<void> {
-  const pluginName =
+function pluginNameFor(result: SearchResult): string | undefined {
+  return (
     result.pluginName ??
     result.engineName ??
     plugins.value.find((plugin) => result.siteUrl.includes(plugin.url))?.name
+  )
+}
+function downloadKey(result: SearchResult): string {
+  return `${pluginNameFor(result) ?? ''}\u0000${result.fileUrl}`
+}
+async function download(result: SearchResult): Promise<void> {
+  const pluginName = pluginNameFor(result)
   if (!pluginName) {
     notifications.push('The search engine for this result could not be identified.', 'error')
     return
   }
+  const key = downloadKey(result)
+  if (pendingDownloads.value.has(key)) return
+  pendingDownloads.value = new Set(pendingDownloads.value).add(key)
   try {
     await api.search.downloadTorrent(result.fileUrl, pluginName)
     torrents.refreshNow()
-    notifications.push('Search result sent to qBittorrent.', 'success')
+    notifications.push('Download request accepted.', 'success')
   } catch (cause) {
     notifications.push(
       cause instanceof Error ? cause.message : 'Result could not be downloaded.',
       'error'
     )
+  } finally {
+    const next = new Set(pendingDownloads.value)
+    next.delete(key)
+    pendingDownloads.value = next
   }
 }
 async function togglePlugin(plugin: SearchPlugin): Promise<void> {
+  if (pluginTogglesPending.value.has(plugin.name)) return
+  pluginTogglesPending.value = new Set(pluginTogglesPending.value).add(plugin.name)
   try {
     await api.search.enablePlugin([plugin.name], !plugin.enabled)
     plugin.enabled = !plugin.enabled
@@ -242,6 +267,10 @@ async function togglePlugin(plugin: SearchPlugin): Promise<void> {
       cause instanceof Error ? cause.message : 'Plugin could not be changed.',
       'error'
     )
+  } finally {
+    const next = new Set(pluginTogglesPending.value)
+    next.delete(plugin.name)
+    pluginTogglesPending.value = next
   }
 }
 
@@ -250,6 +279,7 @@ function openPluginDialog(): void {
   pluginError.value = null
   pluginInstalling.value = false
   pluginDialogOpen.value = true
+  if (!pluginsLoaded.value) void loadPlugins()
 }
 
 function closePluginDialog(): void {
@@ -303,170 +333,209 @@ onBeforeUnmount(() => {
     description="Search through qBittorrent's installed search plugins."
   >
     <template #actions
-      ><button class="btn" type="button" @click="loadPlugins">
-        <RefreshCw :size="15" />Refresh plugins
+      ><button class="btn" type="button" aria-haspopup="dialog" @click="openPluginDialog">
+        <Plug :size="15" />Manage plugins
       </button></template
     >
-    <div v-if="unsupported" class="unsupported-panel">
-      <Plug :size="25" />
-      <h2>Search is unavailable</h2>
-      <p>{{ unsupported }}</p>
-      <small>qBittorrent search requires Python and at least one working plugin.</small
-      ><button class="btn" type="button" @click="loadPlugins">Retry</button>
-    </div>
-    <template v-else>
-      <form class="search-form panel" @submit.prevent="startSearch">
-        <div class="query-field">
-          <Search :size="18" /><input
-            v-model="query"
-            type="search"
-            placeholder="Search torrents across enabled plugins"
-            aria-label="Search query"
-          />
-        </div>
-        <select v-model="category" aria-label="Search category">
-          <option value="all">All categories</option>
-          <option value="movies">Movies</option>
-          <option value="tv">TV</option>
-          <option value="music">Music</option>
-          <option value="games">Games</option>
-          <option value="software">Software</option>
-        </select>
-        <button class="btn btn-primary" type="submit" :disabled="loading || !query.trim()">
-          <LoaderCircle v-if="loading" class="spin" :size="17" /><Search v-else :size="17" />Search
-        </button>
-      </form>
-
-      <div class="search-layout">
-        <aside class="jobs-panel panel">
-          <header>
-            <strong>Search jobs</strong
-            ><button type="button" aria-label="Install search plugin" @click="openPluginDialog">
-              <Plug :size="16" />+
-            </button>
-          </header>
-          <div
-            v-for="job in jobs"
-            :key="job.id"
-            class="job-item"
-            :class="{ active: activeId === job.id }"
-          >
-            <button class="job-select" type="button" @click="activeId = job.id">
-              <span>{{ job.query }}</span
-              ><small>{{ job.total }} · {{ job.status }}</small>
-            </button>
-            <span class="job-actions"
-              ><button
-                v-if="job.status === 'Running'"
-                type="button"
-                aria-label="Stop search"
-                @click.stop="stopJob(job)"
-              >
-                <Pause :size="14" /></button
-              ><button type="button" aria-label="Delete search" @click.stop="deleteJob(job)">
-                <Trash2 :size="14" /></button
-            ></span>
-          </div>
-          <p v-if="!jobs.length" class="empty-copy">Your search jobs will appear here.</p>
-          <details class="plugin-list">
-            <summary>Plugins ({{ plugins.length }})</summary>
-            <label v-for="plugin in plugins" :key="plugin.name"
-              ><input
-                type="checkbox"
-                :checked="plugin.enabled"
-                @change="togglePlugin(plugin)"
-              /><span>{{ plugin.fullName }}</span
-              ><small>{{ plugin.version }}</small></label
-            ><button class="btn" type="button" :disabled="pluginUpdating" @click="updatePlugins">
-              <RefreshCw :size="14" />{{ pluginUpdating ? 'Updating…' : 'Update plugins' }}
-            </button>
-          </details>
-        </aside>
-        <section class="results-panel panel">
-          <header>
-            <div>
-              <strong>{{ activeJob?.query ?? 'Results' }}</strong
-              ><span v-if="activeJob">{{ activeJob.total }} found · {{ activeJob.status }}</span>
-            </div>
-            <input
-              v-model="resultFilter"
-              type="search"
-              placeholder="Filter results"
-              aria-label="Filter search results"
-            />
-          </header>
-          <div
-            v-if="activeJob"
-            ref="resultsScroller"
-            class="results-table"
-            :data-total-count="filteredResults.length"
-          >
-            <div class="result-head">
-              <span>Name</span><span>Size</span><span>Seeds</span><span>Leechers</span
-              ><span>Source</span><span />
-            </div>
-            <div class="result-space" :style="{ height: `${resultVirtualizer.getTotalSize()}px` }">
-              <div
-                v-for="virtualRow in resultVirtualizer.getVirtualItems()"
-                :key="String(virtualRow.key)"
-                class="result-row"
-                :style="{ transform: `translateY(${virtualRow.start}px)` }"
-              >
-                <strong :title="filteredResults[virtualRow.index]?.fileName">{{
-                  filteredResults[virtualRow.index]?.fileName
-                }}</strong
-                ><span>{{ formatBytes(filteredResults[virtualRow.index]?.fileSize) }}</span
-                ><span>{{ filteredResults[virtualRow.index]?.nbSeeders }}</span
-                ><span>{{ filteredResults[virtualRow.index]?.nbLeechers }}</span
-                ><span>{{
-                  filteredResults[virtualRow.index]?.pluginName ??
-                  filteredResults[virtualRow.index]?.siteUrl
-                }}</span
-                ><button
-                  type="button"
-                  aria-label="Download search result"
-                  @click="
-                    filteredResults[virtualRow.index] &&
-                    download(filteredResults[virtualRow.index]!)
-                  "
-                >
-                  <Download :size="16" />
-                </button>
-              </div>
-            </div>
-          </div>
-          <div v-else class="results-empty">
-            <Play :size="24" />
-            <p>Start a search to see live results.</p>
-          </div>
-        </section>
+    <form class="search-form panel" @submit.prevent="startSearch">
+      <div class="query-field">
+        <Search :size="18" /><input
+          v-model="query"
+          type="search"
+          placeholder="Search torrents across enabled plugins"
+          aria-label="Search query"
+        />
       </div>
-    </template>
+      <select v-model="category" aria-label="Search category">
+        <option value="all">All categories</option>
+        <option value="movies">Movies</option>
+        <option value="tv">TV</option>
+        <option value="music">Music</option>
+        <option value="games">Games</option>
+        <option value="software">Software</option>
+      </select>
+      <button
+        class="btn btn-primary"
+        type="submit"
+        :disabled="loading || !query.trim() || !canSearch"
+      >
+        <LoaderCircle v-if="loading" class="spin" :size="17" /><Search v-else :size="17" />Search
+      </button>
+      <p v-if="pluginLoadError" class="search-plugin-notice" role="alert">
+        Search plugins could not be loaded.
+        <button type="button" @click="openPluginDialog">Retry</button>
+      </p>
+      <p v-else-if="pluginsLoaded && !enabledPlugins.length" class="search-plugin-notice">
+        Enable a search plugin in Manage plugins.
+      </p>
+    </form>
+
+    <div class="search-layout">
+      <aside class="jobs-panel panel">
+        <header>
+          <strong>Search jobs</strong>
+        </header>
+        <div
+          v-for="job in jobs"
+          :key="job.id"
+          class="job-item"
+          :class="{ active: activeId === job.id }"
+        >
+          <button class="job-select" type="button" @click="activeId = job.id">
+            <span>{{ job.query }}</span
+            ><small>{{ job.total }} · {{ job.status }}</small>
+          </button>
+          <span class="job-actions"
+            ><button
+              v-if="job.status === 'Running'"
+              type="button"
+              aria-label="Stop search"
+              @click.stop="stopJob(job)"
+            >
+              <Pause :size="14" /></button
+            ><button type="button" aria-label="Delete search" @click.stop="deleteJob(job)">
+              <Trash2 :size="14" /></button
+          ></span>
+        </div>
+        <p v-if="!jobs.length" class="empty-copy">Your search jobs will appear here.</p>
+      </aside>
+      <section class="results-panel panel">
+        <header>
+          <div>
+            <strong>{{ activeJob?.query ?? 'Results' }}</strong
+            ><span v-if="activeJob">{{ activeJob.total }} found · {{ activeJob.status }}</span>
+          </div>
+          <input
+            v-model="resultFilter"
+            type="search"
+            placeholder="Filter results"
+            aria-label="Filter search results"
+          />
+        </header>
+        <div
+          v-if="activeJob && activeJob.results.length && filteredResults.length"
+          ref="resultsScroller"
+          class="results-table"
+          :data-total-count="filteredResults.length"
+        >
+          <div class="result-head">
+            <span>Name</span><span>Size</span><span>Seeds</span><span>Leechers</span
+            ><span>Source</span><span />
+          </div>
+          <div class="result-space" :style="{ height: `${resultVirtualizer.getTotalSize()}px` }">
+            <div
+              v-for="virtualRow in resultVirtualizer.getVirtualItems()"
+              :key="String(virtualRow.key)"
+              class="result-row"
+              :style="{ transform: `translateY(${virtualRow.start}px)` }"
+            >
+              <strong :title="filteredResults[virtualRow.index]?.fileName">{{
+                filteredResults[virtualRow.index]?.fileName
+              }}</strong
+              ><span>{{ formatBytes(filteredResults[virtualRow.index]?.fileSize) }}</span
+              ><span>{{ filteredResults[virtualRow.index]?.nbSeeders }}</span
+              ><span>{{ filteredResults[virtualRow.index]?.nbLeechers }}</span
+              ><span>{{
+                filteredResults[virtualRow.index]?.pluginName ??
+                filteredResults[virtualRow.index]?.siteUrl
+              }}</span
+              ><button
+                type="button"
+                :aria-label="`Download ${filteredResults[virtualRow.index]?.fileName ?? 'search result'}`"
+                :disabled="
+                  !filteredResults[virtualRow.index] ||
+                  pendingDownloads.has(downloadKey(filteredResults[virtualRow.index]!))
+                "
+                @click="
+                  filteredResults[virtualRow.index] && download(filteredResults[virtualRow.index]!)
+                "
+              >
+                <LoaderCircle
+                  v-if="
+                    filteredResults[virtualRow.index] &&
+                    pendingDownloads.has(downloadKey(filteredResults[virtualRow.index]!))
+                  "
+                  class="spin"
+                  :size="16"
+                /><Download v-else :size="16" />
+              </button>
+            </div>
+          </div>
+        </div>
+        <div v-else-if="!activeJob" class="results-empty">
+          <Play :size="24" />
+          <p>Start a search to see results.</p>
+        </div>
+        <div v-else-if="activeJob.results.length && resultFilter.trim()" class="results-empty">
+          <p>No results match this filter.</p>
+          <button class="btn" type="button" @click="resultFilter = ''">Clear filter</button>
+        </div>
+        <div v-else-if="activeJob.status === 'Running'" class="results-empty">
+          <LoaderCircle class="spin" :size="24" />
+          <p>Searching…</p>
+          <small>{{ activeJob.total }} reported so far.</small>
+        </div>
+        <div v-else class="results-empty">
+          <p>No results found.</p>
+          <small>{{ activeJob.status }}</small>
+        </div>
+      </section>
+    </div>
 
     <AppDialog
       :open="pluginDialogOpen"
-      title="Install search plugin"
-      description="Install from a plugin URL or a path accessible to the qBittorrent host."
+      title="Search plugins"
+      description="Manage plugins, or install one from a URL or path accessible to the qBittorrent host."
       fullscreen-mobile
       @update:open="!$event && closePluginDialog()"
     >
-      <form id="search-plugin-form" class="plugin-form" @submit.prevent="installPlugin">
-        <label for="search-plugin-source">
-          <span>Plugin URL or host path</span>
-          <input
-            id="search-plugin-source"
-            v-model="pluginSource"
-            class="field"
-            autocomplete="off"
-            required
-            autofocus
-            :aria-describedby="pluginError ? 'search-plugin-error' : undefined"
-          />
-        </label>
-        <p v-if="pluginError" id="search-plugin-error" class="form-error" role="alert">
-          {{ pluginError }}
-        </p>
-      </form>
+      <div v-if="!pluginsLoaded && !pluginLoadError" class="plugin-state">
+        <LoaderCircle class="spin" :size="18" />Loading plugins…
+      </div>
+      <div v-else-if="pluginLoadError" class="plugin-state" role="alert">
+        <p>{{ pluginLoadError }}</p>
+        <button class="btn" type="button" @click="loadPlugins">Retry</button>
+      </div>
+      <template v-else>
+        <div class="plugin-toolbar">
+          <button class="btn" type="button" @click="loadPlugins">
+            <RefreshCw :size="15" />Refresh list</button
+          ><button class="btn" type="button" :disabled="pluginUpdating" @click="updatePlugins">
+            <RefreshCw :size="15" />{{ pluginUpdating ? 'Updating…' : 'Update installed plugins' }}
+          </button>
+        </div>
+        <div class="plugin-list-dialog">
+          <label v-for="plugin in plugins" :key="plugin.name"
+            ><input
+              type="checkbox"
+              :checked="plugin.enabled"
+              :disabled="pluginTogglesPending.has(plugin.name)"
+              @change="togglePlugin(plugin)"
+            /><span>{{ plugin.fullName }}</span
+            ><small>{{
+              pluginTogglesPending.has(plugin.name) ? 'Saving…' : plugin.version
+            }}</small></label
+          >
+          <p v-if="!plugins.length" class="empty-copy">No search plugins are installed.</p>
+        </div>
+        <form id="search-plugin-form" class="plugin-form" @submit.prevent="installPlugin">
+          <label for="search-plugin-source">
+            <span>Plugin URL or host path</span>
+            <input
+              id="search-plugin-source"
+              v-model="pluginSource"
+              class="field"
+              autocomplete="off"
+              required
+              autofocus
+              :aria-describedby="pluginError ? 'search-plugin-error' : undefined"
+            />
+          </label>
+          <p v-if="pluginError" id="search-plugin-error" class="form-error" role="alert">
+            {{ pluginError }}
+          </p>
+        </form>
+      </template>
       <template #footer>
         <button class="btn" type="button" :disabled="pluginInstalling" @click="closePluginDialog">
           Cancel
@@ -475,7 +544,9 @@ onBeforeUnmount(() => {
           class="btn btn-primary"
           type="submit"
           form="search-plugin-form"
-          :disabled="pluginInstalling || !pluginSource.trim()"
+          :disabled="
+            pluginInstalling || !pluginSource.trim() || !pluginsLoaded || Boolean(pluginLoadError)
+          "
         >
           <LoaderCircle v-if="pluginInstalling" class="spin" :size="16" />
           {{ pluginInstalling ? 'Installing…' : 'Install plugin' }}
@@ -491,6 +562,19 @@ onBeforeUnmount(() => {
   grid-template-columns: minmax(260px, 1fr) 180px auto;
   gap: 8px;
   padding: 10px;
+}
+.search-plugin-notice {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: rgb(var(--color-muted));
+  font-size: 12px;
+}
+.search-plugin-notice button {
+  border: 0;
+  background: transparent;
+  color: rgb(var(--color-accent));
+  padding: 0;
+  font: inherit;
 }
 .query-field {
   display: flex;
@@ -603,6 +687,38 @@ onBeforeUnmount(() => {
 .plugin-form label {
   display: grid;
   gap: 8px;
+}
+.plugin-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.plugin-list-dialog {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 16px;
+}
+.plugin-list-dialog label {
+  display: grid;
+  min-height: 40px;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  border-bottom: 1px solid rgb(var(--color-line));
+  font-size: 12px;
+}
+.plugin-list-dialog small {
+  color: rgb(var(--color-muted));
+}
+.plugin-state {
+  display: flex;
+  min-height: 110px;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 8px;
+  color: rgb(var(--color-muted));
 }
 .plugin-form label > span {
   font-size: 12px;

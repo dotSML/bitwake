@@ -169,8 +169,10 @@ test.describe('desktop acceptance workflows', () => {
     await expect(page.getByText('Add tag request accepted.')).toBeVisible()
 
     await page.getByRole('button', { name: 'Clear selection' }).click()
-    await page.locator('.columns-menu > summary').click()
-    await page.getByRole('button', { name: 'Move Size column earlier' }).click()
+    await page.getByRole('button', { name: 'View', exact: true }).click()
+    const viewOptions = page.getByRole('dialog', { name: 'View options' })
+    await viewOptions.getByRole('button', { name: 'Move Size column earlier' }).click()
+    await viewOptions.getByRole('button', { name: 'Close', exact: true }).click()
     await expect(page.getByRole('columnheader').first()).toContainText('Size')
 
     const nameResize = page.getByRole('separator', { name: 'Resize Name column' })
@@ -209,17 +211,20 @@ test.describe('desktop acceptance workflows', () => {
     await page.getByLabel('Filter search results').fill('result 2')
     await expect(page.locator('.result-row')).toHaveCount(1)
     await page.getByLabel('Filter search results').fill('')
-    await page.getByRole('button', { name: 'Download search result' }).first().click()
+    await page
+      .locator('.result-row')
+      .first()
+      .getByRole('button', { name: /^Download / })
+      .click()
     await expect(page.getByText('Search result sent to qBittorrent.')).toBeVisible()
 
-    await page.locator('.plugin-list > summary').click()
-    const plugin = page.locator('.plugin-list input[type="checkbox"]').first()
+    await page.getByRole('button', { name: 'Manage plugins' }).click()
+    const installDialog = page.getByRole('dialog', { name: 'Search plugins' })
+    const plugin = installDialog.getByRole('checkbox').first()
     await expect(plugin).toBeChecked()
     await plugin.uncheck()
     await expect(plugin).not.toBeChecked()
 
-    await page.getByRole('button', { name: 'Install search plugin' }).click()
-    const installDialog = page.getByRole('dialog', { name: 'Install search plugin' })
     await expect(installDialog).toBeVisible()
     await installDialog
       .getByLabel('Plugin URL or host path')
@@ -296,7 +301,7 @@ test.describe('desktop acceptance workflows', () => {
     const alternativeLimit = page.getByLabel('Alternative download limit (KiB/s)')
     await expect(alternativeLimit).toHaveValue('10')
     await alternativeLimit.fill('20')
-    await page.locator('.route-header').getByRole('button', { name: 'Save changes' }).click()
+    await page.getByRole('button', { name: 'Save qBittorrent settings', exact: true }).click()
     await expect(page.getByText('qBittorrent settings saved.')).toBeVisible()
     await expect(alternativeLimit).toHaveValue('20')
 

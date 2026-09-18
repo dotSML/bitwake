@@ -75,6 +75,7 @@ const step = ref<AddStep>(1)
 const stepHeading = ref<HTMLElement | null>(null)
 const error = ref<string | null>(null)
 const result = ref<AddSummary | null>(null)
+const discardConfirmationOpen = ref(false)
 let submissionGeneration = 0
 let openGeneration = 0
 let disposed = false
@@ -85,14 +86,25 @@ const sources = computed(() =>
     .filter(Boolean)
 )
 const hasInput = computed(() => sources.value.length > 0 || files.value.length > 0)
+const eligiblePlans = computed(() =>
+  plans.value.filter((plan) => plan.status === 'ready' || plan.status === 'failed')
+)
+const terminalAcceptedResult = computed(() =>
+  Boolean(
+    result.value &&
+    !eligiblePlans.value.length &&
+    (result.value.success > 0 || result.value.pending > 0)
+  )
+)
 const dirty = computed(
   () =>
-    hasInput.value ||
-    Boolean(savePath.value || category.value || tags.value) ||
-    !startImmediately.value ||
-    autoManagement.value ||
-    sequential.value ||
-    firstLast.value
+    !terminalAcceptedResult.value &&
+    (hasInput.value ||
+      Boolean(savePath.value || category.value || tags.value) ||
+      !startImmediately.value ||
+      autoManagement.value ||
+      sequential.value ||
+      firstLast.value)
 )
 const assistMode = computed(() => placement.config.mode === 'assist')
 const categoryNames = computed(() => [...torrents.categories.keys()])
@@ -148,7 +160,7 @@ const evaluations = computed(() =>
     )
   )
 )
-const retrying = computed(() => plans.value.some((plan) => plan.status === 'failed'))
+const retrying = computed(() => eligiblePlans.value.some((plan) => plan.status === 'failed'))
 
 watch(dirty, (value) => emit('update:dirty', value), { immediate: true })
 
@@ -220,6 +232,7 @@ function reset(): void {
   step.value = 1
   error.value = null
   result.value = null
+  discardConfirmationOpen.value = false
   plans.value = []
   resetTvDirectorySnapshot()
 }
@@ -387,7 +400,11 @@ function moveToStep(next: AddStep): void {
 }
 
 function goBack(): void {
-  if (step.value > 1) moveToStep((step.value - 1) as AddStep)
+  if (
+    step.value > 1 &&
+    !plans.value.some((plan) => plan.status === 'success' || plan.status === 'pending')
+  )
+    moveToStep((step.value - 1) as AddStep)
 }
 
 async function learnExplicitTvSeriesMapping(
@@ -477,8 +494,7 @@ async function addPlanned(): Promise<void> {
   )
   const invalid = currentEvaluations.findIndex(
     (evaluation, index) =>
-      plans.value[index]?.status !== 'success' &&
-      plans.value[index]?.status !== 'pending' &&
+      (plans.value[index]?.status === 'ready' || plans.value[index]?.status === 'failed') &&
       !evaluation.valid
   )
   if (invalid >= 0) {
@@ -488,7 +504,7 @@ async function addPlanned(): Promise<void> {
 
   const candidates = plans.value
     .map((plan, index) => ({ plan, evaluation: currentEvaluations[index]! }))
-    .filter(({ plan }) => plan.status !== 'success' && plan.status !== 'pending')
+    .filter(({ plan }) => plan.status === 'ready' || plan.status === 'failed')
   if (!candidates.length) return
   const generation = ++submissionGeneration
   const submissionOptions = {
@@ -561,6 +577,20 @@ function submit(): void {
     else void addPlanned()
   } else void addLegacy()
 }
+
+function requestClose(): void {
+  if (submitting.value) return
+  if (dirty.value) {
+    discardConfirmationOpen.value = true
+    return
+  }
+  emit('update:open', false)
+}
+
+function discardAndClose(): void {
+  discardConfirmationOpen.value = false
+  emit('update:open', false)
+}
 </script>
 
 <template>
@@ -571,7 +601,7 @@ function submit(): void {
     wide
     fullscreen-mobile
     :dismissible="!submitting"
-    @update:open="emit('update:open', $event)"
+    @update:open="!$event && requestClose()"
   >
     <nav v-if="assistMode" class="stepper" aria-label="Add torrent steps">
       <span
@@ -819,20 +849,28 @@ function submit(): void {
         v-if="assistMode && step > 1"
         class="btn back-button"
         type="button"
-        :disabled="submitting"
+        :disabled="
+          submitting || plans.some((plan) => plan.status === 'success' || plan.status === 'pending')
+        "
         @click="goBack"
       >
         <ChevronLeft :size="16" />Back
       </button>
       <span class="footer-spacer" />
-      <button class="btn" type="button" :disabled="submitting" @click="emit('update:open', false)">
-        Cancel
+      <button class="btn" type="button" :disabled="submitting" @click="requestClose">
+        {{ terminalAcceptedResult ? 'Done' : result ? 'Close' : 'Cancel' }}
       </button>
       <button
+        v-if="!terminalAcceptedResult"
         class="btn btn-primary"
         type="submit"
         form="add-torrent-form"
-        :disabled="!hasInput || submitting || (assistMode && analyzingFiles)"
+        :disabled="
+          !hasInput ||
+          submitting ||
+          (assistMode && analyzingFiles) ||
+          (assistMode && step === 3 && !eligiblePlans.length)
+        "
       >
         <LoaderCircle v-if="submitting || (assistMode && analyzingFiles)" class="spin" :size="17" />
         {{
@@ -847,6 +885,21 @@ function submit(): void {
                   : 'Add torrents'
         }}
       </button>
+    </template>
+  </AppDialog>
+  <AppDialog
+    :open="discardConfirmationOpen"
+    title="Discard Add torrent changes?"
+    description="No torrent has been submitted yet."
+    :dismissible="!submitting"
+    @update:open="!$event && (discardConfirmationOpen = false)"
+  >
+    <p>Keep editing to retain sources, destination choices, and acknowledgements.</p>
+    <template #footer>
+      <button class="btn" type="button" @click="discardConfirmationOpen = false">
+        Keep editing
+      </button>
+      <button class="btn btn-danger" type="button" @click="discardAndClose">Discard changes</button>
     </template>
   </AppDialog>
 </template>

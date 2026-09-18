@@ -30,7 +30,11 @@ async function mountShell(source: string) {
     attachTo: document.body,
     global: {
       stubs: {
-        AppSidebar: true,
+        AppSidebar: {
+          emits: ['add'],
+          template:
+            '<button type="button" data-test="sidebar-add" @click="$emit(\'add\')">Add torrent</button>'
+        },
         ConnectionBanner: true,
         MobileBottomNav: true,
         ToastRegion: true,
@@ -64,7 +68,7 @@ describe('browser magnet handoff in the authenticated shell', () => {
     expect(add).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ sources: [magnet] }))
     expect(document.querySelector('textarea')).toBeNull()
 
-    await wrapper.get('.mobile-add').trigger('click')
+    await wrapper.get('[data-test="sidebar-add"]').trigger('click')
     await flushPromises()
     expect(document.querySelector<HTMLTextAreaElement>('textarea')?.value).toBe('')
   })
