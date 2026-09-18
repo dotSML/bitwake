@@ -21,7 +21,12 @@ test('keeps filtering usable during selection and reports hidden selected torren
   await page.getByRole('button', { name: 'Clear filter', exact: true }).click()
   await expect(filter).toBeFocused()
   await expect(page.locator('.hidden-selection')).toHaveCount(0)
-  await page.getByRole('button', { name: 'Clear selection', exact: true }).click()
+  await page
+    .getByRole('button', {
+      name: isMobile ? 'Cancel selection' : 'Clear selection',
+      exact: true
+    })
+    .click()
   await expect(page.locator('.contextual')).toHaveCount(0)
 })
 

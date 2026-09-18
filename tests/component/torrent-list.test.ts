@@ -95,6 +95,8 @@ describe('torrent list interactions', () => {
     await sizeOption!.get('input').setValue(false)
     expect(preferences.value.visibleColumns).not.toContain('size')
     await view.get('.dialog-footer button').trigger('click')
+    await flushPromises()
+    expect(document.activeElement).toBe(wrapper.get('.view-trigger').element)
 
     torrents.setSelection([torrent.hash])
     await nextTick()

@@ -216,7 +216,7 @@ test.describe('desktop acceptance workflows', () => {
       .first()
       .getByRole('button', { name: /^Download / })
       .click()
-    await expect(page.getByText('Search result sent to qBittorrent.')).toBeVisible()
+    await expect(page.getByText('Download request accepted.')).toBeVisible()
 
     await page.getByRole('button', { name: 'Manage plugins' }).click()
     const installDialog = page.getByRole('dialog', { name: 'Search plugins' })
@@ -244,7 +244,7 @@ test.describe('desktop acceptance workflows', () => {
       'https://example.org/release'
     )
     await page.locator('.article-detail').getByRole('button', { name: 'Download' }).click()
-    await expect(page.getByText('RSS article sent to qBittorrent.')).toBeVisible()
+    await expect(page.getByText('Download request accepted.')).toBeVisible()
 
     await page.getByRole('button', { name: 'Rules' }).click()
     const rules = page.getByRole('dialog', { name: 'RSS download rules' })
@@ -385,6 +385,9 @@ test('opens a usable torrent action sheet on phone viewports', async ({ page, is
 
   await page.locator('.mobile-torrent-row .row-menu').first().click()
   await sheet.getByRole('button', { name: 'Close torrent actions' }).click()
+  await expect(page.locator('.torrent-toolbar.contextual')).toHaveCount(0)
+  await page.getByRole('button', { name: 'Select', exact: true }).click()
+  await page.locator('.mobile-torrent-row .row-activate').first().click()
   await page.locator('.mobile-torrent-row .row-activate').nth(1).click()
   await expect(page.locator('.torrent-toolbar.contextual')).toContainText('2 selected')
   await page
