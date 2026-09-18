@@ -131,17 +131,17 @@ test('combines and persists a saved advanced filter', async ({ page }, testInfo)
   await expect(dialog.getByText(`Deleted “${savedName}”.`)).toBeVisible()
 })
 
-test('cycles light and dark themes and persists the preference', async ({ page }) => {
+test('selects light and dark themes and persists the preference', async ({ page }) => {
   await openMockApp(page, '/more')
-  const theme = page.locator('.more-group button').filter({ hasText: 'Theme' })
+  const theme = page.getByRole('combobox', { name: 'Theme', exact: true })
 
-  await theme.click()
+  await theme.selectOption('light')
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light')
-  await expect(theme).toContainText('light')
+  await expect(theme).toHaveValue('light')
 
-  await theme.click()
+  await theme.selectOption('dark')
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
-  await expect(theme).toContainText('dark')
+  await expect(theme).toHaveValue('dark')
   await expect
     .poll(() =>
       page.evaluate(() => {
