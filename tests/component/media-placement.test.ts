@@ -570,15 +570,11 @@ describe('Media Placement UI', () => {
     expect(document.body.textContent).toContain('Second source was rejected')
     expect(button('Retry failed sources')).toBeDefined()
 
+    expect(button('Back').element.disabled).toBe(true)
     await button('Back').trigger('click')
     await nextTick()
-    const plans = document.querySelectorAll<HTMLElement>('.source-plan')
-    await new DOMWrapper(plans[0]?.querySelector('.suggested-fields > label input')).setValue(
-      'Successful Source Must Not Repeat'
-    )
-    await new DOMWrapper(plans[0]?.querySelector('.copy-plan')).trigger('click')
-    await button('Continue').trigger('click')
-    await nextTick()
+    expect(document.querySelector('.source-plan')).toBeNull()
+    expect(document.querySelectorAll('.review-plan')).toHaveLength(2)
 
     add.mockResolvedValueOnce({ legacySuccess: true })
     await button('Retry failed sources').trigger('click')

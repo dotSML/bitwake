@@ -1,4 +1,4 @@
-import { flushPromises } from '@vue/test-utils'
+import { DOMWrapper, flushPromises, type VueWrapper } from '@vue/test-utils'
 import { nextTick } from 'vue'
 import { describe, expect, it, vi } from 'vitest'
 import { createTorrents } from '@/mocks/fixtures'
@@ -9,6 +9,14 @@ import TorrentToolbar from '@/features/torrent-list/TorrentToolbar.vue'
 import { usePreferencesStore } from '@/stores/preferences'
 import { useTorrentsStore } from '@/stores/torrents'
 import { createTestContext, mountWithContext } from './support/mount'
+
+async function openViewOptions(toolbar: VueWrapper): Promise<DOMWrapper<HTMLElement>> {
+  await toolbar.get('.view-trigger').trigger('click')
+  await flushPromises()
+  const dialog = document.querySelector<HTMLElement>('[role="dialog"]')
+  expect(dialog).not.toBeNull()
+  return new DOMWrapper(dialog)
+}
 
 describe('torrent list interactions', () => {
   it('renders a mobile row and exposes activation, selection, and its action menu', async () => {
@@ -80,12 +88,15 @@ describe('torrent list interactions', () => {
     const torrent = createTorrents(1)[0]!
     torrents.applyMainData({ rid: 1, full_update: true, torrents: { [torrent.hash]: torrent } })
     const start = vi.spyOn(context.api.torrents, 'start').mockResolvedValue()
-    const wrapper = await mountWithContext(TorrentToolbar, context)
-
-    const sizeButton = wrapper.findAll('button').find((button) => button.text().includes('Size'))
-    expect(sizeButton).toBeDefined()
-    await sizeButton!.trigger('click')
+    const wrapper = await mountWithContext(TorrentToolbar, context, { attachTo: document.body })
+    const view = await openViewOptions(wrapper)
+    const sizeOption = view.findAll('.column-option label').find((label) => label.text() === 'Size')
+    expect(sizeOption).toBeDefined()
+    await sizeOption!.get('input').setValue(false)
     expect(preferences.value.visibleColumns).not.toContain('size')
+    await view.get('.dialog-footer button').trigger('click')
+    await flushPromises()
+    expect(document.activeElement).toBe(wrapper.get('.view-trigger').element)
 
     torrents.setSelection([torrent.hash])
     await nextTick()
@@ -113,11 +124,17 @@ describe('torrent list interactions', () => {
 
     expectDensity('compact', 36)
 
-    await toolbar.get('.density-button').trigger('click')
+    const view = await openViewOptions(toolbar)
+    const densityOption = (label: string) =>
+      view
+        .findAll('.density-options label')
+        .find((option) => option.text() === label)!
+        .get('input')
+    await densityOption('Extra compact').setValue(true)
     await nextTick()
     expectDensity('extra-compact', 30)
 
-    await toolbar.get('.density-button').trigger('click')
+    await densityOption('Comfortable').setValue(true)
     await nextTick()
     expectDensity('comfortable', 46)
   })
@@ -126,12 +143,16 @@ describe('torrent list interactions', () => {
     const context = createTestContext()
     const preferences = context.run(() => usePreferencesStore(context.pinia))
     preferences.patch({ columnWidths: { name: 410 } })
-    const wrapper = await mountWithContext(TorrentToolbar, context)
+    const wrapper = await mountWithContext(TorrentToolbar, context, { attachTo: document.body })
+    const view = await openViewOptions(wrapper)
 
-    await wrapper.get('[aria-label="Move Size column earlier"]').trigger('click')
+    await view.get('[aria-label="Move Size column earlier"]').trigger('click')
     expect(preferences.value.columnOrder.slice(0, 3)).toEqual(['size', 'name', 'progress'])
 
-    await wrapper.get('.reset-column-layout').trigger('click')
+    const reset = view
+      .findAll('button')
+      .find((button) => button.text() === 'Reset column layout and widths')
+    await reset!.trigger('click')
     expect(preferences.value.columnOrder).toEqual([])
     expect(preferences.value.columnWidths).toEqual({})
   })

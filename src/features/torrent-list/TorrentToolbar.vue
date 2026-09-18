@@ -99,6 +99,14 @@ async function clearSearch(): Promise<void> {
   toolbar.value?.querySelector<HTMLInputElement>('#torrent-filter')?.focus()
 }
 
+async function updateViewOptions(open: boolean): Promise<void> {
+  viewOptionsOpen.value = open
+  if (!open) {
+    await nextTick()
+    toolbar.value?.querySelector<HTMLButtonElement>('.view-trigger')?.focus()
+  }
+}
+
 onMounted(() => {
   document.addEventListener('pointerdown', closeMenus)
   document.addEventListener('focusin', closeMenus)
@@ -171,6 +179,7 @@ async function toggleAlternativeLimits(): Promise<void> {
       <button
         class="btn view-trigger"
         type="button"
+        aria-label="View"
         aria-haspopup="dialog"
         :aria-expanded="viewOptionsOpen"
         @click="viewOptionsOpen = true"
@@ -326,7 +335,7 @@ async function toggleAlternativeLimits(): Promise<void> {
       </template>
     </div>
     <AdvancedTorrentFilters v-model:open="advancedFiltersOpen" />
-    <TorrentViewOptionsDialog v-model:open="viewOptionsOpen" />
+    <TorrentViewOptionsDialog :open="viewOptionsOpen" @update:open="updateViewOptions" />
     <AppDialog
       :open="libraryActionsOpen"
       title="Library actions"
