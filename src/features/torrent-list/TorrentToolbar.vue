@@ -171,6 +171,7 @@ async function toggleAlternativeLimits(): Promise<void> {
       <button
         class="btn view-trigger"
         type="button"
+        aria-label="View options"
         aria-haspopup="dialog"
         :aria-expanded="viewOptionsOpen"
         @click="viewOptionsOpen = true"

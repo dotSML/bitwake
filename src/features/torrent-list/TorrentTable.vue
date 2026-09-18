@@ -465,7 +465,11 @@ async function onKeydown(event: KeyboardEvent, index: number): Promise<void> {
             }
           ]"
           role="gridcell"
-          :title="String(cell.getValue() ?? '')"
+          :title="
+            cell.column.id === 'state'
+              ? torrentStateLabel(rows[virtualRow.index]!.original.state)
+              : String(cell.getValue() ?? '')
+          "
           :style="{ width: `${cell.column.getSize()}px` }"
         >
           <template v-if="cell.column.id === 'name'">
@@ -504,9 +508,13 @@ async function onKeydown(event: KeyboardEvent, index: number): Promise<void> {
               :class="`state-${rows[virtualRow.index]?.original.state}`"
               aria-hidden="true"
             />
-            <FlexRender :render="cell.column.columnDef.cell" :props="cell.getContext()" />
+            <span class="cell-text">
+              <FlexRender :render="cell.column.columnDef.cell" :props="cell.getContext()" />
+            </span>
           </template>
-          <FlexRender v-else :render="cell.column.columnDef.cell" :props="cell.getContext()" />
+          <span v-else class="cell-text">
+            <FlexRender :render="cell.column.columnDef.cell" :props="cell.getContext()" />
+          </span>
         </div>
       </div>
     </div>
@@ -657,6 +665,12 @@ async function onKeydown(event: KeyboardEvent, index: number): Promise<void> {
 }
 .table-cell.numeric {
   justify-content: flex-end;
+}
+.cell-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .cell-name {
   font-weight: 590;

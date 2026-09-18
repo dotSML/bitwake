@@ -65,8 +65,10 @@ const hasActions = computed(() => Boolean(slots.actions))
   font-size: 12px;
 }
 .route-body {
+  min-width: 0;
   min-height: 0;
   flex: 1;
+  container: route-body / inline-size;
   overflow: auto;
   padding: 18px 20px 30px;
 }

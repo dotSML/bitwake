@@ -133,6 +133,7 @@ async function logout(): Promise<void> {
         class="collapse-button"
         type="button"
         :aria-label="collapsed ? t('sidebar.expand') : t('sidebar.collapse')"
+        :title="collapsed ? t('sidebar.expand') : t('sidebar.collapse')"
         @click="preferences.patch({ sidebarCollapsed: !collapsed })"
       >
         <ChevronRight v-if="collapsed" :size="17" aria-hidden="true" />
@@ -179,6 +180,7 @@ async function logout(): Promise<void> {
           class="sidebar-item nested"
           :class="{ active: route.name === 'torrents' && torrents.filters.category === name }"
           type="button"
+          :title="name"
           :aria-pressed="route.name === 'torrents' && torrents.filters.category === name"
           @click="filterCategory(name)"
         >
@@ -202,6 +204,7 @@ async function logout(): Promise<void> {
           class="sidebar-item nested"
           :class="{ active: route.name === 'torrents' && torrents.filters.tag === tag }"
           type="button"
+          :title="tag"
           :aria-pressed="route.name === 'torrents' && torrents.filters.tag === tag"
           @click="filterTag(tag)"
         >
@@ -333,7 +336,9 @@ async function logout(): Promise<void> {
   display: flex;
   width: var(--sidebar-width, 264px);
   min-width: 220px;
+  min-height: 0;
   height: 100%;
+  flex: 0 0 auto;
   flex-direction: column;
   border-right: 1px solid rgb(var(--color-line));
   background: rgb(var(--color-surface));
@@ -386,6 +391,7 @@ async function logout(): Promise<void> {
   display: grid;
   width: 30px;
   height: 30px;
+  flex: 0 0 auto;
   place-items: center;
   border: 0;
   border-radius: 7px;
@@ -401,17 +407,18 @@ async function logout(): Promise<void> {
   padding: 0;
 }
 .collapsed .collapse-button {
-  position: absolute;
-  left: 51px;
-  z-index: 3;
-  border: 1px solid rgb(var(--color-line));
-  background: rgb(var(--color-surface));
+  width: 42px;
+  height: 36px;
 }
 .sidebar-scroll {
+  min-width: 0;
   min-height: 0;
   flex: 1;
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 12px 10px;
+  scrollbar-gutter: stable;
   scrollbar-width: thin;
 }
 .sidebar-add {
@@ -422,6 +429,7 @@ async function logout(): Promise<void> {
 }
 .sidebar-section {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 2px;
   margin-top: 14px;
 }
@@ -435,6 +443,7 @@ async function logout(): Promise<void> {
 }
 .sidebar-item {
   display: flex;
+  min-width: 0;
   min-height: 34px;
   align-items: center;
   gap: 9px;
@@ -453,7 +462,7 @@ async function logout(): Promise<void> {
 }
 .sidebar-item.active,
 .sidebar-item.router-link-active {
-  border-left: 3px solid rgb(var(--color-accent));
+  box-shadow: inset 3px 0 rgb(var(--color-accent));
   background: rgb(var(--color-accent-soft));
   color: rgb(var(--color-ink));
   font-weight: 700;
@@ -468,6 +477,10 @@ async function logout(): Promise<void> {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.sidebar-item > svg,
+.sidebar-footer > svg {
+  flex: 0 0 auto;
 }
 .sidebar-item.nested {
   min-height: 30px;
@@ -484,19 +497,24 @@ async function logout(): Promise<void> {
   font-size: 12px;
 }
 .item-count {
+  flex: 0 0 auto;
   margin-left: auto;
   font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
 .collapsed .sidebar-item {
-  width: 42px;
+  width: 100%;
   min-height: 40px;
   justify-content: center;
   padding: 0;
 }
 .collapsed .sidebar-add {
-  width: 42px;
+  width: 100%;
   padding: 0;
+}
+.collapsed .sidebar-scroll {
+  padding-right: 6px;
+  padding-left: 6px;
 }
 .sidebar-footer {
   display: flex;
@@ -512,11 +530,15 @@ async function logout(): Promise<void> {
 .sidebar-footer span {
   min-width: 0;
   flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .sidebar-footer button {
   display: grid;
   width: 29px;
   height: 29px;
+  flex: 0 0 auto;
   margin-left: auto;
   place-items: center;
   border: 0;
@@ -532,6 +554,14 @@ async function logout(): Promise<void> {
 .collapsed .sidebar-footer {
   justify-content: center;
   padding: 0;
+}
+.collapsed .sidebar-footer button {
+  margin-left: 0;
+}
+@media (min-width: 1200px) {
+  .collapsed .brand-mark {
+    display: none;
+  }
 }
 @media (min-width: 768px) and (max-width: 1199px) {
   .sidebar,
@@ -556,14 +586,21 @@ async function logout(): Promise<void> {
   }
   .sidebar-item,
   .sidebar-add {
-    width: 42px;
+    width: 100%;
     min-height: 40px;
     justify-content: center;
     padding: 0;
   }
+  .sidebar-scroll {
+    padding-right: 6px;
+    padding-left: 6px;
+  }
   .sidebar-footer {
     justify-content: center;
     padding: 0;
+  }
+  .sidebar-footer button {
+    margin-left: 0;
   }
 }
 @media (max-width: 767px) {

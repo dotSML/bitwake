@@ -134,7 +134,7 @@ onBeforeUnmount(() => pwa.trackUnsavedDialog('add-torrent', false))
   >
     <AppSidebar v-if="!isMobile" @add="openAddTorrent()" />
     <div
-      v-if="!isMobile"
+      v-if="!isMobile && !preferences.value.sidebarCollapsed"
       class="sidebar-resizer"
       role="separator"
       tabindex="0"

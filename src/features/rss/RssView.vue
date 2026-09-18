@@ -758,12 +758,13 @@ onMounted(() => void load())
   display: grid;
   min-height: 480px;
   height: 100%;
-  grid-template-columns: 220px 320px minmax(300px, 1fr);
+  grid-template-columns: minmax(180px, 0.75fr) minmax(220px, 1fr) minmax(260px, 1.4fr);
   gap: 10px;
 }
 .feed-panel,
 .article-list,
 .article-detail {
+  min-width: 0;
   min-height: 0;
   overflow: auto;
 }
@@ -1059,10 +1060,18 @@ onMounted(() => void load())
   display: flex;
   gap: 6px;
 }
-@media (max-width: 1000px) {
+@container route-body (max-width: 800px) {
   .rss-layout {
-    grid-template-columns: 210px 290px minmax(280px, 1fr);
-    overflow-x: auto;
+    height: auto;
+    grid-template-columns: minmax(180px, 0.7fr) minmax(0, 1.3fr);
+  }
+  .feed-panel,
+  .article-list {
+    max-height: 420px;
+  }
+  .article-detail {
+    grid-column: 1 / -1;
+    min-height: 320px;
   }
 }
 @media (max-width: 767px) {

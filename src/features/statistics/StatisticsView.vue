@@ -170,6 +170,7 @@ import { usePreferencesStore } from '@/stores/preferences'
   display: flex;
   min-height: 58px;
   align-items: center;
+  flex-wrap: wrap;
   justify-content: space-between;
   gap: 12px;
   border-bottom: 1px solid rgb(var(--color-line));
@@ -202,16 +203,21 @@ import { usePreferencesStore } from '@/stores/preferences'
 }
 .stat-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(130px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr));
   grid-column: 1;
   gap: 8px;
 }
 .stat-item {
   display: flex;
+  min-width: 0;
   min-height: 76px;
   align-items: center;
   gap: 10px;
   padding: 12px;
+}
+.stat-item > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .stat-item > svg {
   flex: 0 0 auto;
@@ -270,9 +276,6 @@ import { usePreferencesStore } from '@/stores/preferences'
     grid-row: auto;
     grid-column: 1;
   }
-  .stat-grid {
-    grid-template-columns: repeat(3, minmax(120px, 1fr));
-  }
 }
 @media (max-width: 600px) {
   .graph-panel > header {
@@ -280,7 +283,7 @@ import { usePreferencesStore } from '@/stores/preferences'
     flex-direction: column;
   }
   .stat-grid {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .stat-item {
     min-height: 70px;
