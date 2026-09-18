@@ -1,6 +1,6 @@
 import { DOMWrapper, flushPromises } from '@vue/test-utils'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { SearchResult } from '@/api/types/models'
+import type { SearchPlugin, SearchResult } from '@/api/types/models'
 import SearchView from '@/features/search/SearchView.vue'
 import { useNotificationsStore } from '@/stores/notifications'
 import { createTestContext, mountWithContext } from './support/mount'
@@ -14,6 +14,23 @@ function element<T extends Element>(selector: string): DOMWrapper<T> {
   const match = document.querySelector<T>(selector)
   expect(match, `element matching “${selector}”`).not.toBeNull()
   return new DOMWrapper(match)
+}
+
+function button(label: string): DOMWrapper<HTMLButtonElement> {
+  const match = [...document.querySelectorAll<HTMLButtonElement>('button')].find(
+    (candidate) => candidate.textContent?.trim() === label
+  )
+  expect(match, `button named “${label}”`).toBeDefined()
+  return new DOMWrapper(match)
+}
+
+const enabledPlugin: SearchPlugin = {
+  enabled: true,
+  fullName: 'Example Search',
+  name: 'example',
+  supportedCategories: [{ id: 'all', name: 'All' }],
+  url: 'https://example.test',
+  version: '1.0'
 }
 
 function searchResult(id: number): SearchResult {
@@ -43,7 +60,9 @@ describe('search plugin installation', () => {
     await mountWithContext(SearchView, context, { attachTo: document.body })
     await flushPromises()
 
-    const updateButton = element<HTMLButtonElement>('.plugin-list .btn')
+    await button('Manage plugins').trigger('click')
+    await flushPromises()
+    const updateButton = button('Update installed plugins')
     await updateButton.trigger('click')
     await updateButton.trigger('click')
     expect(updatePlugins).toHaveBeenCalledOnce()
@@ -66,9 +85,10 @@ describe('search plugin installation', () => {
     await mountWithContext(SearchView, context, { attachTo: document.body })
     await flushPromises()
 
-    await element<HTMLButtonElement>('button[aria-label="Install search plugin"]').trigger('click')
+    await button('Manage plugins').trigger('click')
+    await flushPromises()
     const dialog = element<HTMLElement>('[role="dialog"]')
-    expect(dialog.text()).toContain('Install search plugin')
+    expect(dialog.text()).toContain('Search plugins')
     await element<HTMLInputElement>('#search-plugin-source').setValue(
       '  https://plugins.example.test/search.py  '
     )
@@ -88,7 +108,8 @@ describe('search plugin installation', () => {
     await mountWithContext(SearchView, context, { attachTo: document.body })
     await flushPromises()
 
-    await element<HTMLButtonElement>('button[aria-label="Install search plugin"]').trigger('click')
+    await button('Manage plugins').trigger('click')
+    await flushPromises()
     await element<HTMLInputElement>('#search-plugin-source').setValue('/plugins/custom.py')
     await element<HTMLFormElement>('#search-plugin-form').trigger('submit')
     await flushPromises()
@@ -103,7 +124,7 @@ describe('search plugin installation', () => {
 describe('search result polling', () => {
   it('keeps failed stop and delete operations recoverable without changing the job', async () => {
     const context = createTestContext()
-    vi.spyOn(context.api.search, 'plugins').mockResolvedValue([])
+    vi.spyOn(context.api.search, 'plugins').mockResolvedValue([enabledPlugin])
     vi.spyOn(context.api.search, 'start').mockResolvedValue({ id: 6 })
     vi.spyOn(context.api.search, 'stop').mockRejectedValue(new Error('Stop request failed.'))
     vi.spyOn(context.api.search, 'delete').mockRejectedValue(new Error('Delete request failed.'))
@@ -135,7 +156,7 @@ describe('search result polling', () => {
   it('requests only appended results while running and reconciles once on completion', async () => {
     vi.useFakeTimers()
     const context = createTestContext()
-    vi.spyOn(context.api.search, 'plugins').mockResolvedValue([])
+    vi.spyOn(context.api.search, 'plugins').mockResolvedValue([enabledPlugin])
     vi.spyOn(context.api.search, 'start').mockResolvedValue({ id: 7 })
     const status = vi
       .spyOn(context.api.search, 'status')
@@ -185,7 +206,7 @@ describe('search result polling', () => {
   it('retries a failed terminal snapshot before committing the terminal status', async () => {
     vi.useFakeTimers()
     const context = createTestContext()
-    vi.spyOn(context.api.search, 'plugins').mockResolvedValue([])
+    vi.spyOn(context.api.search, 'plugins').mockResolvedValue([enabledPlugin])
     vi.spyOn(context.api.search, 'start').mockResolvedValue({ id: 8 })
     const status = vi
       .spyOn(context.api.search, 'status')
@@ -223,7 +244,7 @@ describe('search result polling', () => {
   it('fully reconciles when an incremental response becomes terminal', async () => {
     vi.useFakeTimers()
     const context = createTestContext()
-    vi.spyOn(context.api.search, 'plugins').mockResolvedValue([])
+    vi.spyOn(context.api.search, 'plugins').mockResolvedValue([enabledPlugin])
     vi.spyOn(context.api.search, 'start').mockResolvedValue({ id: 9 })
     const status = vi
       .spyOn(context.api.search, 'status')

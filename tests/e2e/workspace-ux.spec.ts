@@ -21,7 +21,12 @@ test('keeps filtering usable during selection and reports hidden selected torren
   await page.getByRole('button', { name: 'Clear filter', exact: true }).click()
   await expect(filter).toBeFocused()
   await expect(page.locator('.hidden-selection')).toHaveCount(0)
-  await page.getByRole('button', { name: 'Clear selection', exact: true }).click()
+  await page
+    .getByRole('button', {
+      name: isMobile ? 'Cancel selection' : 'Clear selection',
+      exact: true
+    })
+    .click()
   await expect(page.locator('.contextual')).toHaveCount(0)
 })
 
@@ -79,20 +84,31 @@ test('mobile selection controls stay above navigation and leave the last row rea
   })
   const lastRow = page.locator('.mobile-virtual-row[data-index="23"] .row-activate')
   await expect(lastRow).toBeInViewport()
-  const row = await lastRow.boundingBox()
-  expect(row!.y + row!.height).toBeLessThanOrEqual(bar!.y + 1)
+  // Measuring newly rendered virtual rows can increase the maximum scroll offset.
+  // Keep scrolling to the actual end before checking that the bar leaves it reachable.
+  await expect
+    .poll(async () => {
+      await page.locator('.mobile-list').evaluate((element) => {
+        element.scrollTop = element.scrollHeight
+      })
+      const row = await lastRow.boundingBox()
+      return row ? row.y + row.height : Infinity
+    })
+    .toBeLessThanOrEqual(bar!.y + 1)
 })
 
-test('desktop toolbar fits alongside details and menus dismiss without clearing selection', async ({
+test('desktop toolbar fits alongside details and view options restore focus on dismissal', async ({
   page
 }, testInfo) => {
   test.skip(testInfo.project.name !== 'desktop', 'One desktop layout check')
   await openMockApp(page)
-  await page.locator('.columns-menu summary').click()
-  await page.getByRole('button', { name: 'Move Size column earlier' }).focus()
+  const viewButton = page.getByRole('button', { name: 'View', exact: true })
+  await viewButton.click()
+  const viewOptions = page.getByRole('dialog', { name: 'View options' })
+  await viewOptions.getByRole('button', { name: 'Move Size column earlier' }).focus()
   await page.keyboard.press('Escape')
-  await expect(page.locator('.columns-menu')).not.toHaveAttribute('open', '')
-  await expect(page.locator('.columns-menu summary')).toBeFocused()
+  await expect(viewOptions).toBeHidden()
+  await expect(viewButton).toBeFocused()
   await page.locator('.table-row').first().dblclick()
   await expect(page.locator('.inspector-wrap')).toBeVisible()
   const workspace = await page.locator('.workspace-main').boundingBox()

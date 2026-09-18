@@ -13,7 +13,12 @@ async function installLongCollections(page: Page): Promise<void> {
         const response = await originalFetch(input, init)
         const url = input instanceof Request ? input.url : String(input)
         if (!url.includes('/sync/maindata')) return response
-        const data = await response.clone().json()
+        const data = (await response.clone().json()) as {
+          full_update?: boolean
+          categories?: Record<string, { name: string; savePath: string }>
+          tags?: string[]
+          trackers?: Record<string, string[]>
+        }
         if (data.full_update) {
           data.categories = { [category]: { name: category, savePath: '/downloads' } }
           data.tags = [tag]
@@ -28,7 +33,7 @@ async function installLongCollections(page: Page): Promise<void> {
 
 async function expectContentFits(locator: Locator): Promise<void> {
   await expect(async () => {
-    const overflowing = await locator.evaluateAll((elements) =>
+    const overflowing = await locator.evaluateAll((elements: HTMLElement[]) =>
       elements
         .filter((element) => element.clientWidth && element.scrollWidth > element.clientWidth + 1)
         .map((element) => ({
@@ -102,13 +107,13 @@ test('route content fits the available workspace in both themes', async ({ page 
     'more'
   ]) {
     await openMockApp(page, `/${route}`)
-    await expect(page.locator('.route-body')).not.toBeEmpty()
+    await expect(page.locator('.route-content')).not.toBeEmpty()
     for (const theme of ['light', 'dark']) {
       await page.locator('html').evaluate((element, value) => {
         element.setAttribute('data-theme', value)
       }, theme)
       await expectContentFits(
-        page.locator('.route-body, .stat-grid, .rss-layout, .settings-content')
+        page.locator('.route-content, .route-body, .stat-grid, .rss-layout, .settings-content')
       )
     }
   }
@@ -117,7 +122,7 @@ test('route content fits the available workspace in both themes', async ({ page 
 test('view options and filters remain reachable on narrow screens', async ({ page }) => {
   await installLongCollections(page)
   await openMockApp(page)
-  for (const label of ['Filters', 'View options', 'Add torrent']) {
+  for (const label of ['Filters', 'View', 'Add torrent']) {
     // Tablets expose Add torrent in the sidebar; phones expose it in the header.
     await page.getByRole('button', { name: label, exact: true }).click()
     const dialog = page.getByRole('dialog')

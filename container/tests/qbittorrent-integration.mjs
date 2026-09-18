@@ -909,7 +909,7 @@ async function exerciseExactRootWarning(torrent, kind, root, warningTitle) {
 
 async function navigateToAllTorrents() {
   const navigation = page.getByRole('navigation', { name: 'Torrent filters' })
-  const allTorrents = navigation.getByRole('button', { name: 'All torrents', exact: true })
+  const allTorrents = navigation.getByRole('button', { name: 'All states', exact: true })
   try {
     await allTorrents.waitFor({ state: 'visible', timeout: 20_000 })
     await allTorrents.click()
@@ -928,7 +928,7 @@ async function navigateToAllTorrents() {
       }))
       .catch(() => ({ unavailable: true }))
     throw new Error(
-      `Could not navigate through the All torrents sidebar control: ${JSON.stringify(diagnostics)}`,
+      `Could not navigate through the All states sidebar control: ${JSON.stringify(diagnostics)}`,
       { cause }
     )
   }
