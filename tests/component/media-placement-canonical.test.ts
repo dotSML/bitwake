@@ -60,6 +60,36 @@ afterEach(() => {
 })
 
 describe('canonical Suggested TV Add flow', () => {
+  it.each([
+    { name: 'The Sopranos S1', folders: [] },
+    { name: 'The.Sopranos.S01.1080p', folders: ['/data/tv-shows/The Sopranos'] },
+    { name: 'The Sopranos Season 1', folders: ['/data/tv-shows/The Sopranos'] }
+  ])('adds $name directly to the season destination', async ({ name, folders }) => {
+    const context = contextWithAssist()
+    vi.spyOn(context.api.app, 'directoryContent').mockResolvedValue(folders)
+    const add = vi.spyOn(context.api.torrents, 'add').mockResolvedValue({ legacySuccess: true })
+    const source = `magnet:?xt=urn:btih:1111111111111111111111111111111111111111&dn=${encodeURIComponent(name)}`
+
+    await openStepTwo(context, source)
+
+    expect(document.querySelector<HTMLInputElement>('.title-field input')?.value).toBe(
+      'The Sopranos'
+    )
+    expect(document.body.textContent).toContain('/data/tv-shows/The Sopranos/Season 01')
+    await button('Continue').trigger('click')
+    await nextTick()
+    await button('Add torrents').trigger('click')
+    await flushPromises()
+
+    expect(add).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        sources: [source],
+        savepath: '/data/tv-shows/The Sopranos/Season 01',
+        contentLayout: 'NoSubfolder'
+      })
+    )
+  })
+
   it('takes one shallow TV snapshot and automatically reuses the exact folder', async () => {
     const context = contextWithAssist()
     const directoryContent = vi

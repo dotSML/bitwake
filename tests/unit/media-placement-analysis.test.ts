@@ -85,6 +85,44 @@ describe('media source name analysis', () => {
     })
   })
 
+  it.each([
+    ['The Sopranos S1', 1],
+    ['The.Sopranos.S01.1080p.BluRay', 1],
+    ['The_Sopranos_s2.torrent', 2],
+    ['The Sopranos - S06', 6],
+    ['The Sopranos [S00]', 0],
+    ['The Sopranos S100', 100]
+  ])('recognizes the standalone season token in %s', (name, season) => {
+    expect(analyzeSourceName(name)).toMatchObject({
+      kind: 'tv',
+      suggestedTitle: 'The Sopranos',
+      suggestedSeason: season,
+      detectedSeasons: [season],
+      shape: 'single-season-pack'
+    })
+  })
+
+  it.each(['S1mone.2002.1080p', 'Release.CS1', 'Release.S1234', 'Release.S01Extras'])(
+    'does not read a partial token as a season in %s',
+    (name) => {
+      expect(analyzeSourceName(name).kind).not.toBe('tv')
+      expect(analyzeSourceName(name).detectedSeasons).toEqual([])
+    }
+  )
+
+  it('keeps episode markers distinct and expands compact season ranges', () => {
+    expect(analyzeSourceName('The.Sopranos.S01E01.mkv')).toMatchObject({
+      shape: 'single-file',
+      detectedSeasons: [1],
+      detectedEpisodes: [1]
+    })
+    expect(analyzeSourceName('The.Sopranos.S01-S06')).toMatchObject({
+      suggestedTitle: 'The Sopranos',
+      shape: 'multi-season-pack',
+      detectedSeasons: [1, 2, 3, 4, 5, 6]
+    })
+  })
+
   it('expands an explicit multi-episode range and leaves a title-less pack editable', () => {
     expect(analyzeSourceName('Show.Name.S01E01-E03').detectedEpisodes).toEqual([1, 2, 3])
     expect(analyzeSourceName('Season.1')).toMatchObject({

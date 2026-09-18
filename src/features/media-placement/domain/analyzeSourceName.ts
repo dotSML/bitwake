@@ -116,6 +116,14 @@ function findTvHints(value: string): TvHints | null {
     markerIndexes.push(match.index)
   }
 
+  // A season-only release commonly uses S1 or S01. The trailing boundary
+  // keeps episode tokens (S01E01) and title fragments (S1mone) separate.
+  for (const match of value.matchAll(/\bS(\d{1,3})\b/giu)) {
+    seasons.add(Number(match[1]))
+    explicitSeasonPack = true
+    markerIndexes.push(match.index)
+  }
+
   for (const match of value.matchAll(
     /\b(?:complete\s+)?seasons?\s*(\d{1,3})(?:\s*[-–]\s*(\d{1,3}))?/giu
   )) {

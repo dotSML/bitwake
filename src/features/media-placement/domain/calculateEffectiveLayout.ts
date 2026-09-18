@@ -84,7 +84,10 @@ export function recommendedContentLayout(analysis: MediaSourceAnalysis): Content
   // intentional movie/season leaf, so flattening is the safer default: it is
   // identical to Original for a single-file torrent and avoids retaining an
   // arbitrary release root if metadata later reveals multiple files.
-  if (analysis.shape === 'unknown' && (analysis.kind === 'movie' || analysis.kind === 'tv')) {
+  if (
+    (analysis.shape === 'unknown' || analysis.shape === 'single-season-pack') &&
+    (analysis.kind === 'movie' || analysis.kind === 'tv')
+  ) {
     return 'NoSubfolder'
   }
   return 'Original'
