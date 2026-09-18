@@ -7,10 +7,10 @@ describe('app sidebar', () => {
   afterEach(() => setApplicationLocale('en'))
 
   it.each([
-    ['en', 'Torrent filters', 'All torrents'],
-    ['et', 'Torrenti filtrid', 'Kõik torrentid']
+    ['en', 'Torrent filters', 'All states'],
+    ['et', 'Torrenti filtrid', 'Kõik olekud']
   ] as const)(
-    'gives the all-torrents filter a specific accessible name in %s',
+    'gives the all-states filter a specific accessible name in %s',
     async (locale, navigationName, filterName) => {
       setApplicationLocale(locale)
       const wrapper = await mountWithContext(AppSidebar, createTestContext(), {

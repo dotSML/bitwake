@@ -14,6 +14,7 @@ import { useTorrentsStore } from '@/stores/torrents'
 import MobileTorrentList from './MobileTorrentList.vue'
 import TorrentTable from './TorrentTable.vue'
 import TorrentToolbar from './TorrentToolbar.vue'
+import { useSortedTorrents } from './useSortedTorrents'
 import type { TorrentFilterState } from '@/domains/torrents/state'
 import { MOBILE_MEDIA_QUERY, useMediaQuery } from '@/ui/composables/useMediaQuery'
 import { useWindowPointerDrag } from '@/ui/composables/useWindowPointerDrag'
@@ -23,11 +24,13 @@ const router = useRouter()
 const { t } = useI18n()
 const selecting = ref(false)
 const torrents = useTorrentsStore()
-const mobileSelectionMode = computed(() => selecting.value || torrents.selectedHashes.size > 0)
+const mobileSelectionMode = computed(() => selecting.value)
 const preferences = usePreferencesStore()
 const isMobile = useMediaQuery(MOBILE_MEDIA_QUERY)
 const inspectorDrag = useWindowPointerDrag()
-const viewportWidth = ref(typeof window === 'undefined' ? 1440 : window.innerWidth)
+const workspaceElement = ref<HTMLElement | null>(null)
+const workspaceWidth = ref(typeof window === 'undefined' ? 1440 : window.innerWidth)
+let workspaceObserver: ResizeObserver | null = null
 const deleteOpen = ref(false)
 const deleteHashes = ref<string[]>([])
 const operationDialog = ref<{
@@ -50,16 +53,21 @@ const stateChips: TorrentFilterState[] = [
   'all',
   'downloading',
   'seeding',
+  'active',
   'completed',
   'stopped',
   'stalled'
 ]
-const inspectorHash = computed(() => torrents.selected[0]?.hash ?? null)
+const { orderedTorrents } = useSortedTorrents(() => torrents.visibleTorrents)
+const inspectorHash = computed(() =>
+  torrents.selectedHashes.size === 1 ? (torrents.selected[0]?.hash ?? null) : null
+)
+const inlineInspectorAvailable = computed(() => !isMobile.value && workspaceWidth.value >= 800)
 const showInspector = computed(() =>
-  Boolean(!isMobile.value && inspectorHash.value && preferences.value.inspectorOpen)
+  Boolean(inlineInspectorAvailable.value && inspectorHash.value && preferences.value.inspectorOpen)
 )
 const inspectorMaximumWidth = computed(() =>
-  Math.min(720, Math.max(320, Math.floor(viewportWidth.value * 0.52)))
+  Math.min(720, Math.max(320, Math.floor(workspaceWidth.value - 480)))
 )
 const renderedInspectorWidth = computed(() =>
   Math.min(preferences.value.inspectorWidth, inspectorMaximumWidth.value)
@@ -73,7 +81,8 @@ function toggleSelectionMode(): void {
 }
 
 function activate(hash: string): void {
-  if (isMobile.value) void router.push(`/torrents/${hash}/overview`)
+  if (isMobile.value || !inlineInspectorAvailable.value)
+    void router.push(`/torrents/${hash}/overview`)
   else {
     torrents.setSelection([hash])
     preferences.patch({ inspectorOpen: true })
@@ -131,21 +140,15 @@ function onContext(event: MouseEvent, hash: string): void {
 }
 
 function onMobileMenu(hash: string, event: MouseEvent): void {
-  const rowAlreadySelected = torrents.selectedHashes.has(hash)
-  if (!rowAlreadySelected) torrents.setSelection([hash])
-  const hashes = rowAlreadySelected ? [...torrents.selectedHashes] : [hash]
   actionReturnFocus.value = event.currentTarget as HTMLElement | null
   actionMenu.value = {
     open: true,
     mobile: true,
     x: 0,
     y: 0,
-    hashes,
+    hashes: [hash],
     detailHash: hash,
-    title:
-      hashes.length === 1
-        ? (torrents.byHash.get(hash)?.name ?? 'Torrent actions')
-        : `${hashes.length} selected torrents`
+    title: torrents.byHash.get(hash)?.name ?? 'Torrent actions'
   }
 }
 
@@ -232,8 +235,9 @@ function resizeInspectorWithKeyboard(event: KeyboardEvent): void {
   }
 }
 
-function updateViewportWidth(): void {
-  viewportWidth.value = window.innerWidth
+function updateWorkspaceWidth(): void {
+  const element = workspaceElement.value
+  workspaceWidth.value = Math.round(element?.getBoundingClientRect().width || window.innerWidth)
 }
 
 function onDragOver(event: DragEvent): void {
@@ -254,16 +258,22 @@ function onDrop(event: DragEvent): void {
 
 onMounted(() => {
   window.addEventListener('keydown', onKeydown)
-  window.addEventListener('resize', updateViewportWidth)
+  updateWorkspaceWidth()
+  if (typeof ResizeObserver !== 'undefined') {
+    workspaceObserver = new ResizeObserver(updateWorkspaceWidth)
+    if (workspaceElement.value) workspaceObserver.observe(workspaceElement.value)
+  }
 })
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown)
-  window.removeEventListener('resize', updateViewportWidth)
+  workspaceObserver?.disconnect()
+  workspaceObserver = null
 })
 </script>
 
 <template>
   <div
+    ref="workspaceElement"
     class="torrent-workspace"
     @dragover="onDragOver"
     @dragleave.self="dragging = false"
@@ -285,7 +295,6 @@ onBeforeUnmount(() => {
       <TorrentToolbar
         :selection-mode="isMobile && mobileSelectionMode"
         @delete="openDelete()"
-        @add="emit('addTorrent')"
         @actions="onSelectionMenu"
         @toggle-selection="toggleSelectionMode"
       />
@@ -311,10 +320,7 @@ onBeforeUnmount(() => {
       <div v-else-if="!torrents.torrents.length" class="workspace-state">
         <Inbox :size="32" />
         <h2>No torrents yet</h2>
-        <p>Add a torrent file, magnet link, or URL to begin.</p>
-        <button class="btn btn-primary" type="button" @click="emit('addTorrent')">
-          <Plus :size="16" />Add torrent
-        </button>
+        <p>Use Add torrent to add files, magnet links, or URLs.</p>
       </div>
       <div v-else-if="!torrents.visibleTorrents.length" class="workspace-state">
         <h2>No matching torrents</h2>
@@ -324,6 +330,7 @@ onBeforeUnmount(() => {
       <template v-else>
         <div v-if="!isMobile" class="desktop-table">
           <TorrentTable
+            :ordered-torrents="orderedTorrents"
             @activate="activate"
             @context="onContext"
             @review-placement="openOperation('location', [$event])"
@@ -331,6 +338,7 @@ onBeforeUnmount(() => {
         </div>
         <MobileTorrentList
           v-else
+          :ordered-torrents="orderedTorrents"
           :selection-mode="mobileSelectionMode"
           @activate="activate"
           @select="torrents.toggleSelection"
@@ -438,7 +446,7 @@ onBeforeUnmount(() => {
 }
 .inspector-wrap {
   min-width: 320px;
-  max-width: min(720px, 52vw);
+  max-width: 720px;
   flex: 0 0 auto;
 }
 .workspace-state {
@@ -482,21 +490,6 @@ onBeforeUnmount(() => {
   background: rgb(var(--color-surface) / 0.94);
   color: rgb(var(--color-accent));
   pointer-events: none;
-}
-@media (min-width: 768px) and (max-width: 1199px) {
-  .torrent-workspace {
-    flex-direction: column;
-  }
-  .inspector-wrap {
-    width: 100% !important;
-    min-width: 0;
-    max-width: none;
-    height: 42%;
-    border-top: 1px solid rgb(var(--color-line-strong));
-  }
-  .inspector-resizer {
-    display: none;
-  }
 }
 @media (max-width: 767px) {
   .desktop-table,

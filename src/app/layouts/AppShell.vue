@@ -147,13 +147,14 @@ onBeforeUnmount(() => pwa.trackUnsavedDialog('add-torrent', false))
       @keydown="resizeSidebarWithKeyboard"
     />
     <div class="shell-workspace">
-      <header class="mobile-header">
+      <header v-if="route.name !== 'torrent-detail' || !isMobile" class="mobile-header">
         <span class="mobile-header-spacer" aria-hidden="true" />
         <div>
           <strong>{{ routeTitle }}</strong
           ><span>{{ t('app.name') }}</span>
         </div>
         <button
+          v-if="isMobile"
           class="icon-btn mobile-add"
           type="button"
           :aria-label="t('torrents.add')"

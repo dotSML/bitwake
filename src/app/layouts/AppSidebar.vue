@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import {
   Activity,
+  AlertCircle,
+  CheckCircle2,
   ChevronLeft,
   ChevronRight,
   Circle,
@@ -22,15 +24,14 @@ import {
   Upload,
   WandSparkles
 } from '@lucide/vue'
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import TransferGraph from '@/features/statistics/TransferGraph.vue'
 import { usePreferencesStore } from '@/stores/preferences'
 import { useTorrentsStore } from '@/stores/torrents'
-import { useTransferStore } from '@/stores/transfer'
 import { useSessionLifecycle } from '@/app/session/sessionLifecycle'
-import { countTorrentSidebarStates, type TorrentFilterState } from '@/domains/torrents/state'
+import { matchesTorrentState, type TorrentFilterState } from '@/domains/torrents/state'
 
 const emit = defineEmits<{ add: [] }>()
 const { t } = useI18n()
@@ -38,20 +39,60 @@ const route = useRoute()
 const router = useRouter()
 const preferences = usePreferencesStore()
 const torrents = useTorrentsStore()
-const transfer = useTransferStore()
 const lifecycle = useSessionLifecycle()
+const categoriesExpanded = ref(false)
+const tagsExpanded = ref(false)
+const trackersExpanded = ref(false)
 const collapsed = computed(() => preferences.value.sidebarCollapsed)
 const stateItems = computed<Array<{ id: TorrentFilterState; label: string; icon: typeof Circle }>>(
   () => [
-    { id: 'all', label: t('sidebar.allTorrents'), icon: ListFilter },
+    { id: 'all', label: t('sidebar.allStates'), icon: ListFilter },
     { id: 'downloading', label: t('torrents.downloading'), icon: Download },
     { id: 'seeding', label: t('torrents.seeding'), icon: Upload },
     { id: 'active', label: t('torrents.active'), icon: Activity },
-    { id: 'stopped', label: t('torrents.stopped'), icon: Circle }
+    { id: 'completed', label: t('torrents.completed'), icon: CheckCircle2 },
+    { id: 'stopped', label: t('torrents.stopped'), icon: Circle },
+    { id: 'stalled', label: t('torrents.stalled'), icon: AlertCircle }
   ]
 )
 
-const stateCounts = computed(() => countTorrentSidebarStates(torrents.torrents))
+const stateCounts = computed(
+  () =>
+    Object.fromEntries(
+      stateItems.value.map(({ id }) => [
+        id,
+        torrents.torrents.filter((torrent) => matchesTorrentState(torrent, id)).length
+      ])
+    ) as Record<TorrentFilterState, number>
+)
+const categoryNames = computed(() =>
+  [...torrents.categories.keys()].sort((a, b) => a.localeCompare(b))
+)
+const tagNames = computed(() => [...torrents.tags].sort((a, b) => a.localeCompare(b)))
+const trackerNames = computed(() =>
+  [...torrents.trackers.keys()].sort((a, b) => a.localeCompare(b))
+)
+const visibleCategories = computed(() => {
+  const activeIndex = categoryNames.value.indexOf(torrents.filters.category ?? '')
+  return categoriesExpanded.value || activeIndex >= 8
+    ? categoryNames.value
+    : categoryNames.value.slice(0, 8)
+})
+const visibleTags = computed(() => {
+  const activeIndex = tagNames.value.indexOf(torrents.filters.tag ?? '')
+  return tagsExpanded.value || activeIndex >= 8 ? tagNames.value : tagNames.value.slice(0, 8)
+})
+const visibleTrackers = computed(() => {
+  const activeIndex = trackerNames.value.indexOf(torrents.filters.tracker ?? '')
+  return trackersExpanded.value || activeIndex >= 8
+    ? trackerNames.value
+    : trackerNames.value.slice(0, 8)
+})
+const connectionLabel = computed(() => {
+  if (torrents.connectionState === 'connected') return 'Connected'
+  if (torrents.connectionState === 'syncing') return 'Connecting'
+  return torrents.lastSuccessfulSyncAt ? 'Reconnecting' : 'Unavailable'
+})
 
 function filterState(id: TorrentFilterState): void {
   torrents.updateFilters({ state: id })
@@ -59,12 +100,12 @@ function filterState(id: TorrentFilterState): void {
 }
 
 function filterCategory(category: string): void {
-  torrents.updateFilters({ category })
+  torrents.updateFilters({ category: torrents.filters.category === category ? null : category })
   if (route.name !== 'torrents') void router.push({ name: 'torrents' })
 }
 
 function filterTag(tag: string): void {
-  torrents.updateFilters({ tag })
+  torrents.updateFilters({ tag: torrents.filters.tag === tag ? null : tag })
   if (route.name !== 'torrents') void router.push({ name: 'torrents' })
 }
 
@@ -86,7 +127,7 @@ async function logout(): Promise<void> {
       <div class="brand-mark" aria-hidden="true">B</div>
       <div v-if="!collapsed" class="brand-copy">
         <strong>{{ t('app.name') }}</strong>
-        <span>{{ transfer.connected ? t('transfer.connected') : t('transfer.disconnected') }}</span>
+        <span>{{ connectionLabel }}</span>
       </div>
       <button
         class="collapse-button"
@@ -120,40 +161,59 @@ async function logout(): Promise<void> {
           :class="{ active: route.name === 'torrents' && torrents.filters.state === item.id }"
           type="button"
           :aria-label="item.label"
+          :aria-pressed="route.name === 'torrents' && torrents.filters.state === item.id"
           :title="item.label"
           @click="filterState(item.id)"
         >
           <component :is="item.icon" :size="17" aria-hidden="true" />
           <span v-if="!collapsed">{{ item.label }}</span>
-          <span v-if="!collapsed" class="item-count">{{
-            stateCounts[item.id as keyof typeof stateCounts]
-          }}</span>
+          <span v-if="!collapsed" class="item-count">{{ stateCounts[item.id] }}</span>
         </button>
       </nav>
 
       <div v-if="!collapsed && torrents.categories.size" class="sidebar-section collection-section">
         <p class="section-label">{{ t('sidebar.categories') }}</p>
         <button
-          v-for="[name] in [...torrents.categories].slice(0, 8)"
+          v-for="name in visibleCategories"
           :key="name"
           class="sidebar-item nested"
+          :class="{ active: route.name === 'torrents' && torrents.filters.category === name }"
           type="button"
+          :aria-pressed="route.name === 'torrents' && torrents.filters.category === name"
           @click="filterCategory(name)"
         >
           <Hash :size="14" aria-hidden="true" /><span>{{ name }}</span>
+        </button>
+        <button
+          v-if="categoryNames.length > 8"
+          class="collection-expander"
+          type="button"
+          @click="categoriesExpanded = !categoriesExpanded"
+        >
+          {{ categoriesExpanded ? 'Show less' : `Show all (${categoryNames.length})` }}
         </button>
       </div>
 
       <div v-if="!collapsed && torrents.tags.size" class="sidebar-section collection-section">
         <p class="section-label">{{ t('sidebar.tags') }}</p>
         <button
-          v-for="tag in [...torrents.tags].slice(0, 8)"
+          v-for="tag in visibleTags"
           :key="tag"
           class="sidebar-item nested"
+          :class="{ active: route.name === 'torrents' && torrents.filters.tag === tag }"
           type="button"
+          :aria-pressed="route.name === 'torrents' && torrents.filters.tag === tag"
           @click="filterTag(tag)"
         >
           <Tags :size="14" aria-hidden="true" /><span>{{ tag }}</span>
+        </button>
+        <button
+          v-if="tagNames.length > 8"
+          class="collection-expander"
+          type="button"
+          @click="tagsExpanded = !tagsExpanded"
+        >
+          {{ tagsExpanded ? 'Show less' : `Show all (${tagNames.length})` }}
         </button>
       </div>
 
@@ -163,20 +223,30 @@ async function logout(): Promise<void> {
           class="sidebar-item nested"
           :class="{ active: torrents.filters.tracker === '__trackerless__' }"
           type="button"
+          :aria-pressed="torrents.filters.tracker === '__trackerless__'"
           @click="filterTracker('__trackerless__')"
         >
           <RadioTower :size="14" aria-hidden="true" /><span>{{ t('sidebar.trackerless') }}</span>
         </button>
         <button
-          v-for="[tracker] in [...torrents.trackers].slice(0, 8)"
+          v-for="tracker in visibleTrackers"
           :key="tracker"
           class="sidebar-item nested"
           :class="{ active: torrents.filters.tracker === tracker }"
           type="button"
           :title="tracker"
+          :aria-pressed="torrents.filters.tracker === tracker"
           @click="filterTracker(tracker)"
         >
           <RadioTower :size="14" aria-hidden="true" /><span>{{ tracker }}</span>
+        </button>
+        <button
+          v-if="trackerNames.length > 8"
+          class="collection-expander"
+          type="button"
+          @click="trackersExpanded = !trackersExpanded"
+        >
+          {{ trackersExpanded ? 'Show less' : `Show all (${trackerNames.length})` }}
         </button>
       </div>
 
@@ -401,6 +471,16 @@ async function logout(): Promise<void> {
 }
 .sidebar-item.nested {
   min-height: 30px;
+  font-size: 12px;
+}
+.collection-expander {
+  min-height: 32px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: rgb(var(--color-accent));
+  padding: 0 9px;
+  text-align: left;
   font-size: 12px;
 }
 .item-count {

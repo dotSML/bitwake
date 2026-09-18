@@ -11,7 +11,7 @@ import {
   Trash2
 } from '@lucide/vue'
 import { useVirtualizer } from '@tanstack/vue-virtual'
-import { computed, onMounted, ref, toRaw } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, toRaw, watch } from 'vue'
 import type { RssArticle, RssItems } from '@/api/rss/rssApi'
 import { useApi } from '@/app/providers/api'
 import { useNotificationsStore } from '@/stores/notifications'
@@ -20,6 +20,7 @@ import { safeExternalUrl } from '@/utils/safeUrl'
 import RouteScaffold from '@/ui/components/RouteScaffold.vue'
 import SanitizedHtml from '@/ui/components/SanitizedHtml.vue'
 import AppDialog from '@/ui/primitives/AppDialog.vue'
+import { usePwaStore } from '@/stores/pwa'
 
 interface Feed {
   path: string
@@ -33,6 +34,7 @@ type RssItemAction = 'add-feed' | 'add-folder' | 'remove'
 const api = useApi()
 const notifications = useNotificationsStore()
 const torrents = useTorrentsStore()
+const pwa = usePwaStore()
 const rawItems = ref<RssItems>({})
 const feeds = ref<Feed[]>([])
 const selectedFeed = ref<string | null>(null)
@@ -47,9 +49,16 @@ const itemPath = ref('')
 const rssItemError = ref<string | null>(null)
 const rssItemWorking = ref(false)
 const rulesOpen = ref(false)
+const rulesLoading = ref(false)
+const rulesError = ref<string | null>(null)
+const ruleSaving = ref(false)
+const ruleMode = ref<'none' | 'create' | 'edit'>('none')
 const rules = ref<Record<string, Record<string, unknown>>>({})
 const ruleName = ref('')
 const originalRule = ref<Record<string, unknown> | null>(null)
+const originalRuleName = ref<string | null>(null)
+const ruleSnapshot = ref('')
+const pendingArticleDownloads = ref(new Set<string>())
 const ruleDefinition = ref({
   enabled: true,
   mustContain: '',
@@ -72,6 +81,12 @@ const articles = computed(() => {
     (article) => !needle || article.title.toLocaleLowerCase().includes(needle)
   )
 })
+const ruleDirty = computed(
+  () =>
+    ruleMode.value !== 'none' &&
+    JSON.stringify({ name: ruleName.value, definition: ruleDefinition.value }) !==
+      ruleSnapshot.value
+)
 const rssItemDialogTitle = computed(() => {
   if (rssItemDialog.value?.action === 'add-feed') return 'Add RSS feed'
   if (rssItemDialog.value?.action === 'add-folder') return 'Add RSS folder'
@@ -141,9 +156,19 @@ async function load(): Promise<void> {
   loading.value = true
   error.value = null
   try {
+    const previousFeed = selectedFeed.value
+    const previousArticleId = selectedArticle.value?.id
     rawItems.value = await api.rss.items(true)
     feeds.value = collectFeeds(rawItems.value)
-    selectedFeed.value ??= feeds.value[0]?.path ?? null
+    selectedFeed.value = feeds.value.some((feed) => feed.path === previousFeed)
+      ? previousFeed
+      : (feeds.value[0]?.path ?? null)
+    if (previousArticleId && selectedFeed.value) {
+      selectedArticle.value =
+        feeds.value
+          .find((feed) => feed.path === selectedFeed.value)
+          ?.articles.find((article) => article.id === previousArticleId) ?? null
+    } else selectedArticle.value = null
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : 'RSS feeds could not be loaded.'
   } finally {
@@ -260,30 +285,41 @@ async function downloadArticle(article: RssArticle): Promise<void> {
     notifications.push('This RSS article uses an unsupported torrent URL scheme.', 'warning')
     return
   }
+  const key = `${selectedFeed.value ?? ''}\u0000${article.id ?? article.torrentURL}`
+  if (pendingArticleDownloads.value.has(key)) return
+  pendingArticleDownloads.value = new Set(pendingArticleDownloads.value).add(key)
   try {
     await api.torrents.add({ sources: [safeUrl.toString()] })
     torrents.refreshNow()
-    notifications.push('RSS article sent to qBittorrent.', 'success')
+    notifications.push('Download request accepted.', 'success')
   } catch (cause) {
     notifications.push(
       cause instanceof Error ? cause.message : 'Article could not be downloaded.',
       'error'
     )
+  } finally {
+    const next = new Set(pendingArticleDownloads.value)
+    next.delete(key)
+    pendingArticleDownloads.value = next
   }
 }
 async function openRules(): Promise<void> {
   rulesOpen.value = true
+  rulesLoading.value = true
+  rulesError.value = null
+  ruleMode.value = 'none'
   try {
     rules.value = await api.rss.rules()
   } catch (cause) {
-    notifications.push(
-      cause instanceof Error ? cause.message : 'RSS rules could not be loaded.',
-      'error'
-    )
+    rulesError.value = cause instanceof Error ? cause.message : 'RSS rules could not be loaded.'
+  } finally {
+    rulesLoading.value = false
   }
 }
 function editRule(name: string): void {
   ruleName.value = name
+  originalRuleName.value = name
+  ruleMode.value = 'edit'
   const rule = rules.value[name] ?? {}
   originalRule.value = clonePlain(rule)
   const torrentParams =
@@ -307,9 +343,12 @@ function editRule(name: string): void {
       ? rule.affectedFeeds.filter((item): item is string => typeof item === 'string')
       : []
   }
+  ruleSnapshot.value = JSON.stringify({ name: ruleName.value, definition: ruleDefinition.value })
 }
 function newRule(): void {
   ruleName.value = ''
+  originalRuleName.value = null
+  ruleMode.value = 'create'
   originalRule.value = {
     enabled: true,
     mustContain: '',
@@ -344,9 +383,15 @@ function newRule(): void {
     tags: '',
     affectedFeeds: []
   }
+  ruleSnapshot.value = JSON.stringify({ name: ruleName.value, definition: ruleDefinition.value })
 }
 async function saveRule(): Promise<void> {
-  if (!ruleName.value.trim()) return
+  if (ruleSaving.value || ruleMode.value === 'none' || !ruleName.value.trim()) return
+  const name = ruleName.value.trim()
+  if (ruleMode.value === 'create' && rules.value[name]) {
+    rulesError.value = 'A rule with this name already exists.'
+    return
+  }
   const originalTorrentParams =
     originalRule.value?.torrentParams && typeof originalRule.value.torrentParams === 'object'
       ? clonePlain(originalRule.value.torrentParams as Record<string, unknown>)
@@ -373,17 +418,30 @@ async function saveRule(): Promise<void> {
       tags
     }
   }
+  ruleSaving.value = true
+  rulesError.value = null
   try {
-    await api.rss.setRule(ruleName.value.trim(), definition)
+    await api.rss.setRule(ruleMode.value === 'edit' ? originalRuleName.value! : name, definition)
     rules.value = await api.rss.rules()
+    const selectedName = ruleMode.value === 'edit' ? originalRuleName.value! : name
+    editRule(selectedName)
     notifications.push('RSS rule saved.', 'success')
   } catch (cause) {
-    notifications.push(
-      cause instanceof Error ? cause.message : 'RSS rule could not be saved.',
-      'error'
-    )
+    rulesError.value = cause instanceof Error ? cause.message : 'RSS rule could not be saved.'
+  } finally {
+    ruleSaving.value = false
   }
 }
+
+function requestRulesClose(): void {
+  if (ruleSaving.value) return
+  if (ruleDirty.value && !window.confirm('Discard changes?')) return
+  rulesOpen.value = false
+  ruleMode.value = 'none'
+}
+
+watch(ruleDirty, (dirty) => pwa.trackUnsavedDialog('rss-rules', dirty), { immediate: true })
+onBeforeUnmount(() => pwa.trackUnsavedDialog('rss-rules', false))
 
 onMounted(() => void load())
 </script>
@@ -413,8 +471,6 @@ onMounted(() => void load())
           ><span
             ><button type="button" aria-label="Add folder" @click="openRssItemDialog('add-folder')">
               <FolderPlus :size="16" /></button
-            ><button type="button" aria-label="Add feed" @click="openRssItemDialog('add-feed')">
-              <Plus :size="16" /></button
           ></span>
         </header>
         <button
@@ -465,7 +521,17 @@ onMounted(() => void load())
             ><small>{{ articles[virtualRow.index]?.date ?? '' }}</small>
           </button>
         </div>
-        <p v-if="!articles.length" class="empty-copy">No articles in this feed.</p>
+        <p
+          v-if="!articles.length && currentFeed?.articles.length && articleFilter.trim()"
+          class="empty-copy"
+        >
+          No articles match this filter.
+          <button type="button" @click="articleFilter = ''">Clear filter</button>
+        </p>
+        <p v-else-if="!articles.length && currentFeed" class="empty-copy">
+          No articles in this feed.
+        </p>
+        <p v-else-if="!currentFeed" class="empty-copy">Select a feed to see articles.</p>
       </section>
       <article class="article-detail panel">
         <template v-if="selectedArticle"
@@ -477,10 +543,29 @@ onMounted(() => void load())
             <button
               class="btn btn-primary"
               type="button"
-              :disabled="!selectedArticle.torrentURL"
+              :disabled="
+                !selectedArticle.torrentURL ||
+                pendingArticleDownloads.has(
+                  `${selectedFeed ?? ''}\u0000${selectedArticle.id ?? selectedArticle.torrentURL}`
+                )
+              "
               @click="downloadArticle(selectedArticle)"
             >
-              <Download :size="15" />Download
+              <LoaderCircle
+                v-if="
+                  pendingArticleDownloads.has(
+                    `${selectedFeed ?? ''}\u0000${selectedArticle.id ?? selectedArticle.torrentURL}`
+                  )
+                "
+                class="spin"
+                :size="15"
+              /><Download v-else :size="15" />{{
+                pendingArticleDownloads.has(
+                  `${selectedFeed ?? ''}\u0000${selectedArticle.id ?? selectedArticle.torrentURL}`
+                )
+                  ? 'Sending…'
+                  : 'Download'
+              }}
             </button>
           </header>
           <SanitizedHtml class="article-description" :html="selectedArticle.description ?? ''"
@@ -557,30 +642,57 @@ onMounted(() => void load())
     </AppDialog>
 
     <AppDialog
-      v-model:open="rulesOpen"
+      :open="rulesOpen"
       title="RSS download rules"
       description="Rules are evaluated by qBittorrent on the host."
       wide
       fullscreen-mobile
+      :dismissible="!ruleSaving"
+      @update:open="!$event && requestRulesClose()"
     >
-      <div class="rules-layout">
+      <div v-if="rulesLoading" class="rules-state">
+        <LoaderCircle class="spin" :size="20" />Loading rules…
+      </div>
+      <div v-else-if="rulesError && ruleMode === 'none'" class="rules-state">
+        <p>{{ rulesError }}</p>
+        <button class="btn" type="button" @click="openRules">Retry</button>
+      </div>
+      <div v-else class="rules-layout">
         <aside>
-          <button class="btn new-rule" type="button" @click="newRule">
+          <button class="btn new-rule" type="button" :disabled="ruleSaving" @click="newRule">
             <Plus :size="14" />New rule</button
           ><button
             v-for="(_, name) in rules"
             :key="name"
             type="button"
             :class="{ active: ruleName === name }"
+            :disabled="ruleSaving"
             @click="editRule(name)"
           >
             {{ name }}
           </button>
         </aside>
-        <form id="rss-rule-form" class="rule-form" @submit.prevent="saveRule">
-          <label><span>Rule name</span><input v-model="ruleName" class="field" required /></label
+        <form
+          v-if="ruleMode !== 'none'"
+          id="rss-rule-form"
+          class="rule-form"
+          @submit.prevent="saveRule"
+        >
+          <label
+            ><span>Rule name</span
+            ><input
+              v-if="ruleMode === 'create'"
+              v-model="ruleName"
+              class="field"
+              required
+              :disabled="ruleSaving"
+            /><output v-else class="field rule-name-output">{{ originalRuleName }}</output></label
           ><label class="check"
-            ><input v-model="ruleDefinition.enabled" type="checkbox" />Enabled</label
+            ><input
+              v-model="ruleDefinition.enabled"
+              type="checkbox"
+              :disabled="ruleSaving"
+            />Enabled</label
           >
           <div class="rule-grid">
             <label
@@ -620,11 +732,21 @@ onMounted(() => void load())
             >
           </fieldset>
         </form>
+        <p v-else class="empty-copy">Select a rule or create a new rule.</p>
+        <p v-if="rulesError && ruleMode !== 'none'" class="form-error" role="alert">
+          {{ rulesError }}
+        </p>
       </div>
       <template #footer
-        ><button class="btn" type="button" @click="rulesOpen = false">Close</button
-        ><button class="btn btn-primary" type="submit" form="rss-rule-form">
-          Save rule
+        ><button class="btn" type="button" :disabled="ruleSaving" @click="requestRulesClose">
+          Close</button
+        ><button
+          class="btn btn-primary"
+          type="submit"
+          form="rss-rule-form"
+          :disabled="ruleSaving || ruleMode === 'none' || !ruleName.trim()"
+        >
+          {{ ruleSaving ? 'Saving…' : 'Save rule' }}
         </button></template
       >
     </AppDialog>
@@ -669,6 +791,21 @@ onMounted(() => void load())
   border: 0;
   background: transparent;
   color: rgb(var(--color-accent));
+}
+.rules-state {
+  display: flex;
+  min-height: 220px;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 9px;
+  color: rgb(var(--color-muted));
+}
+.rule-name-output {
+  display: flex;
+  min-height: 38px;
+  align-items: center;
+  color: rgb(var(--color-muted));
 }
 .feed-item {
   display: grid;
@@ -929,6 +1066,10 @@ onMounted(() => void load())
   }
 }
 @media (max-width: 767px) {
+  .feed-panel header button {
+    width: 44px;
+    height: 44px;
+  }
   .rss-layout {
     display: block;
     height: auto;

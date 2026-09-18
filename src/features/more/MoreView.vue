@@ -12,12 +12,10 @@ import {
   HeartPulse,
   LogOut,
   Logs,
-  Moon,
   Power,
   Rss,
   Search,
   Settings,
-  Sun,
   Tags,
   WandSparkles
 } from '@lucide/vue'
@@ -30,12 +28,14 @@ import { useNotificationsStore } from '@/stores/notifications'
 import { usePreferencesStore } from '@/stores/preferences'
 import { useSessionStore } from '@/stores/session'
 import { useTorrentsStore } from '@/stores/torrents'
+import { useTransferStore } from '@/stores/transfer'
 import { usePwaStore } from '@/stores/pwa'
 import AppDialog from '@/ui/primitives/AppDialog.vue'
 
 const api = useApi()
 const session = useSessionStore()
 const torrents = useTorrentsStore()
+const transfer = useTransferStore()
 const preferences = usePreferencesStore()
 const notifications = useNotificationsStore()
 const lifecycle = useSessionLifecycle()
@@ -277,15 +277,22 @@ async function confirmAction(): Promise<void> {
     confirmationWorking.value = false
   }
 }
-function cycleTheme(): void {
-  const next =
-    preferences.value.theme === 'system'
-      ? 'light'
-      : preferences.value.theme === 'light'
-        ? 'dark'
-        : 'system'
-  preferences.patch({ theme: next })
-}
+const connectionLabel = computed(() =>
+  torrents.connectionState === 'connected'
+    ? 'Connected'
+    : torrents.connectionState === 'syncing'
+      ? 'Connecting'
+      : torrents.lastSuccessfulSyncAt
+        ? 'Reconnecting'
+        : 'Unavailable'
+)
+const torrentNetworkLabel = computed(() => {
+  const status = transfer.serverState.connection_status
+  if (status === 'connected') return 'Connected'
+  if (status === 'firewalled') return 'Firewalled'
+  if (status === 'disconnected') return 'Disconnected'
+  return 'Unknown'
+})
 
 async function installApp(): Promise<void> {
   const outcome = await pwa.install()
@@ -315,12 +322,16 @@ async function installApp(): Promise<void> {
       <h2>Connection</h2>
       <div class="info-row">
         <Activity :size="18" /><span
-          ><strong>{{
-            torrents.connectionState === 'connected' ? 'Connected' : 'Disconnected'
-          }}</strong
+          ><strong>{{ connectionLabel }}</strong
           ><small
             >qBittorrent {{ session.appVersion }} · Web API {{ session.apiVersion }}</small
           ></span
+        >
+      </div>
+      <div class="info-row">
+        <Activity :size="18" /><span
+          ><strong>Torrent network: {{ torrentNetworkLabel }}</strong
+          ><small>qBittorrent peer-network status</small></span
         >
       </div>
       <div class="info-row">
@@ -345,11 +356,23 @@ async function installApp(): Promise<void> {
           ><strong>Installed app</strong><small>Running in standalone display mode</small></span
         >
       </div>
-      <button type="button" @click="cycleTheme">
-        <Sun v-if="preferences.value.theme === 'light'" :size="19" /><Moon v-else :size="19" /><span
-          ><strong>Theme</strong><small>{{ preferences.value.theme }}</small></span
-        ><ChevronRight :size="17" /></button
-      ><button class="logout-row" type="button" @click="logout">
+      <label class="theme-row"
+        ><span><strong>Theme</strong><small>Choose the interface colour scheme</small></span
+        ><select
+          :value="preferences.value.theme"
+          aria-label="Theme"
+          @change="
+            preferences.patch({
+              theme: ($event.target as HTMLSelectElement).value as 'system' | 'light' | 'dark'
+            })
+          "
+        >
+          <option value="system">System</option>
+          <option value="light">Light</option>
+          <option value="dark">Dark</option>
+        </select></label
+      >
+      <button class="logout-row" type="button" @click="logout">
         <LogOut :size="19" /><span
           ><strong>Log out</strong><small>End this browser session</small></span
         ><ChevronRight :size="17" /></button
@@ -600,6 +623,7 @@ async function installApp(): Promise<void> {
 }
 .more-group > a,
 .more-group > button,
+.theme-row,
 .info-row {
   display: grid;
   width: 100%;
@@ -618,6 +642,20 @@ async function installApp(): Promise<void> {
 .more-group > a:hover,
 .more-group > button:hover {
   background: rgb(var(--color-surface-muted));
+}
+.theme-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 0 13px;
+}
+.theme-row select {
+  min-height: 36px;
+  border: 1px solid rgb(var(--color-line-strong));
+  border-radius: 8px;
+  background: rgb(var(--color-surface));
+  color: inherit;
+  padding: 0 8px;
 }
 .more-group > a > svg:first-child,
 .more-group > button > svg:first-child,

@@ -49,7 +49,7 @@ describe('torrent workspace UX', () => {
   it('dismisses toolbar menus with Escape, outside clicks, and focus leaving the menu', async () => {
     const { context } = setupLibrary()
     const wrapper = await mountWithContext(TorrentToolbar, context, { attachTo: document.body })
-    const menu = wrapper.get<HTMLDetailsElement>('.columns-menu')
+    const menu = wrapper.get<HTMLDetailsElement>('.global-menu')
     menu.element.open = true
     await menu.get('button').trigger('keydown', { key: 'Escape' })
     expect(menu.element.open).toBe(false)
@@ -121,7 +121,7 @@ describe('torrent workspace UX', () => {
     expect(wrapper.get('.row-activate').attributes('aria-label')).toMatch(/^Select /)
     await wrapper.get('.contextual button').trigger('click')
     expect(torrents.selectedHashes.size).toBe(4)
-    await wrapper.get('.mobile-select-button').trigger('click')
+    await wrapper.get('[aria-label="Cancel selection"]').trigger('click')
     expect(torrents.selectedHashes.size).toBe(0)
     expect(wrapper.get('.row-activate').attributes('aria-label')).toMatch(/^Open details/)
   })

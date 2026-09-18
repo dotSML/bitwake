@@ -298,7 +298,7 @@ describe('torrent row action surfaces', () => {
     expect(remove).not.toHaveBeenCalled()
   })
 
-  it('keeps multi-selection for shared toolbar and mobile-row operations', async () => {
+  it('keeps multi-selection for bulk actions but scopes a mobile row menu to that row', async () => {
     const viewport = mockMobileViewport(false)
     const context = createTestContext()
     const items = createTorrents(2)
@@ -330,8 +330,13 @@ describe('torrent row action surfaces', () => {
     await nextTick()
     const mobileMenus = wrapper.findAll<HTMLElement>('.row-menu')
     expect(mobileMenus.length).toBeGreaterThan(0)
+    const rowName = (mobileMenus[0]!.attributes('aria-label') ?? '').replace('Actions for ', '')
     await mobileMenus[0]!.trigger('click')
     expect(document.body.querySelector('.mobile-action-sheet')).not.toBeNull()
-    expect(document.body.textContent).toContain('2 selected torrents')
+    expect(document.body.querySelector('.mobile-action-sheet')?.textContent).toContain(rowName)
+    expect(document.body.querySelector('.mobile-action-sheet')?.textContent).not.toContain(
+      '2 selected torrents'
+    )
+    expect([...torrents.selectedHashes]).toEqual(items.map((torrent) => torrent.hash))
   })
 })
