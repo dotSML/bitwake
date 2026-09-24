@@ -14,6 +14,25 @@ load is variable, so it runs weekly or on demand with one worker, no retries,
 and a machine-readable artifact rather than multiplying the six responsive E2E
 projects.
 
+## Data-processing invariants
+
+- `useSortedTorrents` holds a computed copy of its input array. Reading table
+  options must not create a new array: TanStack caches row models by input
+  identity. `sorted-torrents.test.ts` checks reuse across repeated reads and
+  unrelated preferences, plus invalidation when data or sorting changes.
+- `mergeMainData` copies a collection only after an actual change. Repeated
+  values, empty updates, duplicate tags, and absent removals keep existing
+  references. `torrentsStore.test.ts` checks that those updates preserve derived
+  rows while still advancing the response ID, and that invalid deltas cannot
+  partially publish a snapshot.
+- Torrent-detail API snapshots use shallow refs. File editing replaces the
+  array and affected records rather than modifying nested fields. Preserve this
+  replacement convention when adding actions so shallow reactivity stays correct.
+- File-tree sorting reuses one numeric, case-insensitive `Intl.Collator`, and
+  folder aggregation uses one pass over each folder's children. The file-tree
+  tests cover natural ordering, mixed priorities, aggregate completion, and
+  descendant indexes; these semantics must survive further optimization.
+
 ## Method
 
 `corepack pnpm test:performance` builds the production standalone application,
@@ -88,3 +107,22 @@ Files, peers, logs, RSS, and other large surfaces retain their deterministic
 bounded-DOM tests, but do not yet have comparable production-browser timing and
 heap baselines. Add those as separate calibrated scenarios rather than folding
 unrelated work into the torrent budget.
+
+## Local refactor measurements — 2026-09-18
+
+The production benchmark was run sequentially against baseline `db42002` and the
+refactored implementation on the same Linux host (Ryzen 5 PRO 5675U, Node
+24.15.0, Chromium 151.0.7922.34). Each used the default warm-up, three recorded
+iterations per scale, and unchanged budgets. At 5,000 torrents:
+
+| Measure                 | Baseline | Refactored |
+| ----------------------- | -------- | ---------- |
+| Median startup          | 935 ms   | 798 ms     |
+| Median filter           | 110 ms   | 96 ms      |
+| Median retained JS heap | 50.2 MiB | 37.0 MiB   |
+| Median DOM nodes        | 6,289    | 6,289      |
+| Maximum rendered rows   | 35       | 35         |
+
+Both runs passed all benchmark budgets. These local samples support the removal
+of redundant row-model work; they are not end-user latency guarantees or new
+performance thresholds.

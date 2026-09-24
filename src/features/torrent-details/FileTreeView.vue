@@ -10,7 +10,7 @@ import {
   Search
 } from '@lucide/vue'
 import { useVirtualizer } from '@tanstack/vue-virtual'
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, ref, shallowRef, watch } from 'vue'
 import type { TorrentFile } from '@/api/types/models'
 import { buildFileTree, flattenFileTree, type FileTreeNode } from '@/domains/files/fileTree'
 import { renamedTorrentPath } from '@/domains/files/renamePath'
@@ -23,7 +23,9 @@ const props = defineProps<{ hash: string; files: TorrentFile[] }>()
 const emit = defineEmits<{ reload: [] }>()
 const api = useApi()
 const notifications = useNotificationsStore()
-const localFiles = ref<TorrentFile[]>([])
+// File edits replace the array and affected records; large API snapshots do not
+// need a reactive proxy for every file and field.
+const localFiles = shallowRef<TorrentFile[]>([])
 const expanded = ref(new Set<string>())
 const selected = ref(new Set<string>())
 const search = ref('')
@@ -80,7 +82,7 @@ watch(
 watch(
   () => props.files,
   (files) => {
-    localFiles.value = files.map((file) => ({ ...file }))
+    localFiles.value = files
   },
   { immediate: true }
 )

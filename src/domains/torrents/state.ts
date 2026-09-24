@@ -25,6 +25,8 @@ export interface TorrentSidebarStateCounts {
   seeding: number
   active: number
   stopped: number
+  completed: number
+  stalled: number
 }
 
 const downloadingStates = new Set(['downloading', 'forcedDL', 'stalledDL', 'queuedDL', 'metaDL'])
@@ -76,7 +78,9 @@ export function countTorrentSidebarStates(
     downloading: 0,
     seeding: 0,
     active: 0,
-    stopped: 0
+    stopped: 0,
+    completed: 0,
+    stalled: 0
   }
   for (const torrent of torrents) {
     if (matchesTorrentState(torrent, 'all')) counts.all += 1
@@ -84,6 +88,8 @@ export function countTorrentSidebarStates(
     if (matchesTorrentState(torrent, 'seeding')) counts.seeding += 1
     if (matchesTorrentState(torrent, 'active')) counts.active += 1
     if (matchesTorrentState(torrent, 'stopped')) counts.stopped += 1
+    if (matchesTorrentState(torrent, 'completed')) counts.completed += 1
+    if (matchesTorrentState(torrent, 'stalled')) counts.stalled += 1
   }
   return counts
 }

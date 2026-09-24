@@ -391,6 +391,98 @@ describe('torrent incremental sync store', () => {
     expect(transfer.downloadSpeed).toBe(2_048)
   })
 
+  it('preserves collections and derived rows when deltas repeat existing values', () => {
+    const { torrents, transfer } = createStores()
+    torrents.applyMainData({
+      rid: 1,
+      torrents: { alpha: { name: 'Alpha', dlspeed: 100 } },
+      categories: { Linux: { savePath: '/linux' } },
+      tags: ['iso'],
+      trackers: { tracker: ['alpha'] }
+    })
+    torrents.setSelection(['alpha'])
+    const previous = {
+      byHash: torrents.byHash,
+      categories: torrents.categories,
+      tags: torrents.tags,
+      trackers: torrents.trackers,
+      selectedHashes: torrents.selectedHashes,
+      visible: torrents.visibleTorrents
+    }
+
+    torrents.applyMainData({
+      rid: 2,
+      torrents: { alpha: { name: 'Alpha', dlspeed: 100 } },
+      torrents_removed: ['absent'],
+      categories: { Linux: { savePath: '/linux' } },
+      categories_removed: [],
+      tags: ['iso'],
+      tags_removed: ['absent'],
+      trackers: { tracker: ['alpha'] },
+      trackers_removed: ['absent'],
+      server_state: { dl_info_speed: 200 }
+    })
+    torrents.applyMainData({ rid: 3, torrents: {}, categories: {}, tags: [], trackers: {} })
+
+    expect(torrents.byHash).toBe(previous.byHash)
+    expect(torrents.categories).toBe(previous.categories)
+    expect(torrents.tags).toBe(previous.tags)
+    expect(torrents.trackers).toBe(previous.trackers)
+    expect(torrents.selectedHashes).toBe(previous.selectedHashes)
+    expect(torrents.visibleTorrents).toBe(previous.visible)
+    expect(torrents.responseId).toBe(3)
+    expect(transfer.downloadSpeed).toBe(200)
+  })
+
+  it('does not publish earlier valid changes when a later category delta is invalid', () => {
+    const { torrents, transfer } = createStores()
+    torrents.applyMainData({
+      rid: 1,
+      torrents: { alpha: { name: 'Alpha' } },
+      server_state: { dl_info_speed: 100 }
+    })
+    torrents.setSelection(['alpha'])
+    const previous = torrents.byHash
+
+    expect(() =>
+      torrents.applyMainData({
+        rid: 2,
+        torrents: { beta: { name: 'Beta' } },
+        torrents_removed: ['alpha'],
+        categories: { invalid: { ratio_limit: 2 } },
+        server_state: { dl_info_speed: 999 }
+      })
+    ).toThrow('Incremental update introduced incomplete category invalid')
+
+    expect(torrents.byHash).toBe(previous)
+    expect([...torrents.selectedHashes]).toEqual(['alpha'])
+    expect(torrents.responseId).toBe(1)
+    expect(transfer.downloadSpeed).toBe(100)
+  })
+
+  it('replaces full snapshots and prunes every missing selection', () => {
+    const { torrents } = createStores()
+    torrents.applyMainData({
+      rid: 1,
+      torrents: { alpha: { name: 'Alpha' }, beta: { name: 'Beta' }, gamma: { name: 'Gamma' } },
+      categories: { Linux: { savePath: '/linux' } },
+      tags: ['iso'],
+      trackers: { tracker: ['alpha'] }
+    })
+    torrents.setSelection(['alpha', 'beta', 'gamma'])
+    const previous = torrents.byHash
+
+    torrents.applyMainData({ rid: 2, full_update: true, torrents: { beta: { name: 'Beta' } } })
+
+    expect(torrents.byHash).not.toBe(previous)
+    expect([...previous.keys()]).toEqual(['alpha', 'beta', 'gamma'])
+    expect([...torrents.byHash.keys()]).toEqual(['beta'])
+    expect([...torrents.selectedHashes]).toEqual(['beta'])
+    expect(torrents.categories.size).toBe(0)
+    expect(torrents.tags.size).toBe(0)
+    expect(torrents.trackers.size).toBe(0)
+  })
+
   it('aborts in-flight synchronization and clears transfer runtime state on reset', async () => {
     const { api, torrents, transfer } = createStores()
     let requestSignal: AbortSignal | undefined

@@ -122,12 +122,12 @@ qBittorrent host/container; Bitwake does not mount the media filesystem. See the
 behavior.
 
 The container workflow verifies pull requests without publishing. A successful
-`main` build publishes `edge` and `sha-<commit>` to
+`main` build publishes `latest` to
 `ghcr.io/dotsml/bitwake`. A reviewed stable version tag publishes `vX.Y.Z`, `X.Y.Z`, and `X.Y`
 after its verification gates pass. A reviewed prerelease tag
 publishes its raw `vX.Y.Z-prerelease` tag and corresponding unprefixed SemVer tag,
-but does not move the floating `X.Y` tag. The workflow never
-publishes `latest`. For deployments, select and verify the resulting immutable
+but does not move the floating `X.Y` tag. Versioned releases do not move `latest`.
+For deployments, select and verify the resulting immutable
 image digest rather than relying on a mutable tag.
 
 Public releases use a separate fail-closed workflow that validates the package

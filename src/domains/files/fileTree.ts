@@ -1,5 +1,7 @@
 import type { TorrentFile } from '@/api/types/models'
 
+const fileNameCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
+
 export interface FileTreeNode {
   id: string
   name: string
@@ -72,14 +74,16 @@ export function buildFileTree(files: readonly TorrentFile[]): FileTreeNode[] {
   function aggregate(node: FileTreeNode): void {
     if (node.kind === 'file') return
     for (const child of node.children) aggregate(child)
-    node.size = node.children.reduce((sum, child) => sum + child.size, 0)
-    node.completed = node.children.reduce((sum, child) => sum + child.completed, 0)
-    node.descendantIndexes = node.children.flatMap((child) => child.descendantIndexes)
-    const priorities = new Set(node.children.map((child) => child.priority))
-    node.priority = priorities.size === 1 ? (node.children[0]?.priority ?? null) : null
+    node.priority = node.children[0]?.priority ?? null
+    for (const child of node.children) {
+      node.size += child.size
+      node.completed += child.completed
+      for (const index of child.descendantIndexes) node.descendantIndexes.push(index)
+      if (child.priority !== node.priority) node.priority = null
+    }
     node.children.sort((left, right) => {
       if (left.kind !== right.kind) return left.kind === 'folder' ? -1 : 1
-      return left.name.localeCompare(right.name, undefined, { numeric: true, sensitivity: 'base' })
+      return fileNameCollator.compare(left.name, right.name)
     })
   }
   aggregate(root)

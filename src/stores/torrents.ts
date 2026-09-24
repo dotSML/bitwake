@@ -10,65 +10,10 @@ import {
   normalizeTorrentFilters,
   type TorrentFilters
 } from '@/domains/torrents/filtering'
+import { mergeMainData } from '@/domains/torrents/syncMainData'
 import { useTransferStore } from './transfer'
 
 export type SyncConnectionState = 'idle' | 'syncing' | 'connected' | 'disconnected'
-
-function completeTorrent(hash: string, update: Partial<TorrentInfo>): TorrentInfo | null {
-  if (typeof update.name !== 'string') return null
-  return {
-    hash,
-    name: update.name,
-    state: update.state ?? 'unknown',
-    size: update.size ?? 0,
-    total_size: update.total_size ?? update.size ?? 0,
-    progress: update.progress ?? 0,
-    dlspeed: update.dlspeed ?? 0,
-    upspeed: update.upspeed ?? 0,
-    priority: update.priority ?? 0,
-    num_seeds: update.num_seeds ?? 0,
-    num_complete: update.num_complete ?? 0,
-    num_leechs: update.num_leechs ?? 0,
-    num_incomplete: update.num_incomplete ?? 0,
-    ratio: update.ratio ?? 0,
-    eta: update.eta ?? 86_400 * 100,
-    category: update.category ?? '',
-    tags: update.tags ?? '',
-    save_path: update.save_path ?? '',
-    tracker: update.tracker ?? '',
-    added_on: update.added_on ?? 0,
-    completion_on: update.completion_on ?? 0,
-    last_activity: update.last_activity ?? 0,
-    downloaded: update.downloaded ?? 0,
-    downloaded_session: update.downloaded_session ?? 0,
-    uploaded: update.uploaded ?? 0,
-    uploaded_session: update.uploaded_session ?? 0,
-    amount_left: update.amount_left ?? 0,
-    availability: update.availability ?? -1,
-    time_active: update.time_active ?? 0,
-    seeding_time: update.seeding_time ?? 0,
-    dl_limit: update.dl_limit ?? -1,
-    up_limit: update.up_limit ?? -1,
-    ratio_limit: update.ratio_limit ?? -1,
-    seeding_time_limit: update.seeding_time_limit ?? -1,
-    share_limit_action: update.share_limit_action ?? 'Default',
-    auto_tmm: update.auto_tmm ?? false,
-    force_start: update.force_start ?? false,
-    seq_dl: update.seq_dl ?? false,
-    f_l_piece_prio: update.f_l_piece_prio ?? false,
-    super_seeding: update.super_seeding ?? false,
-    ...update
-  }
-}
-
-function completeCategory(name: string, update: Partial<Category>): Category | null {
-  if (typeof update.savePath !== 'string') return null
-  return {
-    ...update,
-    name: typeof update.name === 'string' ? update.name : name,
-    savePath: update.savePath
-  }
-}
 
 export const useTorrentsStore = defineStore('torrents', () => {
   const api = useApi()
@@ -103,87 +48,24 @@ export const useTorrentsStore = defineStore('torrents', () => {
   )
 
   function applyMainData(update: MainDataResponse): void {
-    const full = update.full_update === true || responseId.value === 0
-    const torrentUpdates = Object.entries(update.torrents ?? {})
-    const removedTorrents = update.torrents_removed ?? []
-    let nextTorrents = full ? new Map<string, TorrentInfo>() : byHash.value
-    let nextCategories = full ? new Map<string, Category>() : categories.value
-    let nextTags = full ? new Set<string>() : tags.value
-    let nextTrackers = full ? new Map<string, string[]>() : trackers.value
-    let nextSelection = selectedHashes.value
-
-    if (full) {
-      for (const [hash, delta] of torrentUpdates) {
-        const torrent = completeTorrent(hash, delta)
-        if (!torrent) throw new Error(`Full update contained incomplete torrent ${hash}`)
-        nextTorrents.set(hash, torrent)
-      }
-      for (const [name, delta] of Object.entries(update.categories ?? {})) {
-        const category = completeCategory(name, delta)
-        if (!category) throw new Error(`Full update contained incomplete category ${name}`)
-        nextCategories.set(name, category)
-      }
-      for (const tag of update.tags ?? []) nextTags.add(tag)
-      for (const [tracker, hashes] of Object.entries(update.trackers ?? {})) {
-        nextTrackers.set(tracker, [...hashes])
-      }
-    } else if (torrentUpdates.length || removedTorrents.length) {
-      nextTorrents = new Map(byHash.value)
-      for (const [hash, delta] of torrentUpdates) {
-        const current = nextTorrents.get(hash)
-        if (current) nextTorrents.set(hash, { ...current, ...delta })
-        else {
-          const torrent = completeTorrent(hash, delta)
-          if (!torrent) throw new Error(`Incremental update introduced incomplete torrent ${hash}`)
-          nextTorrents.set(hash, torrent)
-        }
-      }
-      for (const hash of removedTorrents) {
-        nextTorrents.delete(hash)
-      }
-    }
-
-    if (!full) {
-      if (update.categories || update.categories_removed) {
-        nextCategories = new Map(categories.value)
-        for (const [name, delta] of Object.entries(update.categories ?? {})) {
-          const current = nextCategories.get(name)
-          if (current) nextCategories.set(name, { ...current, ...delta })
-          else {
-            const category = completeCategory(name, delta)
-            if (!category) {
-              throw new Error(`Incremental update introduced incomplete category ${name}`)
-            }
-            nextCategories.set(name, category)
-          }
-        }
-        for (const name of update.categories_removed ?? []) nextCategories.delete(name)
-      }
-      if (update.tags || update.tags_removed) {
-        nextTags = new Set(tags.value)
-        for (const tag of update.tags ?? []) nextTags.add(tag)
-        for (const tag of update.tags_removed ?? []) nextTags.delete(tag)
-      }
-      if (update.trackers || update.trackers_removed) {
-        nextTrackers = new Map(trackers.value)
-        for (const [tracker, hashes] of Object.entries(update.trackers ?? {})) {
-          nextTrackers.set(tracker, [...hashes])
-        }
-        for (const tracker of update.trackers_removed ?? []) nextTrackers.delete(tracker)
-      }
-    }
-
+    // Build and validate every collection before publishing any part of a delta.
+    const next = mergeMainData(
+      {
+        byHash: byHash.value,
+        categories: categories.value,
+        tags: tags.value,
+        trackers: trackers.value,
+        selectedHashes: selectedHashes.value
+      },
+      update,
+      responseId.value === 0
+    )
     if (update.server_state) transfer.applyServerState(update.server_state)
-    for (const hash of selectedHashes.value) {
-      if (nextTorrents.has(hash)) continue
-      if (nextSelection === selectedHashes.value) nextSelection = new Set(selectedHashes.value)
-      nextSelection.delete(hash)
-    }
-    byHash.value = nextTorrents
-    categories.value = nextCategories
-    tags.value = nextTags
-    trackers.value = nextTrackers
-    selectedHashes.value = nextSelection
+    byHash.value = next.byHash
+    categories.value = next.categories
+    tags.value = next.tags
+    trackers.value = next.trackers
+    selectedHashes.value = next.selectedHashes
     responseId.value = update.rid
   }
 

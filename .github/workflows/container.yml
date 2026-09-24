@@ -197,15 +197,12 @@ jobs:
             echo "stable=${stable}"
           } >> "$GITHUB_OUTPUT"
       - name: Reject existing immutable image tags
+        if: steps.build.outputs.release == 'true'
         env:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            immutable_tags=("$GITHUB_REF_NAME" "${GITHUB_REF_NAME#v}")
-          else
-            immutable_tags=("sha-${GITHUB_SHA}")
-          fi
+          immutable_tags=("$GITHUB_REF_NAME" "${GITHUB_REF_NAME#v}")
           image_name=${CANONICAL_IMAGE_NAME,,}
           token=$(
             curl --fail --silent --show-error \
@@ -244,8 +241,7 @@ jobs:
             ${{ env.REGISTRY }}/${{ env.CANONICAL_IMAGE_NAME }}
           flavor: latest=false
           tags: |
-            type=raw,value=edge,enable=${{ github.ref == 'refs/heads/main' }}
-            type=raw,value=sha-${{ github.sha }},enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
             type=raw,value=${{ github.ref_name }},enable=${{ steps.build.outputs.release == 'true' }}
             type=semver,pattern={{version}},value=${{ github.ref_name }},enable=${{ steps.build.outputs.release == 'true' }}
             type=semver,pattern={{major}}.{{minor}},value=${{ github.ref_name }},enable=${{ steps.build.outputs.stable == 'true' }}
@@ -277,7 +273,7 @@ jobs:
               verification_tags+=("${version%.*}")
             fi
           else
-            verification_tags=(edge "sha-${GITHUB_SHA}")
+            verification_tags=(latest)
           fi
           image_name=$CANONICAL_IMAGE_NAME
           published_digest=

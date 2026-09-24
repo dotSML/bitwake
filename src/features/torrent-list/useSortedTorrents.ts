@@ -21,9 +21,12 @@ export function useSortedTorrents(source: MaybeRefOrGetter<readonly TorrentInfo[
   const columns = torrentTableColumnIds.map((id) =>
     helper.accessor((torrent) => torrentSortAccessors[id](torrent), { id })
   )
+  // TanStack memoizes its row model by array identity. Copy the readonly input
+  // once per source change, not each time the table reads its options.
+  const data = computed(() => [...toValue(source)])
   const table = useVueTable({
     get data() {
-      return [...toValue(source)]
+      return data.value
     },
     columns,
     state: {

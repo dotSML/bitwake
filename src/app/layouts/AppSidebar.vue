@@ -31,7 +31,7 @@ import TransferGraph from '@/features/statistics/TransferGraph.vue'
 import { usePreferencesStore } from '@/stores/preferences'
 import { useTorrentsStore } from '@/stores/torrents'
 import { useSessionLifecycle } from '@/app/session/sessionLifecycle'
-import { matchesTorrentState, type TorrentFilterState } from '@/domains/torrents/state'
+import { countTorrentSidebarStates, type TorrentSidebarStateCounts } from '@/domains/torrents/state'
 
 const emit = defineEmits<{ add: [] }>()
 const { t } = useI18n()
@@ -44,27 +44,19 @@ const categoriesExpanded = ref(false)
 const tagsExpanded = ref(false)
 const trackersExpanded = ref(false)
 const collapsed = computed(() => preferences.value.sidebarCollapsed)
-const stateItems = computed<Array<{ id: TorrentFilterState; label: string; icon: typeof Circle }>>(
-  () => [
-    { id: 'all', label: t('sidebar.allStates'), icon: ListFilter },
-    { id: 'downloading', label: t('torrents.downloading'), icon: Download },
-    { id: 'seeding', label: t('torrents.seeding'), icon: Upload },
-    { id: 'active', label: t('torrents.active'), icon: Activity },
-    { id: 'completed', label: t('torrents.completed'), icon: CheckCircle2 },
-    { id: 'stopped', label: t('torrents.stopped'), icon: Circle },
-    { id: 'stalled', label: t('torrents.stalled'), icon: AlertCircle }
-  ]
-)
+const stateItems = computed<
+  Array<{ id: keyof TorrentSidebarStateCounts; label: string; icon: typeof Circle }>
+>(() => [
+  { id: 'all', label: t('sidebar.allStates'), icon: ListFilter },
+  { id: 'downloading', label: t('torrents.downloading'), icon: Download },
+  { id: 'seeding', label: t('torrents.seeding'), icon: Upload },
+  { id: 'active', label: t('torrents.active'), icon: Activity },
+  { id: 'completed', label: t('torrents.completed'), icon: CheckCircle2 },
+  { id: 'stopped', label: t('torrents.stopped'), icon: Circle },
+  { id: 'stalled', label: t('torrents.stalled'), icon: AlertCircle }
+])
 
-const stateCounts = computed(
-  () =>
-    Object.fromEntries(
-      stateItems.value.map(({ id }) => [
-        id,
-        torrents.torrents.filter((torrent) => matchesTorrentState(torrent, id)).length
-      ])
-    ) as Record<TorrentFilterState, number>
-)
+const stateCounts = computed(() => countTorrentSidebarStates(torrents.torrents))
 const categoryNames = computed(() =>
   [...torrents.categories.keys()].sort((a, b) => a.localeCompare(b))
 )
@@ -94,7 +86,7 @@ const connectionLabel = computed(() => {
   return torrents.lastSuccessfulSyncAt ? 'Reconnecting' : 'Unavailable'
 })
 
-function filterState(id: TorrentFilterState): void {
+function filterState(id: keyof TorrentSidebarStateCounts): void {
   torrents.updateFilters({ state: id })
   if (route.name !== 'torrents') void router.push({ name: 'torrents' })
 }

@@ -107,15 +107,29 @@ describe('torrent state predicates', () => {
       downloading: 4,
       seeding: 3,
       active: 2,
-      stopped: 2
+      stopped: 2,
+      completed: 0,
+      stalled: 1
     })
     expect(countTorrentSidebarStates([])).toEqual({
       all: 0,
       downloading: 0,
       seeding: 0,
       active: 0,
-      stopped: 0
+      stopped: 0,
+      completed: 0,
+      stalled: 0
     })
+  })
+
+  it('counts completed and stalled torrents independently of their transfer state', () => {
+    expect(
+      countTorrentSidebarStates([
+        makeTorrent({ state: 'stoppedUP', progress: 1 }),
+        makeTorrent({ state: 'stalledUP', progress: 1 }),
+        makeTorrent({ state: 'stalledDL', progress: 0.5 })
+      ])
+    ).toMatchObject({ completed: 2, stalled: 2, stopped: 1 })
   })
 })
 

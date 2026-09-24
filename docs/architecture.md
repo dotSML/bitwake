@@ -167,7 +167,15 @@ The torrent store keeps shallow normalized collections:
 - `Map<string, string[]>` for tracker membership.
 - A separate selected-hash set.
 
-The polling loop has one in-flight `sync/maindata` request at a time. A full response builds new normalized maps. A delta shallow-copies the torrent map, replaces only changed torrent objects, preserves untouched object identities, adds complete new torrents, removes hashes/selections, and copy-on-changes category/tag/tracker collections only when their fields are present. The response ID advances after the complete synchronous apply. An incomplete new torrent causes the next request to restart from response ID zero.
+The polling loop has one in-flight `sync/maindata` request at a time. The pure
+`domains/torrents/syncMainData.ts` reconciler builds and validates all collections before the
+store publishes them. A full response builds new normalized maps. A delta copies each
+collection only when a value changes, replaces changed torrent/category records, adds complete
+new records, and removes hashes/selections. Empty deltas, repeated field values, duplicate tags,
+and removals of absent items preserve collection references, so they do not invalidate derived
+filters or table rows. The response ID still advances after every successful apply. An
+incomplete new torrent or category leaves the last-good snapshot intact and causes the next
+request to restart from response ID zero.
 
 The loop:
 
@@ -186,7 +194,11 @@ Atomicity is pragmatic rather than transactional: collection mutations occur syn
 
 ### Torrent workspace
 
-- TanStack Table owns desktop column definitions, sorting, visibility, and resize state.
+- TanStack Table owns desktop column definitions, visibility, and resize state. The shared
+  `useSortedTorrents` pipeline supplies desktop and mobile ordering; its computed input keeps a
+  stable array reference between source changes so TanStack can reuse its row model.
+- Sidebar counts use the canonical state predicates in one pass without allocating a filtered
+  array for each state.
 - TanStack Virtual renders only visible desktop torrent rows.
 - Column visibility, order, and widths are stored in the strict interface-preference schema; widths persist after pointer or keyboard resize.
 - Advanced filters combine name/hash text, bounded safe regular expressions, exclusion, state,
@@ -203,7 +215,7 @@ The shared desktop/mobile action menu covers start, stop, details, recheck, rean
 
 ### Files and pieces
 
-Torrent files are cloned into component-local immutable state, converted to an aggregate folder/file tree, flattened according to expansion/search state, and virtualized. Selection uses conventional plain/modifier/anchored-range behavior; tree Arrow/Home/End keys move one roving tab stop across virtual boundaries. Folder descendants are gathered into a `Set<number>` for `torrents/filePrio`, the selector is guarded against duplicate submission and reset after each result, and successful local updates replace file objects instead of mutating props. A leaf-only rename workflow preserves the selected file or folder's torrent-relative parent path. Mobile uses adaptive 84 px rows that retain name, progress, size, and priority. A focused regression applies one priority to a 10,000-file folder, resets, then applies the same priority to a later 20-file folder. Piece state uses Canvas to avoid one DOM node per piece. The peer tab incrementally polls `sync/torrentPeers`, applies full/delta additions and removals, aborts stale requests on tab/hash changes, slows while hidden, virtualizes adaptive desktop/mobile rows, supports IP banning, and accepts up to 100 validated host/IPv4 or bracketed-IPv6 endpoints for peer addition.
+Torrent file snapshots use shallow reactive state and are shared with the file view until a local edit replaces the array and affected records. Tree construction aggregates folder metadata in one pass over each folder’s children and reuses one numeric, case-insensitive `Intl.Collator` for sorting. The aggregate folder/file tree is flattened according to expansion/search state and virtualized. Selection uses conventional plain/modifier/anchored-range behavior; tree Arrow/Home/End keys move one roving tab stop across virtual boundaries. Folder descendants are gathered into a `Set<number>` for `torrents/filePrio`, the selector is guarded against duplicate submission and reset after each result, and successful local updates replace file objects instead of mutating props. A leaf-only rename workflow preserves the selected file or folder's torrent-relative parent path. Mobile uses adaptive 84 px rows that retain name, progress, size, and priority. A focused regression applies one priority to a 10,000-file folder, resets, then applies the same priority to a later 20-file folder. Piece state uses Canvas to avoid one DOM node per piece. The peer tab incrementally polls `sync/torrentPeers`, applies full/delta additions and removals, aborts stale requests on tab/hash changes, slows while hidden, virtualizes adaptive desktop/mobile rows, supports IP banning, and accepts up to 100 validated host/IPv4 or bracketed-IPv6 endpoints for peer addition.
 
 ### Transfer graph
 
@@ -367,9 +379,11 @@ bounded file inspection in `useAddTorrentPlans`, shallow TV discovery in `useTvD
 and the two-worker submission queue in `submitTorrentPlans`. Each operation retains the dialog
 session/generation checks that discard late responses and stop queued work after close.
 
-Torrent details keep shared tab requests and mutation dialogs in the panel. The overview and peer
-list have separate components; the peer component owns virtualization and resize cleanup. Peer
-field deltas merge through `mergePeerSync`, while full and first responses replace the snapshot.
+Torrent details keep tab selection and mutation dialogs in the panel. `useTorrentDetails` owns
+tab requests, shallow API snapshots, stale-response guards, and peer polling setup/cleanup. The
+overview and peer list have separate components; the peer component owns virtualization and
+resize cleanup. Peer field deltas merge through `mergePeerSync`, while full and first responses
+replace the snapshot.
 Set Location's existing-torrent inference and preservation of explicitly edited fields live in
 pure functions in `locationPlacement.ts`.
 
