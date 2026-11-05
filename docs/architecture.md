@@ -329,7 +329,7 @@ Vite uses `base: './'`, separate `login-assets/` and `app-assets/`, hashed chunk
 
 ### Standalone build and proxy
 
-`vite build --mode standalone` emits one SPA plus generated `THIRD_PARTY_NOTICES.txt` to `dist/standalone`. The Dockerfile builds that output in a Node stage and copies it into the pinned `nginxinc/nginx-unprivileged:1.30.4-alpine-slim@sha256:11f3f6249b4ae3d7a4ec2a51797060107b88ead52b33b6ed3c6c33f55ca96200` runtime. The runtime runs as `101:101` and intentionally contains neither Node nor the source/test tree.
+`vite build --mode standalone` emits one SPA plus generated `THIRD_PARTY_NOTICES.txt` to `dist/standalone`. The Dockerfile builds that output in a Node stage and copies it into the pinned `nginxinc/nginx-unprivileged:1.30.6-alpine-slim@sha256:5d8bb9437d74a600ec5dbf90c035451c724dc33eac8d3a71078f6f8612c345f6` runtime. The runtime runs as `101:101` and intentionally contains neither Node nor the source/test tree.
 
 The POSIX entrypoint validates `QBITTORRENT_URL` or the `QB_HOST`/`QB_PORT` fallback, listen port, upload size, proxy timeouts, and Media Placement values. It rejects embedded credentials, query/fragment text, unsafe characters, and an upstream ending in `/api/v2`. Invalid media modes, unsafe/non-absolute paths, equal or nested TV/Movies roots, or incomplete locked Assist roots produce a fail-closed Media Placement sentinel while the proxy remains usable. The entrypoint renders Nginx configuration and the non-secret runtime resource into writable `/tmp` and runs `nginx -t`.
 

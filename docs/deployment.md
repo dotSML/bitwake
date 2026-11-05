@@ -33,7 +33,7 @@ The placeholder itself is not deployable. Obtain an image from a successful cont
 
 ### Build and run locally
 
-The Dockerfile builds `dist/standalone` with pinned Node and Nginx base-image digests, then copies only the static runtime into `nginxinc/nginx-unprivileged`. The runtime pin is `nginxinc/nginx-unprivileged:1.30.4-alpine-slim@sha256:11f3f6249b4ae3d7a4ec2a51797060107b88ead52b33b6ed3c6c33f55ca96200` (Alpine 3.24.1). The final image runs as UID/GID `101:101` and contains no Node.js runtime, source tree, mock worker, or production source maps.
+The Dockerfile builds `dist/standalone` with pinned Node and Nginx base-image digests, then copies only the static runtime into `nginxinc/nginx-unprivileged`. The runtime pin is `nginxinc/nginx-unprivileged:1.30.6-alpine-slim@sha256:5d8bb9437d74a600ec5dbf90c035451c724dc33eac8d3a71078f6f8612c345f6` (Alpine 3.24.2). The final image runs as UID/GID `101:101` and contains no Node.js runtime, source tree, mock worker, or production source maps.
 
 ```bash
 BITWAKE_IMAGE=bitwake:local corepack pnpm container:build
