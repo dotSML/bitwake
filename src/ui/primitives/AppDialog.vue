@@ -87,6 +87,7 @@ function updateOpen(value: boolean): void {
 .dialog-header {
   display: flex;
   min-height: 66px;
+  flex: none;
   align-items: flex-start;
   justify-content: space-between;
   gap: 20px;
@@ -126,6 +127,8 @@ function updateOpen(value: boolean): void {
 .dialog-footer {
   display: flex;
   min-height: 64px;
+  flex: none;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
