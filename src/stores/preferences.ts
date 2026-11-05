@@ -38,6 +38,9 @@ export interface UiPreferences {
   detailTab: TorrentDetailTab
   pollingInterval: 1000 | 2000 | 5000
   confirmStop: boolean
+  /** Bitwake refuses to remove torrents that carry any of these categories or tags. */
+  protectedCategories: string[]
+  protectedTags: string[]
 }
 
 export const defaultUiPreferences: UiPreferences = {
@@ -59,7 +62,9 @@ export const defaultUiPreferences: UiPreferences = {
   speedUnit: 'binary',
   detailTab: defaultTorrentDetailTab,
   pollingInterval: 1000,
-  confirmStop: false
+  confirmStop: false,
+  protectedCategories: [],
+  protectedTags: []
 }
 
 const storageKeys = appStorageKeys.uiPreferences
@@ -85,7 +90,9 @@ const recognizedPreferenceKeys = new Set([
   'speedUnit',
   'detailTab',
   'pollingInterval',
-  'confirmStop'
+  'confirmStop',
+  'protectedCategories',
+  'protectedTags'
 ])
 
 function sanitizeColumnIds(value: unknown): TorrentTableColumnId[] {
@@ -108,6 +115,16 @@ function sanitizeColumnWidths(value: unknown): UiPreferences['columnWidths'] {
     widths[id] = Math.min(800, Math.max(50, Math.round(width)))
   }
   return widths
+}
+
+function sanitizeLabels(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  const labels = new Set<string>()
+  for (const item of value) {
+    if (typeof item === 'string' && item.trim() && item.length <= 256) labels.add(item)
+    if (labels.size >= 200) break
+  }
+  return [...labels]
 }
 
 function oneOf<T extends string | number>(value: unknown, options: readonly T[], fallback: T): T {
@@ -203,7 +220,9 @@ export function migrateUiPreferences(value: unknown): UiPreferences {
       [1000, 2000, 5000] as const,
       defaultUiPreferences.pollingInterval
     ),
-    confirmStop: booleanOr(record.confirmStop, defaultUiPreferences.confirmStop)
+    confirmStop: booleanOr(record.confirmStop, defaultUiPreferences.confirmStop),
+    protectedCategories: sanitizeLabels(record.protectedCategories),
+    protectedTags: sanitizeLabels(record.protectedTags)
   }
 }
 

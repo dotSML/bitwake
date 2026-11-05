@@ -138,6 +138,13 @@ const en = {
     oneSecond: '1 second',
     twoSeconds: '2 seconds',
     fiveSeconds: '5 seconds',
+    removalProtection: 'Protected from removal',
+    removalProtectionHelp:
+      'Bitwake will not remove torrents with these categories or tags, such as the ones Radarr and Sonarr assign. qBittorrent itself, other clients, and share-limit actions can still remove them.',
+    protectedCategories: 'Categories',
+    protectedTags: 'Tags',
+    noCategories: 'No categories yet.',
+    noTags: 'No tags yet.',
     transferUnits: 'Transfer units',
     binaryUnits: 'Binary (MiB/s)',
     decimalUnits: 'Decimal (MB/s)'
@@ -435,6 +442,13 @@ const et = {
     oneSecond: '1 sekund',
     twoSeconds: '2 sekundit',
     fiveSeconds: '5 sekundit',
+    removalProtection: 'Eemaldamise eest kaitstud',
+    removalProtectionHelp:
+      'Bitwake ei eemalda torrenteid, millel on mõni neist kategooriatest või siltidest, näiteks need, mille annavad Radarr ja Sonarr. qBittorrent ise, teised kliendid ja jagamislimiidi toimingud saavad neid siiski eemaldada.',
+    protectedCategories: 'Kategooriad',
+    protectedTags: 'Sildid',
+    noCategories: 'Kategooriaid veel pole.',
+    noTags: 'Silte veel pole.',
     transferUnits: 'Edastusühikud',
     binaryUnits: 'Kahendühikud (MiB/s)',
     decimalUnits: 'Kümnendühikud (MB/s)'

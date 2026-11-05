@@ -8,6 +8,7 @@ import DeleteTorrentDialog from '@/features/torrent-actions/DeleteTorrentDialog.
 import TorrentOperationDialog from '@/features/torrent-actions/TorrentOperationDialog.vue'
 import { createTorrent } from '@/mocks/fixtures'
 import { useNotificationsStore } from '@/stores/notifications'
+import { usePreferencesStore } from '@/stores/preferences'
 import { useTorrentsStore } from '@/stores/torrents'
 import ToastRegion from '@/ui/components/ToastRegion.vue'
 import { createTestContext, mountWithContext } from './support/mount'
@@ -736,6 +737,69 @@ describe('torrent dialogs', () => {
     expect(document.querySelector('.seeding-warning')?.textContent).toContain(
       "Don't remove torrents you could still seed"
     )
+  })
+
+  it('refuses to remove a selection that contains a protected category or tag', async () => {
+    const context = createTestContext()
+    const remove = vi.spyOn(context.api.torrents, 'delete').mockResolvedValue()
+    const torrents = context.run(() => useTorrentsStore(context.pinia))
+    context
+      .run(() => usePreferencesStore(context.pinia))
+      .patch({ protectedCategories: ['radarr'], protectedTags: ['keep'] })
+    const movie = { ...createTorrent(0), category: 'radarr', tags: 'keep, 4k' }
+    const other = createTorrent(1)
+    torrents.applyMainData({
+      rid: 1,
+      full_update: true,
+      torrents: { [movie.hash]: movie, [other.hash]: other }
+    })
+    const wrapper = await mountWithContext(DeleteTorrentDialog, context, {
+      props: { open: true, hashes: [movie.hash, other.hash] },
+      attachTo: document.body
+    })
+    await nextTick()
+
+    const block = document.querySelector('.protected-block')
+    expect(block?.textContent).toContain("Protected torrents can't be removed")
+    expect(block?.textContent).toContain(
+      '1 of 2 selected torrents have a protected category or tag.'
+    )
+    expect(block?.querySelector('li')?.textContent).toContain(movie.name)
+    expect(block?.querySelector('.protected-labels')?.textContent).toBe('radarr, keep')
+    expect(block?.textContent).toContain('Deselect them to remove the others')
+    expect(document.querySelector('.delete-files-option')).toBeNull()
+    expect(document.querySelector('.seeding-warning')).toBeNull()
+
+    const removeElement = [...document.querySelectorAll<HTMLButtonElement>('button')].find(
+      (button) => button.textContent?.includes('Remove torrents')
+    )
+    expect(removeElement?.disabled).toBe(true)
+    await new DOMWrapper(removeElement).trigger('click')
+    await flushPromises()
+    expect(remove).not.toHaveBeenCalled()
+
+    await wrapper.setProps({ hashes: [other.hash] })
+    expect(document.querySelector('.protected-block')).toBeNull()
+    expect(document.querySelector('.seeding-warning')).not.toBeNull()
+    expect(removeElement?.disabled).toBe(false)
+  })
+
+  it('tells the user how to unprotect a single protected torrent', async () => {
+    const context = createTestContext()
+    const torrents = context.run(() => useTorrentsStore(context.pinia))
+    context.run(() => usePreferencesStore(context.pinia)).patch({ protectedTags: ['keep'] })
+    const show = { ...createTorrent(0), category: 'tv-sonarr', tags: 'keep' }
+    torrents.applyMainData({ rid: 1, full_update: true, torrents: { [show.hash]: show } })
+    await mountWithContext(DeleteTorrentDialog, context, {
+      props: { open: true, hashes: [show.hash] },
+      attachTo: document.body
+    })
+    await nextTick()
+
+    const block = document.querySelector('.protected-block')
+    expect(block?.textContent).toContain('This torrent has a protected category or tag.')
+    expect(block?.textContent).toContain('To remove it, change its category or tags')
+    expect(block?.querySelector('.protected-labels')?.textContent).toBe('keep')
   })
 
   it('shows per-batch partial results and leaves the add flow open for recovery', async () => {
