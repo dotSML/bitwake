@@ -104,28 +104,25 @@ test('keeps hash routing intact while skipping and moves focus after navigation'
   await expect(page.locator('main')).toBeFocused()
 })
 
-test('keeps the seeding removal warning accessible with both actions reachable', async ({
-  page,
-  isMobile
-}) => {
-  // Keep button color transitions from being sampled mid-flight by axe.
-  await page.emulateMedia({ reducedMotion: 'reduce' })
-  await openMockApp(page)
-  if (isMobile) {
-    await page.getByRole('button', { name: 'Select', exact: true }).click()
-    await page.locator('.row-activate').first().click()
-  } else {
-    await page.locator('.table-row').first().click()
-  }
-
-  const dialog = page.getByRole('dialog', { name: 'Remove torrents' })
-  for (const theme of ['light', 'dark']) {
-    // Apply the theme before opening so the dialog never renders with stale inherited colors.
-    await page
-      .locator('html')
-      .evaluate((element, value) => element.setAttribute('data-theme', value), theme)
+for (const colorScheme of ['light', 'dark'] as const) {
+  test(`keeps the seeding removal warning accessible with both actions reachable (${colorScheme})`, async ({
+    page,
+    isMobile
+  }) => {
+    // Load the page in its final theme: flipping data-theme at runtime let WebKit keep stale
+    // inherited colors, and reduced motion keeps axe from sampling mid-transition colors.
+    await page.emulateMedia({ colorScheme, reducedMotion: 'reduce' })
+    await openMockApp(page)
+    await expect(page.locator('html')).toHaveAttribute('data-theme', colorScheme)
+    if (isMobile) {
+      await page.getByRole('button', { name: 'Select', exact: true }).click()
+      await page.locator('.row-activate').first().click()
+    } else {
+      await page.locator('.table-row').first().click()
+    }
     await page.keyboard.press('Delete')
 
+    const dialog = page.getByRole('dialog', { name: 'Remove torrents' })
     await expect(dialog.getByRole('note')).toContainText(
       "Don't remove torrents you could still seed"
     )
@@ -135,14 +132,12 @@ test('keeps the seeding removal warning accessible with both actions reachable',
       ratio: 1
     })
     // The page behind the modal overlay is inert and covered by the per-route scans above.
-    expect(await seriousAxeViolations(page, '[role="dialog"]'), `${theme} removal warning`).toEqual(
-      []
-    )
+    expect(await seriousAxeViolations(page, '[role="dialog"]')).toEqual([])
 
     await keepSeeding.click()
     await expect(dialog).toHaveCount(0)
-  }
-})
+  })
+}
 
 test('keeps deployment warning states accessible in both themes', async ({ page }, testInfo) => {
   test.skip(
