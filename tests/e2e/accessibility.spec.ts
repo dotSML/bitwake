@@ -14,14 +14,17 @@ interface AxeViolationSummary {
   targets: string[][]
 }
 
-async function seriousAxeViolations(page: Page): Promise<AxeViolationSummary[]> {
+async function seriousAxeViolations(
+  page: Page,
+  scopeSelector?: string
+): Promise<AxeViolationSummary[]> {
   await page.addScriptTag({ content: axe.source })
-  return page.evaluate(async () => {
+  return page.evaluate(async (scopeSelector) => {
     const axeApi = (
       window as typeof window & {
         axe: {
           run(
-            context: Document,
+            context: Document | Element,
             options: { runOnly: { type: 'tag'; values: string[] } }
           ): Promise<{
             violations: Array<{
@@ -34,7 +37,9 @@ async function seriousAxeViolations(page: Page): Promise<AxeViolationSummary[]> 
         }
       }
     ).axe
-    const result = await axeApi.run(document, {
+    const scope = scopeSelector ? document.querySelector(scopeSelector) : document
+    if (!scope) throw new Error(`No element matches ${scopeSelector}`)
+    const result = await axeApi.run(scope, {
       runOnly: {
         type: 'tag',
         values: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']
@@ -48,7 +53,7 @@ async function seriousAxeViolations(page: Page): Promise<AxeViolationSummary[]> 
         help: violation.help,
         targets: violation.nodes.map((node) => node.target)
       }))
-  })
+  }, scopeSelector)
 }
 
 const applicationRoutes = [
@@ -97,6 +102,46 @@ test('keeps hash routing intact while skipping and moves focus after navigation'
   await page.getByRole('link', { name: 'Diagnostics', exact: true }).click()
   await expect(page).toHaveTitle('Diagnostics · Bitwake')
   await expect(page.locator('main')).toBeFocused()
+})
+
+test('keeps the seeding removal warning accessible with both actions reachable', async ({
+  page,
+  isMobile
+}) => {
+  // Keep button color transitions from being sampled mid-flight by axe.
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await openMockApp(page)
+  if (isMobile) {
+    await page.getByRole('button', { name: 'Select', exact: true }).click()
+    await page.locator('.row-activate').first().click()
+  } else {
+    await page.locator('.table-row').first().click()
+  }
+
+  const dialog = page.getByRole('dialog', { name: 'Remove torrents' })
+  for (const theme of ['light', 'dark']) {
+    // Apply the theme before opening so the dialog never renders with stale inherited colors.
+    await page
+      .locator('html')
+      .evaluate((element, value) => element.setAttribute('data-theme', value), theme)
+    await page.keyboard.press('Delete')
+
+    await expect(dialog.getByRole('note')).toContainText(
+      "Don't remove torrents you could still seed"
+    )
+    const keepSeeding = dialog.getByRole('button', { name: 'Keep seeding' })
+    await expect(keepSeeding).toBeInViewport({ ratio: 1 })
+    await expect(dialog.getByRole('button', { name: 'Remove torrents' })).toBeInViewport({
+      ratio: 1
+    })
+    // The page behind the modal overlay is inert and covered by the per-route scans above.
+    expect(await seriousAxeViolations(page, '[role="dialog"]'), `${theme} removal warning`).toEqual(
+      []
+    )
+
+    await keepSeeding.click()
+    await expect(dialog).toHaveCount(0)
+  }
 })
 
 test('keeps deployment warning states accessible in both themes', async ({ page }, testInfo) => {
