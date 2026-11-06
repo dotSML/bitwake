@@ -9,10 +9,11 @@ cd -- "$(dirname -- "${BASH_SOURCE[0]}")"
 expected_image='stenml/bitwake:0.1.0@sha256:159d512f2e126efbb3387584cc246daf4140f7f6c04f7ce420c856a45b8d233b'
 
 # Live object names. docs/deployment.md: keep them through an image-only upgrade, whatever the
-# product is called. `vuetorrent` is the container that runs Bitwake in the torrent Pod.
+# product is called. `bitwake` is the container that runs Bitwake in the torrent Pod; the live
+# Deployment holds gluetun, bitwake and qbittorrent.
 namespace=media
 deployment=torrent-vpn
-container=vuetorrent
+container=bitwake
 service=torrent
 ingress=torrent-ingress
 listen_port=8081

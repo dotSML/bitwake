@@ -76,7 +76,7 @@ versions.
 
 It is an image-only upgrade of the existing torrent stack, as described in
 [deployment.md](deployment.md): the Deployment `media/torrent-vpn`, Service `torrent` and Ingress
-`torrent-ingress` keep their names, and the container that runs Bitwake is `vuetorrent`.
+`torrent-ingress` keep their names, and the container that runs Bitwake is `bitwake`.
 
 Before changing anything it stops if that container is missing, or if a Pod that reserves a
 `hostPort` is not on the `Recreate` strategy (a rolling update would deadlock). It saves the live

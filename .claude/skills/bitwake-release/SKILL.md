@@ -114,7 +114,7 @@ The two digests must be identical. A local image ID is not a digest.
 Exactly two files carry the ref, as `stenml/bitwake:<tag>@sha256:<digest>`:
 
 - `deploy.sh` (`expected_image`)
-- `deploy/kubernetes/bitwake-release-patch.yaml` (the `image:` line of the `vuetorrent` container)
+- `deploy/kubernetes/bitwake-release-patch.yaml` (the `image:` line of the `bitwake` container)
 
 Read the current ref from `deploy.sh`, replace it with `sed` in both, then check each file contains the new digest exactly once, run `bash -n deploy.sh` (syntax only), and show `git diff -- deploy.sh deploy`. Change nothing else: the object names in `deploy.sh`, and the Bitwake `env` entries in the patch, stay. The patch is the only place the production settings live, and `deploy.sh` checks them in the running container. The example manifests under `deploy/kubernetes/sidecar` and `separate` are templates for other installations and are not pinned here.
 
@@ -138,7 +138,7 @@ bash deploy.sh stenmladm@10.73.20.20
 
 Run from the repo root. Use the same line in prose too, not a paraphrase. Then a short report: tag and digest pushed, the gate results (what ran, what didn't), files changed, whether the tree was dirty and what was left out, git commit pushed, the Docker Hub visibility note if it was the first push, and plainly that **nothing is deployed until they run it**.
 
-What the command does, if useful: refuses to run while the pin is the placeholder or the two pins disagree, checks that the Deployment `media/torrent-vpn` has the `vuetorrent` container and that a hostPort Pod uses `Recreate`, saves the live Deployment under `~/.local/state/bitwake-deploy/`, patches the image and Bitwake settings, waits for the rollout, then fails unless the running image digest, readiness, the runtime config (`/_bitwake/runtime-config.json`), qBittorrent through Bitwake, the Service's port 80 target and the absence of an Ingress `rewrite-target` are all right. The rollout restarts the Pod, so qBittorrent and the VPN restart with it. Rollback is `kubectl -n media rollout undo deployment/torrent-vpn`, after which the pins in the repository must be set back too.
+What the command does, if useful: refuses to run while the pin is the placeholder or the two pins disagree, checks that the Deployment `media/torrent-vpn` has the `bitwake` container and that a hostPort Pod uses `Recreate`, saves the live Deployment under `~/.local/state/bitwake-deploy/`, patches the image and Bitwake settings, waits for the rollout, then fails unless the running image digest, readiness, the runtime config (`/_bitwake/runtime-config.json`), qBittorrent through Bitwake, the Service's port 80 target and the absence of an Ingress `rewrite-target` are all right. The rollout restarts the Pod, so qBittorrent and the VPN restart with it. Rollback is `kubectl -n media rollout undo deployment/torrent-vpn`, after which the pins in the repository must be set back too.
 
 If the release carried an earlier unreleased one (the user never ran the last deploy), say so. The first deploy of a Bitwake image onto a stack last deployed under the app's previous name sets the `BITWAKE_*` settings; the old settings stay in the Deployment, unused.
 

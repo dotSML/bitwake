@@ -3,7 +3,7 @@
 #
 # This is an image-only upgrade of an existing installation (docs/deployment.md): the Deployment,
 # Service, Ingress and container names stay as they are, so the container below is the existing
-# `vuetorrent` container that runs Bitwake. deploy.sh stops before patching if the Deployment has
+# `bitwake` container that runs Bitwake. deploy.sh stops before patching if the Deployment has
 # no container with this name, because a strategic patch would otherwise add a second container.
 #
 # The image ref is pinned by the bitwake-release skill, together with `expected_image` in
@@ -20,7 +20,7 @@ spec:
   template:
     spec:
       containers:
-        - name: vuetorrent
+        - name: bitwake
           image: stenml/bitwake:0.1.0@sha256:159d512f2e126efbb3387584cc246daf4140f7f6c04f7ce420c856a45b8d233b
           env:
             - name: QBITTORRENT_URL
