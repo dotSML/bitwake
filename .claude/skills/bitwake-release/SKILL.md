@@ -140,7 +140,7 @@ Run from the repo root. Use the same line in prose too, not a paraphrase. Then a
 
 What the command does, if useful: refuses to run while the pin is the placeholder or the two pins disagree, checks that the Deployment `media/torrent-vpn` has the `bitwake` container and that a hostPort Pod uses `Recreate`, saves the live Deployment under `~/.local/state/bitwake-deploy/`, patches the image and Bitwake settings, waits for the rollout, then fails unless the running image digest, readiness, the runtime config (`/_bitwake/runtime-config.json`), qBittorrent through Bitwake, the Service's port 80 target and the absence of an Ingress `rewrite-target` are all right. The rollout restarts the Pod, so qBittorrent and the VPN restart with it. Rollback is `kubectl -n media rollout undo deployment/torrent-vpn`, after which the pins in the repository must be set back too.
 
-If the release carried an earlier unreleased one (the user never ran the last deploy), say so. The first deploy of a Bitwake image onto a stack last deployed under the app's previous name sets the `BITWAKE_*` settings; the old settings stay in the Deployment, unused.
+If the release carried an earlier unreleased one (the user never ran the last deploy), say so.
 
 ### 8. Afterwards
 
