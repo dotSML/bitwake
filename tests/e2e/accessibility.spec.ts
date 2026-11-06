@@ -14,14 +14,17 @@ interface AxeViolationSummary {
   targets: string[][]
 }
 
-async function seriousAxeViolations(page: Page): Promise<AxeViolationSummary[]> {
+async function seriousAxeViolations(
+  page: Page,
+  scopeSelector?: string
+): Promise<AxeViolationSummary[]> {
   await page.addScriptTag({ content: axe.source })
-  return page.evaluate(async () => {
+  return page.evaluate(async (scopeSelector) => {
     const axeApi = (
       window as typeof window & {
         axe: {
           run(
-            context: Document,
+            context: Document | Element,
             options: { runOnly: { type: 'tag'; values: string[] } }
           ): Promise<{
             violations: Array<{
@@ -34,7 +37,9 @@ async function seriousAxeViolations(page: Page): Promise<AxeViolationSummary[]> 
         }
       }
     ).axe
-    const result = await axeApi.run(document, {
+    const scope = scopeSelector ? document.querySelector(scopeSelector) : document
+    if (!scope) throw new Error(`No element matches ${scopeSelector}`)
+    const result = await axeApi.run(scope, {
       runOnly: {
         type: 'tag',
         values: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']
@@ -48,7 +53,7 @@ async function seriousAxeViolations(page: Page): Promise<AxeViolationSummary[]> 
         help: violation.help,
         targets: violation.nodes.map((node) => node.target)
       }))
-  })
+  }, scopeSelector)
 }
 
 const applicationRoutes = [
@@ -98,6 +103,41 @@ test('keeps hash routing intact while skipping and moves focus after navigation'
   await expect(page).toHaveTitle('Diagnostics · Bitwake')
   await expect(page.locator('main')).toBeFocused()
 })
+
+for (const colorScheme of ['light', 'dark'] as const) {
+  test(`keeps the seeding removal warning accessible with both actions reachable (${colorScheme})`, async ({
+    page,
+    isMobile
+  }) => {
+    // Load the page in its final theme: flipping data-theme at runtime let WebKit keep stale
+    // inherited colors, and reduced motion keeps axe from sampling mid-transition colors.
+    await page.emulateMedia({ colorScheme, reducedMotion: 'reduce' })
+    await openMockApp(page)
+    await expect(page.locator('html')).toHaveAttribute('data-theme', colorScheme)
+    if (isMobile) {
+      await page.getByRole('button', { name: 'Select', exact: true }).click()
+      await page.locator('.row-activate').first().click()
+    } else {
+      await page.locator('.table-row').first().click()
+    }
+    await page.keyboard.press('Delete')
+
+    const dialog = page.getByRole('dialog', { name: 'Remove torrents' })
+    await expect(dialog.getByRole('note')).toContainText(
+      "Don't remove torrents you could still seed"
+    )
+    const keepSeeding = dialog.getByRole('button', { name: 'Keep seeding' })
+    await expect(keepSeeding).toBeInViewport({ ratio: 1 })
+    await expect(dialog.getByRole('button', { name: 'Remove torrents' })).toBeInViewport({
+      ratio: 1
+    })
+    // The page behind the modal overlay is inert and covered by the per-route scans above.
+    expect(await seriousAxeViolations(page, '[role="dialog"]')).toEqual([])
+
+    await keepSeeding.click()
+    await expect(dialog).toHaveCount(0)
+  })
+}
 
 test('keeps deployment warning states accessible in both themes', async ({ page }, testInfo) => {
   test.skip(

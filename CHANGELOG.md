@@ -28,6 +28,8 @@ versions for published artifacts.
 
 ### Changed
 
+- Warn in the Remove torrents dialog that removing a torrent stops seeding, count the selected
+  torrents that have finished downloading, and make Keep seeding the primary action.
 - Dock tablet torrent details below the list so they cannot cover search or selection controls;
   keep the narrow sidebar Add button from clipping its label.
 - Adapt toolbar controls to the space beside the inspector and preserve mobile action-bar clearance.

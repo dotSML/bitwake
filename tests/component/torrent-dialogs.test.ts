@@ -672,6 +672,72 @@ describe('torrent dialogs', () => {
     expect(wrapper.emitted('update:open')).toBeUndefined()
   })
 
+  it('warns that removal stops seeding and makes keeping the torrents the primary choice', async () => {
+    const context = createTestContext()
+    const remove = vi.spyOn(context.api.torrents, 'delete').mockResolvedValue()
+    const torrents = context.run(() => useTorrentsStore(context.pinia))
+    const downloading = createTorrent(0)
+    const finished = createTorrent(1)
+    torrents.applyMainData({
+      rid: 1,
+      full_update: true,
+      torrents: { [downloading.hash]: downloading, [finished.hash]: finished }
+    })
+    const wrapper = await mountWithContext(DeleteTorrentDialog, context, {
+      props: { open: true, hashes: [downloading.hash, finished.hash] },
+      attachTo: document.body
+    })
+    await nextTick()
+
+    const warning = document.querySelector('.seeding-warning')
+    expect(warning?.getAttribute('role')).toBe('note')
+    expect(warning?.textContent).toContain("Don't remove torrents you could still seed")
+    expect(warning?.textContent).toContain('Removed torrents stop seeding immediately')
+    expect(warning?.textContent).toContain(
+      '1 of 2 selected torrents have finished downloading and can be seeded.'
+    )
+    expect(document.querySelector<HTMLInputElement>('.delete-files-option input')?.checked).toBe(
+      false
+    )
+
+    const keepElement = [...document.querySelectorAll<HTMLButtonElement>('button')].find(
+      (button) => button.textContent?.trim() === 'Keep seeding'
+    )
+    expect(keepElement).toBeDefined()
+    expect(keepElement?.classList.contains('btn-primary')).toBe(true)
+    await new DOMWrapper(keepElement).trigger('click')
+
+    expect(wrapper.emitted('update:open')).toContainEqual([false])
+    expect(remove).not.toHaveBeenCalled()
+  })
+
+  it('describes a single finished torrent and keeps the warning when nothing has finished', async () => {
+    const context = createTestContext()
+    const torrents = context.run(() => useTorrentsStore(context.pinia))
+    const downloading = createTorrent(0)
+    const finished = createTorrent(1)
+    torrents.applyMainData({
+      rid: 1,
+      full_update: true,
+      torrents: { [downloading.hash]: downloading, [finished.hash]: finished }
+    })
+    const wrapper = await mountWithContext(DeleteTorrentDialog, context, {
+      props: { open: true, hashes: [finished.hash] },
+      attachTo: document.body
+    })
+    await nextTick()
+
+    expect(document.querySelector('.seeding-warning-count')?.textContent).toContain(
+      'This torrent has finished downloading and can be seeded.'
+    )
+
+    await wrapper.setProps({ hashes: [downloading.hash] })
+    expect(document.querySelector('.seeding-warning-count')).toBeNull()
+    expect(document.querySelector('.seeding-warning')?.textContent).toContain(
+      "Don't remove torrents you could still seed"
+    )
+  })
+
   it('shows per-batch partial results and leaves the add flow open for recovery', async () => {
     const context = createTestContext()
     const add = vi.spyOn(context.api.torrents, 'add').mockResolvedValue({

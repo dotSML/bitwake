@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { AlertTriangle } from '@lucide/vue'
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useApi } from '@/app/providers/api'
+import { matchesTorrentState } from '@/domains/torrents/state'
 import { useNotificationsStore } from '@/stores/notifications'
 import { useTorrentsStore } from '@/stores/torrents'
 import AppDialog from '@/ui/primitives/AppDialog.vue'
@@ -14,6 +15,13 @@ const notifications = useNotificationsStore()
 const deleteFiles = ref(false)
 const working = ref(false)
 const error = ref<string | null>(null)
+const seedableCount = computed(
+  () =>
+    props.hashes.filter((hash) => {
+      const torrent = torrents.byHash.get(hash)
+      return torrent ? matchesTorrentState(torrent, 'completed') : false
+    }).length
+)
 
 watch(
   () => props.open,
@@ -63,6 +71,25 @@ async function confirm(): Promise<void> {
     @update:open="emit('update:open', $event)"
   >
     <div class="delete-content">
+      <div class="seeding-warning" role="note" aria-labelledby="seeding-warning-title">
+        <AlertTriangle :size="22" aria-hidden="true" />
+        <div>
+          <strong id="seeding-warning-title">Don't remove torrents you could still seed</strong>
+          <p>
+            Removed torrents stop seeding immediately: other peers lose a source and your upload
+            ratio stops growing. To seed again you have to add the torrent again and recheck its
+            data.
+          </p>
+          <p v-if="seedableCount" class="seeding-warning-count">
+            {{
+              hashes.length === 1
+                ? 'This torrent has finished downloading and can be seeded.'
+                : `${seedableCount} of ${hashes.length} selected torrents have finished downloading and can be seeded.`
+            }}
+          </p>
+          <p>Only want to pause transfers? Choose Keep seeding, then use Stop.</p>
+        </div>
+      </div>
       <p>Remove {{ hashes.length }} selected torrent{{ hashes.length === 1 ? '' : 's' }}?</p>
       <label class="delete-files-option">
         <input v-model="deleteFiles" type="checkbox" />
@@ -78,17 +105,42 @@ async function confirm(): Promise<void> {
       <p v-if="error" class="delete-error" role="alert">{{ error }}</p>
     </div>
     <template #footer>
-      <button class="btn" type="button" @click="emit('update:open', false)">Cancel</button>
       <button class="btn btn-danger" type="button" :disabled="working" @click="confirm">
         {{ working ? 'Removing…' : deleteFiles ? 'Remove and delete files' : 'Remove torrents' }}
+      </button>
+      <button class="btn btn-primary" type="button" @click="emit('update:open', false)">
+        Keep seeding
       </button>
     </template>
   </AppDialog>
 </template>
 
 <style scoped>
-.delete-content > p:first-child {
-  margin-top: 0;
+.seeding-warning {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 16px;
+  border: 1px solid rgb(var(--color-warning-foreground) / 0.65);
+  border-left-width: 5px;
+  border-radius: 9px;
+  background: rgb(var(--color-warning) / 0.14);
+  color: rgb(var(--color-warning-foreground));
+  padding: 13px 14px;
+}
+.seeding-warning > svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+.seeding-warning strong {
+  display: block;
+  font-size: 1.05rem;
+  line-height: 1.3;
+}
+.seeding-warning p {
+  margin: 6px 0 0;
+}
+.seeding-warning .seeding-warning-count {
+  font-weight: 600;
 }
 .delete-files-option {
   display: flex;
