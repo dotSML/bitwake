@@ -1,8 +1,5 @@
 # Bitwake
 
-[![CI](https://github.com/dotSML/bitwake/actions/workflows/ci.yml/badge.svg)](https://github.com/dotSML/bitwake/actions/workflows/ci.yml)
-[![Container](https://github.com/dotSML/bitwake/actions/workflows/container.yml/badge.svg)](https://github.com/dotSML/bitwake/actions/workflows/container.yml)
-
 Bitwake is a responsive Vue 3 WebUI for qBittorrent. It provides a dense desktop torrent table, compact mobile views, and direct access to qBittorrent's `/api/v2` Web API.
 
 Bitwake can run in either of two forms:
@@ -121,21 +118,12 @@ qBittorrent host/container; Bitwake does not mount the media filesystem. See the
 [Media Placement guide](docs/media-placement.md) for all variables, warnings, and Manual-path
 behavior.
 
-The container workflow verifies pull requests without publishing. A successful
-`main` build publishes `latest` to
-`ghcr.io/dotsml/bitwake`. A reviewed stable version tag publishes `vX.Y.Z`, `X.Y.Z`, and `X.Y`
-after its verification gates pass. A reviewed prerelease tag
-publishes its raw `vX.Y.Z-prerelease` tag and corresponding unprefixed SemVer tag,
-but does not move the floating `X.Y` tag. Versioned releases do not move `latest`.
-For deployments, select and verify the resulting immutable
-image digest rather than relying on a mutable tag.
-
-Public releases use a separate fail-closed workflow that validates the package
-version, tag, changelog, repository-license presence, non-placeholder package
-SPDX metadata, versioned container manifest, Alternative WebUI archive,
-checksums, and release metadata. The repository currently has no license, so
-that workflow intentionally refuses to publish until the project owner chooses
-one. See the [release guide](docs/releasing.md).
+Bitwake has no hosted CI. The maintainer builds, checks and pushes the image from their own
+machine as `stenml/bitwake:<version>`, pins the digest in `deploy.sh`, and applies it to the
+cluster with `bash deploy.sh`. For deployments, select and verify an immutable image digest
+rather than relying on a mutable tag. Local builds carry no SBOM or provenance attestation.
+The repository currently has no license, so no public release or archive is produced until the
+project owner chooses one. See the [release guide](docs/releasing.md).
 
 The Kubernetes examples intentionally contain this non-runnable placeholder:
 
@@ -167,9 +155,10 @@ corepack pnpm container:build  # build the standalone image
 corepack pnpm container:test   # run proxy and qBittorrent integration tests
 ```
 
-The scheduled and manually dispatched qBittorrent Compatibility workflow always
-exercises two reviewed official images by digest: qBittorrent 5.0.5 / Web API
-2.11.2 and the 5.2.3 / 2.15.1 target. It never follows mutable image tags.
+`container:test` runs the real-qBittorrent contract against the reviewed official 5.2.3 /
+Web API 2.15.1 image, pinned by digest. Set `QBITTORRENT_IMAGE`,
+`QBITTORRENT_EXPECTED_VERSION` and `QBITTORRENT_EXPECTED_WEBAPI_VERSION` to run another
+reviewed image, such as the 5.0.5 / 2.11.2 baseline. It never follows mutable image tags.
 
 Playwright may require a one-time browser install:
 

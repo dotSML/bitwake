@@ -1,0 +1,49 @@
+# Release patch for the live torrent stack. deploy.sh applies it with:
+#   kubectl -n media patch deployment/torrent-vpn --type=strategic --patch-file deploy/kubernetes/bitwake-release-patch.yaml
+#
+# This is an image-only upgrade of an existing installation (docs/deployment.md): the Deployment,
+# Service, Ingress and container names stay as they are, so the container below is the existing
+# `vuetorrent` container that runs Bitwake. deploy.sh stops before patching if the Deployment has
+# no container with this name, because a strategic patch would otherwise add a second container.
+#
+# The image ref is pinned by the bitwake-release skill, together with `expected_image` in
+# deploy.sh. Keep the two identical; deploy.sh refuses to run when they differ or when the
+# placeholder digest (all zeros) is still here, which means no release has been pinned yet.
+#
+# Bitwake's runtime settings live here and nowhere else. deploy.sh applies this file on every
+# release, so a Deployment that is re-created or edited with `kubectl set env` comes back with
+# them. Without BITWAKE_MEDIA_MODE the container starts with Media Placement off and says
+# nothing. To change or turn one off, edit it here and run deploy.sh. The values are the
+# defaults the previous deploy helper applied; BITWAKE_TV_CATEGORY and BITWAKE_MOVIE_CATEGORY are
+# left out on purpose, because they must name categories that already exist in qBittorrent.
+spec:
+  template:
+    spec:
+      containers:
+        - name: vuetorrent
+          image: stenml/bitwake:0.0.0@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          env:
+            - name: QBITTORRENT_URL
+              value: http://127.0.0.1:8080
+            - name: LISTEN_PORT
+              value: '8081'
+            - name: MAX_UPLOAD_SIZE
+              value: 100m
+            - name: PROXY_CONNECT_TIMEOUT
+              value: 10s
+            - name: PROXY_READ_TIMEOUT
+              value: 300s
+            - name: PROXY_SEND_TIMEOUT
+              value: 300s
+            - name: PROXY_SSL_VERIFY
+              value: 'on'
+            - name: BITWAKE_MEDIA_MODE
+              value: assist
+            - name: BITWAKE_TV_ROOT
+              value: /data/tv-shows
+            - name: BITWAKE_MOVIES_ROOT
+              value: /data/movies
+            - name: BITWAKE_MEDIA_BROWSE_ROOT
+              value: /data
+            - name: BITWAKE_MEDIA_CONFIG_LOCKED
+              value: 'true'

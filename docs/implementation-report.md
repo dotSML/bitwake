@@ -135,9 +135,9 @@ qBittorrent's public boundary after logout or expiry. Updates use an in-applicat
 
 Both examples apply non-root execution, dropped capabilities, disabled privilege escalation, `RuntimeDefault` seccomp, read-only roots, memory-backed temporary storage, and restricted service-account behavior. Checked-in image placeholders must be replaced deliberately. Manifest rendering verifies composition only; it does not prove admission, rollout, TLS, NetworkPolicy, or rollback behavior in a live cluster.
 
-### Container workflow
+### Container release
 
-The container workflow runs source, browser, package, deterministic container, real-qBittorrent, and per-architecture vulnerability checks before publication. On an eligible version tag that passes the license gate, the published image is multi-architecture and includes supply-chain metadata and attestations. Release tags and deployment references should always be selected and reviewed by the operator; the checked-in Kubernetes examples intentionally do not choose one.
+The release process runs the source and package checks, the deterministic container suite and a vulnerability scan before an image is pushed, and the real-qBittorrent and browser suites when they apply (see `docs/releasing.md`). The image is built for the maintainer's own architecture and carries no SBOM or provenance attestation. Release tags and deployment references should always be selected and reviewed by the operator; the checked-in Kubernetes examples intentionally do not choose one.
 
 ## Verification approach
 

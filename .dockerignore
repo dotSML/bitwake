@@ -18,3 +18,5 @@ tests
 *.local
 *.zip
 
+.claude
+deploy.sh

@@ -23,7 +23,7 @@ An implemented feature does not imply complete stock-WebUI parity or production 
 | Native Alternative WebUI package             | Implemented | Produces qBittorrent-compatible `public/` and `private/` resource trees.                                                        |
 | Development mock mode                        | Implemented | Uses deterministic MSW fixtures; mock assets are excluded from production output.                                               |
 | Kubernetes examples                          | Partial     | Sidecar and separate-Deployment examples render, but cluster networking, TLS, policy, and rollback require operator validation. |
-| Container publication                        | Implemented | The workflow verifies before publishing multi-architecture images with provenance, SBOM, and attestations.                      |
+| Container publication                        | Implemented | Built, gated and pushed locally as a single-architecture image by the release process; no SBOM or provenance. See releasing.md. |
 
 ## API, authentication, and resilience
 
