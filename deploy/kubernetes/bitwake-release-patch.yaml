@@ -21,7 +21,7 @@ spec:
     spec:
       containers:
         - name: vuetorrent
-          image: stenml/bitwake:0.0.0@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          image: stenml/bitwake:0.1.0@sha256:159d512f2e126efbb3387584cc246daf4140f7f6c04f7ce420c856a45b8d233b
           env:
             - name: QBITTORRENT_URL
               value: http://127.0.0.1:8080

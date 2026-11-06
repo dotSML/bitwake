@@ -6,7 +6,7 @@ cd -- "$(dirname -- "${BASH_SOURCE[0]}")"
 # The release this repository points at. Keep it identical to the image in
 # deploy/kubernetes/bitwake-release-patch.yaml: the bitwake-release skill rewrites both.
 # An all-zero digest means no release has been pinned yet.
-expected_image='stenml/bitwake:0.0.0@sha256:0000000000000000000000000000000000000000000000000000000000000000'
+expected_image='stenml/bitwake:0.1.0@sha256:159d512f2e126efbb3387584cc246daf4140f7f6c04f7ce420c856a45b8d233b'
 
 # Live object names. docs/deployment.md: keep them through an image-only upgrade, whatever the
 # product is called. `vuetorrent` is the container that runs Bitwake in the torrent Pod.
