@@ -130,7 +130,7 @@ The standalone image additionally:
 - Rejects embedded upstream credentials, unsafe characters, query/fragment text, and a URL ending in `/api/v2`.
 - Supports a read-only root filesystem with only a small `/tmp` writable, all Linux capabilities dropped, no privilege escalation, and `RuntimeDefault` seccomp in the Kubernetes examples.
 - Serves process-only health/readiness endpoints; these do not make a false claim that qBittorrent is reachable.
-- Pins the runtime to `nginxinc/nginx-unprivileged:1.30.4-alpine-slim@sha256:11f3f6249b4ae3d7a4ec2a51797060107b88ead52b33b6ed3c6c33f55ca96200`. Local Docker builds default the OCI license label to `NOASSERTION`; workflow builds also use `NOASSERTION` when package metadata is missing, `UNLICENSED`, or already `NOASSERTION`, and inject a reviewed SPDX expression otherwise. Tagged publication remains blocked until the owner supplies aligned license text and a reviewed SPDX expression.
+- Pins the runtime to `nginxinc/nginx-unprivileged:1.30.6-alpine-slim@sha256:5d8bb9437d74a600ec5dbf90c035451c724dc33eac8d3a71078f6f8612c345f6`. Local Docker builds default the OCI license label to `NOASSERTION`; workflow builds also use `NOASSERTION` when package metadata is missing, `UNLICENSED`, or already `NOASSERTION`, and inject a reviewed SPDX expression otherwise. Tagged publication remains blocked until the owner supplies aligned license text and a reviewed SPDX expression.
 
 ## qBittorrent settings that should remain enabled
 

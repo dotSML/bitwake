@@ -97,6 +97,8 @@ versions for published artifacts.
 - Same-origin API access, browser-managed authentication, network-only API
   service-worker rules, unprivileged container execution, security headers,
   vulnerability scanning, SBOMs, provenance, and artifact attestations.
+- Update the container runtime base image to `nginx-unprivileged` 1.30.6 (Alpine 3.24.2), which
+  fixes seven HIGH nginx and pcre2 vulnerabilities reported by the image scan.
 
 > This version remains blocked from public release until the project owner
 > selects and adds a repository license. See the [release guide](docs/releasing.md).
