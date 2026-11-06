@@ -7,7 +7,7 @@ description: Ship Bitwake to the homelab. Gets the finished work onto main, runs
 
 One release = work on `main`, local gate, build, push, pin, push git, hand over the deploy command. The user's request ("build push deploy") authorizes the merge onto `main`, `git push origin main`, `docker push`, and the edits to `deploy.sh` and the release patch. It does **not** authorize running the deploy.
 
-There is no GitHub Actions and no CI. The gate is Step 3, run here, and nothing else checks the release. The homelab-skills `neotorrent-k8s-deploy` skill gates on those removed workflows and on GHCR; it no longer applies, don't use it.
+There is no GitHub Actions and no CI. The gate is Step 3, run here, and nothing else checks the release. The older `*-k8s-deploy` skill for this app in homelab-skills gates on those removed workflows and on GHCR; it no longer applies, don't use it.
 
 ## Hard rules
 
@@ -140,7 +140,7 @@ Run from the repo root. Use the same line in prose too, not a paraphrase. Then a
 
 What the command does, if useful: refuses to run while the pin is the placeholder or the two pins disagree, checks that the Deployment `media/torrent-vpn` has the `vuetorrent` container and that a hostPort Pod uses `Recreate`, saves the live Deployment under `~/.local/state/bitwake-deploy/`, patches the image and Bitwake settings, waits for the rollout, then fails unless the running image digest, readiness, the runtime config (`/_bitwake/runtime-config.json`), qBittorrent through Bitwake, the Service's port 80 target and the absence of an Ingress `rewrite-target` are all right. The rollout restarts the Pod, so qBittorrent and the VPN restart with it. Rollback is `kubectl -n media rollout undo deployment/torrent-vpn`, after which the pins in the repository must be set back too.
 
-If the release carried an earlier unreleased one (the user never ran the last deploy), say so. The first deploy of a Bitwake image onto a stack that last ran NeoTorrent replaces the `NEOTORRENT_*` settings with `BITWAKE_*`; old `NEOTORRENT_*` entries stay in the Deployment, unused.
+If the release carried an earlier unreleased one (the user never ran the last deploy), say so. The first deploy of a Bitwake image onto a stack last deployed under the app's previous name sets the `BITWAKE_*` settings; the old settings stay in the Deployment, unused.
 
 ### 8. Afterwards
 
