@@ -19,7 +19,7 @@ Participation in project spaces is governed by the [Code of Conduct](CODE_OF_CON
 
 You need:
 
-- Node.js 22.22.2 or newer; `.node-version` records the reviewed CI/runtime
+- Node.js 22.22.2 or newer; `.node-version` records the reviewed runtime
   toolchain version.
 - Corepack and the pnpm version declared in `package.json` (currently 10.15.0).
 - Git.

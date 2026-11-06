@@ -1,147 +1,119 @@
 # Releasing Bitwake
 
-Bitwake releases are deliberately staged. A Git tag alone publishes no
-GitHub Release. The container workflow must first verify and publish the tagged
-image, and then a maintainer runs the manual Release workflow for the exact tag.
+Bitwake has no hosted CI and no GitHub Actions. A release is built, checked and pushed from
+the maintainer's machine, and applied to the homelab cluster with `deploy.sh`. The
+`bitwake-release` skill ([`.claude/skills/bitwake-release/SKILL.md`](../.claude/skills/bitwake-release/SKILL.md))
+is the working checklist; this page describes the same process and what it does and does not
+guarantee.
 
-The workflow accepts strict `vMAJOR.MINOR.PATCH` tags and the same form with a
-valid SemVer prerelease suffix. A hyphenated suffix is published with GitHub's
-prerelease flag; a tag without one is published as a stable release. In both
-cases the `package.json` version and changelog heading must match exactly. Build
-metadata (`+...`) is deliberately not accepted by this release process.
+## What a release is
 
-## Current release blocker
+One release is one container image, `stenml/bitwake:<X.Y.Z>`, pinned by digest in two files:
 
-The repository has no license. Public source visibility does not grant
-permission to copy, modify, or redistribute it. The Release workflow therefore
-uses `--require-license` and fails closed until the project owner chooses and
-adds an appropriate `LICENSE`, `LICENSE.md`, `LICENSE.txt`, `LICENCE`, or
-`COPYING` file. Do not remove or bypass that gate to ship a release.
-See [license-decision.md](license-decision.md) for the owner decision that
-remains deliberately outside this rename.
+- `deploy.sh` (`expected_image`)
+- `deploy/kubernetes/bitwake-release-patch.yaml` (the image and the Bitwake runtime settings)
 
-The automated gate checks that a recognized license file is present, that
-`package.json` has a reviewed non-`UNLICENSED`/`NOASSERTION` SPDX expression,
-and that the file is copied into the archive. It cannot decide whether the
-chosen terms are appropriate, complete, or legally compatible with
-dependencies.
+`deploy.sh` refuses to run while the pin is the all-zero placeholder, or when the two files
+pin different images. Tags are never reused or overwritten, and `latest` is not pushed.
 
-Selecting the license is not just adding a gate file. The owner must also align
-the root `package.json` license metadata, the container's OCI license label,
-Alternative WebUI archive license/notice contents, and any required attribution
-with the chosen terms.
+## The release gate
 
-## Prepare a release
-
-1. Start from a clean, reviewed `main` commit.
-2. Set `package.json` to the intended semantic version without a leading `v`.
-3. Move the release notes from `Unreleased` into a dated
-   `## [<version>] - YYYY-MM-DD` section in `CHANGELOG.md`. The verifier renders
-   only that matching version section, so it must contain every release note;
-   text left under `Unreleased` is not published for the tag.
-4. Confirm the license gate, package/container/archive metadata, and public
-   documentation are accurate.
-5. Run the complete source and browser gates:
-
-   ```bash
-   corepack pnpm install --frozen-lockfile
-   corepack pnpm format:check
-   corepack pnpm run ci
-   corepack pnpm test:e2e
-   corepack pnpm test:pwa
-   corepack pnpm test:performance
-   corepack pnpm audit --prod --audit-level high
-   corepack pnpm run licenses
-   ```
-
-   `pnpm run licenses` inventories the production graph, rejects licenses
-   outside the reviewed allow-list, and builds deterministic notice text from
-   package license files. Inspect that allow-list and output; neither this
-   command nor `pnpm audit` is a formal security or legal audit.
-
-6. Build and inspect the versioned native package:
-
-   ```bash
-   release_version=$(node -p "require('./package.json').version")
-   SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)" corepack pnpm build:alt-webui
-   corepack pnpm release:verify -- --tag "v${release_version}" \
-     --require-license \
-     --artifact "dist/bitwake-alt-webui-v${release_version}.zip"
-   ```
-
-   A fixed `SOURCE_DATE_EPOCH`, sorted archive entries, and stripped host ZIP
-   metadata make the release archive reproducible from the same source and
-   dependency graph.
-
-## Tag and publish
-
-1. Create a signed or annotated tag whose value is exactly `v` plus the
-   `package.json` version, and push only after review:
-
-   ```bash
-   git tag -s v0.1.0 -m "Bitwake v0.1.0"
-   git push origin v0.1.0
-   ```
-
-2. Wait for the **Container** workflow on that commit to pass. It runs source,
-   browser, image, proxy, and real-qBittorrent gates; scans both published
-   architectures; then publishes the versioned GHCR manifest with provenance,
-   SBOM, and an attestation.
-3. Confirm the exact revision also has reviewed CI evidence (including its PWA
-   suite), Performance evidence, and qBittorrent Compatibility evidence for
-   both pinned official 5.0.5 / Web API 2.11.2 and 5.2.3 / 2.15.1 images.
-   Scheduled/manual evidence is revision-specific; rerun those workflows for
-   the release commit when needed.
-4. Verify `ghcr.io/dotsml/bitwake:<version>` resolves to the expected manifest.
-5. Run the **Release** workflow from GitHub Actions and enter the exact tag. Its
-   non-publishing verification job checks out that tag, rejects a package/tag or
-   changelog mismatch, repeats the source release gates, builds the Alternative
-   WebUI twice with the tag commit timestamp and requires identical archives,
-   resolves the versioned container tag to a digest, checks both platform
-   labels, verifies the container provenance attestation, and records the digest
-   in the release metadata. A separate release-environment job downloads only
-   that verified bundle, rechecks its file set, checksums, metadata, and image
-   provenance without executing the archive, then creates the GitHub Release.
-   The workflow refuses to overwrite an existing release. Hyphenated SemVer
-   versions are marked as prereleases.
-
-The GitHub Release contains:
-
-- `bitwake-alt-webui-v<version>.zip`;
-- `bitwake-v<version>-checksums.txt` covering the ZIP, metadata, and rendered notes;
-- `release-metadata.json` with the version, tag, revision, size, and ZIP digest;
-- release notes rendered from the matching changelog entry.
-
-The ZIP itself also contains deterministic `THIRD_PARTY_NOTICES.txt`, the
-selected repository license file, and any recognized project notice files. The
-metadata records the package SPDX expression, license filenames, notice
-filename, and immutable container image reference.
-
-If any asset or release already exists for the tag, stop and investigate. Never
-silently replace a published artifact. Correct the source on a new version.
-
-## Verify downloaded assets
-
-Download all release assets into one directory, then run:
+Nothing checks a release except these steps, so none is optional unless noted:
 
 ```bash
-release_version=$(jq --raw-output .version release-metadata.json)
-sha256sum --check "bitwake-v${release_version}-checksums.txt"
-unzip -t "bitwake-alt-webui-v${release_version}.zip"
-release_image=$(jq --raw-output .image release-metadata.json)
-docker buildx imagetools inspect "${release_image}"
+corepack pnpm format:check
+corepack pnpm run ci          # identity, typecheck, lint, all Vitest projects, both production builds
 ```
 
-Confirm that `release_image` is the expected `ghcr.io/dotsml/bitwake@sha256:…`
-reference and compare it to the Container workflow summary and deployment
-review. Prefer digest-pinned deployments over version tags.
+Then, on the image built from the release commit (`git archive` of that commit, never the working
+tree):
 
-Release metadata and downloadable artifacts use Bitwake as their identity.
+```bash
+BITWAKE_IMAGE=stenml/bitwake:<tag> sh container/test-container.sh
+docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v trivy-cache:/root/.cache \
+  aquasec/trivy:0.74.0 image --severity HIGH,CRITICAL --ignore-unfixed=false --exit-code 1 \
+  --skip-version-check stenml/bitwake:<tag>
+```
+
+Also run when they apply:
+
+- `corepack pnpm test:e2e` and `corepack pnpm test:pwa` when layout or UI changed. About ten
+  minutes. The 320px layout tests depend on the system sans font (DejaVu Sans is much wider than
+  most desktop fonts), so a pass with narrow fonts does not prove the smallest viewport.
+- `sh container/test-qbittorrent.sh` when `container/` or the `Dockerfile` changed. It runs the
+  real-qBittorrent contract against the reviewed official 5.2.3 / Web API 2.15.1 image pinned by
+  digest. Set `QBITTORRENT_IMAGE`, `QBITTORRENT_EXPECTED_VERSION` and
+  `QBITTORRENT_EXPECTED_WEBAPI_VERSION` to run another reviewed image, such as 5.0.5.
+- `corepack pnpm test:performance` when performance-sensitive code changed.
+
+Results belong to the commit they ran on. Rerun them for the commit being released; do not carry
+a pass forward from another commit.
+
+What this does not give you, compared with the removed hosted workflows: a build on a clean
+machine, a second architecture (the image is built for the machine's own architecture, amd64),
+SBOM, provenance and artifact attestations, or a scheduled run against older qBittorrent
+versions.
+
+## Build, push, pin, hand over
+
+1. Get the work onto `main` (fast-forward only).
+2. Run the gate above.
+3. Pick the next tag: the patch bump of the highest of the Docker Hub tags and the pinned tag,
+   never below `version` in `package.json`.
+4. Build from the commit, run the image gates, `docker push`, and confirm the pushed digest
+   against the registry (`docker buildx imagetools inspect`).
+5. Pin `stenml/bitwake:<tag>@sha256:<digest>` in `deploy.sh` and the release patch, commit as
+   `release: <tag>`, and push `main`.
+6. Run the deploy:
+
+   ```bash
+   bash deploy.sh stenmladm@10.73.20.20
+   ```
+
+   Without the host argument the script runs `kubectl` on the machine it is started on.
+
+## What `deploy.sh` does
+
+It is an image-only upgrade of the existing torrent stack, as described in
+[deployment.md](deployment.md): the Deployment `media/torrent-vpn`, Service `torrent` and Ingress
+`torrent-ingress` keep their names, and the container that runs Bitwake is `vuetorrent`.
+
+Before changing anything it stops if that container is missing, or if a Pod that reserves a
+`hostPort` is not on the `Recreate` strategy (a rolling update would deadlock). It saves the live
+Deployment under `~/.local/state/bitwake-deploy/`, applies the release patch, waits for the
+rollout, and then fails unless the running image digest, readiness, the runtime config at
+`/_bitwake/runtime-config.json` (Media Placement mode, lock and roots), qBittorrent through
+Bitwake, the Service's port 80 target and the absence of an Ingress `rewrite-target` are all
+correct.
+
+The Pod also holds qBittorrent and Gluetun, so a rollout restarts them and interrupts downloads
+and the VPN for a short while.
+
+The release patch carries Bitwake's runtime settings because `BITWAKE_MEDIA_MODE` defaults to
+`off` when missing, which would switch Media Placement off without any message. Change a setting
+in the patch and run `deploy.sh` again; do not use `kubectl set env`.
 
 ## Rollback
 
-Container deployments roll back to the previously reviewed image digest.
-Native deployments roll back by pointing qBittorrent at the previous complete
-Alternative WebUI directory, or by disabling Alternative WebUI through the
-retained desktop/configuration recovery path. Never combine `public/` and
-`private/` directories from different releases.
+```bash
+kubectl -n media rollout undo deployment/torrent-vpn
+```
+
+Then set the pins in `deploy.sh` and the release patch back to the previous release, or the next
+`deploy.sh` run will apply the newer one again. The saved Deployment YAML from
+`~/.local/state/bitwake-deploy/` is the exact previous state. Native Alternative WebUI
+installations roll back as described in [deployment.md](deployment.md#rollback).
+
+## Public releases and the license
+
+The GitHub Release workflow (versioned Alternative WebUI archive, checksums and release metadata)
+was removed with the rest of the hosted workflows, so GitHub Releases are no longer created. The
+tools it used remain for manual use: `pnpm build:alt-webui` builds the native package, and
+`pnpm release:verify` inspects a release archive.
+
+The repository still has no license. Public source visibility does not grant permission to copy,
+modify, or redistribute it, and the same applies to a public image or archive. Before publishing
+either outside the homelab, choose and add a license (see [license-decision.md](license-decision.md)),
+align the root `package.json` license metadata, the container's OCI license label and the
+Alternative WebUI archive notices with it, and set the visibility of `stenml/bitwake` on Docker
+Hub deliberately: the first push creates the repository with the account's default visibility.

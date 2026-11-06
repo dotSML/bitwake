@@ -27,7 +27,7 @@ The Kubernetes examples contain this deliberate placeholder:
 ghcr.io/dotsml/bitwake@sha256:REPLACE_WITH_PUBLISHED_DIGEST
 ```
 
-The placeholder itself is not deployable. Obtain an image from a successful container workflow for the exact revision you reviewed, or build and publish that revision to a registry you control. Before deployment, verify the reported source revision, supported platforms, vulnerability-scan results, SBOM, provenance, and artifact attestation. Then replace the entire placeholder with the inspected immutable registry digest; never substitute a mutable tag.
+The placeholder itself is not deployable. There is no hosted CI that publishes an image for you: build the revision you reviewed (`corepack pnpm container:build`), run the container suites (`corepack pnpm container:test`) and a vulnerability scan, and publish it to a registry you control. The maintainer's own process is in [releasing.md](releasing.md). Before deployment, verify the image's source-revision label, platform and scan result. Local builds carry no SBOM, provenance or attestation; add them in your own pipeline if you need them. Then replace the entire placeholder with the inspected immutable registry digest; never substitute a mutable tag.
 
 ## Standalone container
 
@@ -308,20 +308,18 @@ corepack pnpm exec vite preview
 
 This previews `dist/standalone`; it does not run the bundled Nginx proxy or reproduce qBittorrent's native public/private file selection. Use the container suites for the standalone boundary and the Alternative WebUI package for the native boundary.
 
-### Continuous integration
+### Verification gates
 
-`.github/workflows/ci.yml` runs on pushes to `main` and pull requests. It installs from the frozen lockfile, checks formatting, lint and types, runs all Vitest projects, builds the Alternative WebUI, installs Chromium and WebKit, and runs the configured responsive/accessibility projects and standalone PWA cache-boundary suite. The build validates the versioned ZIP and assembled directory, but ordinary CI does not upload or publish those distribution artifacts.
+There are no hosted workflows. The gates run from a checkout, on the machine doing the release:
 
-`.github/workflows/container.yml` applies the source, browser, package, proxy, and real-qBittorrent gates before publication. It builds and scans the supported architectures, then produces the multi-architecture index, SBOM, provenance, artifact attestation, and immutable-reference report for eligible revisions.
+- `corepack pnpm format:check` and `corepack pnpm run ci` check formatting, the product identity, types and lint, run all Vitest projects, and build both the Alternative WebUI package and the standalone frontend. The Alternative WebUI build validates the versioned ZIP and the assembled directory.
+- `corepack pnpm test:e2e` and `corepack pnpm test:pwa` run the responsive/accessibility projects and the production PWA cache-boundary suites in Chromium and WebKit. Install the browsers once with `corepack pnpm exec playwright install chromium webkit`.
+- `corepack pnpm container:build` and `corepack pnpm container:test` build the image and run the deterministic proxy suite and the real-qBittorrent suite. Scan the image with Trivy before publishing it.
+- `corepack pnpm test:performance` records the calibrated single-worker Chromium timing, heap, and DOM artifact; see [performance.md](performance.md).
 
-`.github/workflows/performance.yml` records the calibrated single-worker Chromium timing, heap, and
-DOM artifact on its schedule or manual dispatch. `.github/workflows/qbittorrent-compat.yml` runs the
-pinned official qBittorrent 5.0.5 / Web API 2.11.2 and 5.2.3 / 2.15.1 real-daemon contracts on every
-schedule/manual dispatch. `.github/workflows/release.yml` is a manual SemVer-release publication gate
-for an existing exact tag; it marks a hyphenated SemVer suffix as a GitHub prerelease and remains
-blocked until a repository license is selected and added.
+The qBittorrent contract suite runs against one reviewed official image by digest. Run it again with `QBITTORRENT_IMAGE`, `QBITTORRENT_EXPECTED_VERSION` and `QBITTORRENT_EXPECTED_WEBAPI_VERSION` set to cover another version, for example the 5.0.5 / Web API 2.11.2 baseline.
 
-Workflow evidence is revision-specific. Confirm that every applicable workflow succeeded for the exact commit being released, and use the immutable reference emitted by that run. Do not carry a passing result, checksum, scan, or attestation forward from another commit.
+Gate results are revision-specific. Rerun the applicable gates for the exact commit being released, and use the immutable digest of the image you pushed. Do not carry a passing result, checksum, or scan forward from another commit.
 
 ## Reverse proxy and subpath behavior
 
@@ -419,7 +417,7 @@ The checked-in screenshots are mock-mode snapshots. The script defaults to `/usr
 
 1. Read the implementation status and target-version notes for the new revision.
 2. Build and run all available gates, including both container suites.
-3. Publish to a staging registry and record the immutable digest, platforms, scan result, SBOM, provenance, and source revision.
+3. Publish to a staging registry and record the immutable digest, platform, scan result, and source revision (a local build has no SBOM or provenance).
 4. Update the Deployment by digest, never by reusing a mutable tag.
 5. Roll out to a test hostname and verify login, refresh, representative mutations, logout, expiry, outage/recovery, upload size, and external TLS/proxy behavior.
 6. Promote the same digest and retain the previous digest/Deployment revision until the observation period ends.

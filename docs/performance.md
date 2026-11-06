@@ -56,8 +56,8 @@ suite. Each page uses a fresh browser context and is closed after measurement.
 
 Results are written to `test-results/performance/metrics.json`, including every
 sample, medians, p95 values, scale ratios, budgets, browser/runtime versions,
-CPU model, logical CPU count, and host memory. The Performance workflow retains
-that JSON and any Playwright failure evidence.
+CPU model, logical CPU count, and host memory. Keep that JSON, and any Playwright failure
+evidence, with the release notes when you compare runs.
 
 ## Initial budgets
 

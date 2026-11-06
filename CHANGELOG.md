@@ -30,6 +30,10 @@ versions for published artifacts.
 
 ### Changed
 
+- Remove GitHub Actions. Releases are built, gated and pushed from the maintainer's machine as
+  `stenml/bitwake` and applied with `deploy.sh` and `deploy/kubernetes/bitwake-release-patch.yaml`;
+  see the [release guide](docs/releasing.md). GitHub Releases, the multi-architecture image,
+  SBOM/provenance attestations and the scheduled qBittorrent/performance runs are no longer produced.
 - Warn in the Remove torrents dialog that removing a torrent stops seeding, count the selected
   torrents that have finished downloading, and make Keep seeding the primary action.
 - Dock tablet torrent details below the list so they cannot cover search or selection controls;

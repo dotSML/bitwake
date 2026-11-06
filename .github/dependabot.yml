@@ -9,7 +9,7 @@ updates:
       semver-minor-days: 7
       semver-patch-days: 3
     groups:
-      # Routine updates share CI coverage; majors remain isolated migrations.
+      # Routine updates share one local gate run (pnpm run ci); majors remain isolated migrations.
       frontend-dependencies:
         applies-to: version-updates
         patterns:
@@ -36,15 +36,3 @@ updates:
     directory: /
     schedule:
       interval: weekly
-  - package-ecosystem: github-actions
-    directory: /
-    schedule:
-      interval: weekly
-    groups:
-      github-actions:
-        applies-to: version-updates
-        patterns:
-          - '*'
-        update-types:
-          - minor
-          - patch
