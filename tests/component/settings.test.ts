@@ -2,6 +2,8 @@ import { flushPromises } from '@vue/test-utils'
 import { describe, expect, it, vi } from 'vitest'
 import SettingsView from '@/features/settings/SettingsView.vue'
 import { settingsSchema } from '@/features/settings/settingsSchema'
+import { usePreferencesStore } from '@/stores/preferences'
+import { useTorrentsStore } from '@/stores/torrents'
 import { createTestContext, mountWithContext } from './support/mount'
 
 function deferred<T>() {
@@ -54,6 +56,53 @@ describe('SettingsView', () => {
     const reloadedLimit = wrapper.get<HTMLInputElement>('#setting-alt_dl_limit')
     expect(reloadedLimit.element.value).toBe('3')
     expect(reloadedLimit.element.disabled).toBe(false)
+  })
+
+  it('lets users protect categories and tags from removal, including saved labels no longer in use', async () => {
+    const context = createTestContext()
+    vi.spyOn(context.api.app, 'preferences').mockResolvedValue(validPreferences())
+    const preferences = context.run(() => usePreferencesStore(context.pinia))
+    preferences.patch({ protectedTags: ['retired'] })
+    context
+      .run(() => useTorrentsStore(context.pinia))
+      .applyMainData({
+        rid: 1,
+        full_update: true,
+        categories: {
+          radarr: { name: 'radarr', savePath: '/downloads/movies' },
+          'tv-sonarr': { name: 'tv-sonarr', savePath: '/downloads/tv' }
+        },
+        tags: ['keep']
+      })
+    const wrapper = await mountWithContext(SettingsView, context)
+    await flushPromises()
+    await wrapper
+      .findAll<HTMLButtonElement>('.settings-nav > button')
+      .find((button) => button.text() === 'Interface')!
+      .trigger('click')
+
+    const section = wrapper.get('.removal-protection')
+    expect(section.text()).toContain('Protected from removal')
+    const option = (name: string) =>
+      section
+        .findAll('.protection-option')
+        .find((label) => label.text() === name)!
+        .get<HTMLInputElement>('input')
+    expect(section.findAll('.protection-option').map((label) => label.text())).toEqual([
+      'radarr',
+      'tv-sonarr',
+      'keep',
+      'retired'
+    ])
+    expect(option('retired').element.checked).toBe(true)
+
+    await option('radarr').setValue(true)
+    await option('keep').setValue(true)
+    expect(preferences.value.protectedCategories).toEqual(['radarr'])
+    expect(preferences.value.protectedTags).toEqual(['retired', 'keep'])
+
+    await option('retired').setValue(false)
+    expect(preferences.value.protectedTags).toEqual(['keep'])
   })
 
   it('treats a disabled share-limit value as unchanged after toggling it on and back off', async () => {

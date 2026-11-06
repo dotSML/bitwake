@@ -11,6 +11,7 @@ import {
   type DensityPreference,
   type ThemePreference
 } from '@/stores/preferences'
+import { useTorrentsStore } from '@/stores/torrents'
 import RouteScaffold from '@/ui/components/RouteScaffold.vue'
 import MediaPlacementSettings from './MediaPlacementSettings.vue'
 import { settingsSchema, type SettingDefinition, type SettingsSection } from './settingsSchema'
@@ -23,6 +24,7 @@ const { t } = useI18n()
 const ui = usePreferencesStore()
 const notifications = useNotificationsStore()
 const pwa = usePwaStore()
+const torrents = useTorrentsStore()
 const serverValues = ref<Record<string, unknown>>({})
 const draft = ref<Record<string, unknown>>({})
 const search = ref('')
@@ -53,6 +55,27 @@ const sections: SettingsNavigationSection[] = [
 
 function sectionLabel(section: SettingsNavigationSection): string {
   return section === 'Interface' ? t('settings.interface') : section
+}
+
+function protectionOptions(known: Iterable<string>, saved: readonly string[]): string[] {
+  return [...new Set([...known, ...saved])].sort((left, right) => left.localeCompare(right))
+}
+const protectionCategoryOptions = computed(() =>
+  protectionOptions(torrents.categories.keys(), ui.value.protectedCategories)
+)
+const protectionTagOptions = computed(() =>
+  protectionOptions(torrents.tags, ui.value.protectedTags)
+)
+
+function toggleProtectedLabel(
+  kind: 'protectedCategories' | 'protectedTags',
+  label: string,
+  checked: boolean
+): void {
+  const next = ui.value[kind].filter((item) => item !== label)
+  if (checked) next.push(label)
+  if (kind === 'protectedCategories') ui.patch({ protectedCategories: next })
+  else ui.patch({ protectedTags: next })
 }
 const shareLimitPairs = [
   { enabled: 'max_ratio_enabled', value: 'max_ratio', defaultValue: 1 },
@@ -591,6 +614,54 @@ onBeforeUnmount(() => {
               </select></label
             >
           </div>
+          <section class="removal-protection" aria-labelledby="removal-protection-title">
+            <h3 id="removal-protection-title">{{ t('settings.removalProtection') }}</h3>
+            <p>{{ t('settings.removalProtectionHelp') }}</p>
+            <fieldset>
+              <legend>{{ t('settings.protectedCategories') }}</legend>
+              <div v-if="protectionCategoryOptions.length" class="protection-options">
+                <label
+                  v-for="category in protectionCategoryOptions"
+                  :key="category"
+                  class="protection-option"
+                >
+                  <input
+                    type="checkbox"
+                    :checked="ui.value.protectedCategories.includes(category)"
+                    @change="
+                      toggleProtectedLabel(
+                        'protectedCategories',
+                        category,
+                        ($event.target as HTMLInputElement).checked
+                      )
+                    "
+                  />
+                  <span>{{ category }}</span>
+                </label>
+              </div>
+              <p v-else class="protection-empty">{{ t('settings.noCategories') }}</p>
+            </fieldset>
+            <fieldset>
+              <legend>{{ t('settings.protectedTags') }}</legend>
+              <div v-if="protectionTagOptions.length" class="protection-options">
+                <label v-for="tag in protectionTagOptions" :key="tag" class="protection-option">
+                  <input
+                    type="checkbox"
+                    :checked="ui.value.protectedTags.includes(tag)"
+                    @change="
+                      toggleProtectedLabel(
+                        'protectedTags',
+                        tag,
+                        ($event.target as HTMLInputElement).checked
+                      )
+                    "
+                  />
+                  <span>{{ tag }}</span>
+                </label>
+              </div>
+              <p v-else class="protection-empty">{{ t('settings.noTags') }}</p>
+            </fieldset>
+          </section>
         </template>
         <div v-else-if="loading" class="settings-state">
           <LoaderCircle class="spin" :size="20" />Loading settings…
@@ -1002,6 +1073,56 @@ onBeforeUnmount(() => {
   display: flex;
   flex-wrap: wrap;
   gap: 7px;
+}
+.removal-protection {
+  border-bottom: 1px solid rgb(var(--color-line));
+  padding: 14px 18px;
+}
+.removal-protection h3 {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+}
+.removal-protection > p {
+  margin: 2px 0 0;
+  color: rgb(var(--color-muted));
+  font-size: 11px;
+}
+.removal-protection fieldset {
+  min-width: 0;
+  margin: 12px 0 0;
+  border: 0;
+  padding: 0;
+}
+.removal-protection legend {
+  padding: 0;
+  font-size: 11px;
+  font-weight: 590;
+}
+.protection-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin-top: 4px;
+}
+.protection-option {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.protection-option input {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  accent-color: rgb(var(--color-accent));
+}
+.protection-empty {
+  margin: 4px 0 0;
+  color: rgb(var(--color-muted));
+  font-size: 11px;
 }
 .interface-save-note {
   margin: 0;

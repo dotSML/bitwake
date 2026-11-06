@@ -104,6 +104,19 @@ describe('UI preference migrations', () => {
     expect(migrated.columnOrder).toEqual([])
   })
 
+  it('keeps unique protected removal labels and drops malformed entries', () => {
+    expect(
+      migrateUiPreferences({
+        protectedCategories: ['radarr', 'radarr', '', '  ', 7, null, 'tv-sonarr'],
+        protectedTags: 'keep'
+      })
+    ).toMatchObject({ protectedCategories: ['radarr', 'tv-sonarr'], protectedTags: [] })
+    expect(migrateUiPreferences({})).toMatchObject({
+      protectedCategories: [],
+      protectedTags: []
+    })
+  })
+
   it('sanitizes, clamps, and filters persisted table column widths', () => {
     const migrated = migrateUiPreferences({
       columnWidths: {

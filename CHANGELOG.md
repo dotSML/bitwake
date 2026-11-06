@@ -8,6 +8,8 @@ versions for published artifacts.
 
 ### Added
 
+- Protected from removal: choose categories or tags (for example Radarr's and Sonarr's) in
+  Settings → Interface, and Bitwake refuses to remove torrents that carry them.
 - Persistent torrent search and filters during selection, visible result counts, and hidden-selection indicators.
 - Direct mobile selection mode with Select all and Cancel controls.
 

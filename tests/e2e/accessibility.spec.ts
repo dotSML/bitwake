@@ -139,6 +139,40 @@ for (const colorScheme of ['light', 'dark'] as const) {
   })
 }
 
+for (const colorScheme of ['light', 'dark'] as const) {
+  test(`blocks removal of torrents with a protected tag and keeps both screens accessible (${colorScheme})`, async ({
+    page,
+    isMobile
+  }) => {
+    await page.emulateMedia({ colorScheme, reducedMotion: 'reduce' })
+    await openMockApp(page, '/settings')
+    await expect(page.locator('html')).toHaveAttribute('data-theme', colorScheme)
+    await page.getByRole('button', { name: 'Interface', exact: true }).click()
+    const protection = page.locator('.removal-protection')
+    // Every mock torrent carries one of these tags, so the whole library becomes protected.
+    await protection.getByRole('checkbox', { name: 'archive', exact: true }).check()
+    await protection.getByRole('checkbox', { name: 'open-source', exact: true }).check()
+    expect(await seriousAxeViolations(page, '.removal-protection'), 'settings').toEqual([])
+
+    await page.goto('/#/torrents')
+    if (isMobile) {
+      await page.getByRole('button', { name: 'Select', exact: true }).click()
+      await page.locator('.row-activate').first().click()
+    } else {
+      await page.locator('.table-row').first().click()
+    }
+    await page.keyboard.press('Delete')
+
+    const dialog = page.getByRole('dialog', { name: 'Remove torrents' })
+    await expect(
+      dialog.getByRole('note', { name: "Protected torrents can't be removed" })
+    ).toBeVisible()
+    await expect(dialog.getByRole('button', { name: 'Remove torrents' })).toBeDisabled()
+    await expect(dialog.getByRole('checkbox')).toHaveCount(0)
+    expect(await seriousAxeViolations(page, '[role="dialog"]'), 'dialog').toEqual([])
+  })
+}
+
 test('keeps deployment warning states accessible in both themes', async ({ page }, testInfo) => {
   test.skip(
     testInfo.project.name !== 'desktop',
